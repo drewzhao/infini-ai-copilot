@@ -79,7 +79,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider {
         maxOutputTokens: maxOutput,
         capabilities: {
           toolCalling: !m.id.includes('embed') && !m.id.includes('reranker'),
-          imageInput: m.id.includes('-vision') || m.id.includes('-vl-'),
+          imageInput: m.id.includes('-vision') || m.id.includes('-vl-') || (m.id.startsWith('glm') && /\dv$/.test(m.id)),
         },
       } as LanguageModelChatInformation;
     });
@@ -235,7 +235,6 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider {
           stream_options: { include_usage: true },
         };
         requestBody = openaiApi.prepareRequestBody(requestBody, infiniAIModel, options);
-        // console.debug("[InfiniAI Model Provider] RequestBody:", JSON.stringify(requestBody));
 
         // send chat request with retry
         const response = await executeWithRetry(async () => {

@@ -187,11 +187,15 @@ return models.map(m => {
     maxInputTokens: maxInput,
     maxOutputTokens: maxOutput,
     capabilities: {
-      toolCalling: !m.id.includes('embed'),  // Heuristic
-      imageInput: m.id.includes('-vision') || m.id.includes('-vl-'),  // Heuristic
+      toolCalling: !m.id.includes('embed') && !m.id.includes('reranker'),  // Heuristic (general)
+      imageInput: m.id.includes('-vision') || m.id.includes('-vl-') || (m.id.startsWith('glm') && /\dv$/.test(m.id)),  // Heuristic: vision keywords (general) OR GLM pattern (InfiniAI-specific: glm4.5v, glm4.6v)
     },
   } as LanguageModelChatInformation;
 });
+
+// NOTE: The GLM vision model pattern (starts with 'glm' and ends with digit+'v') is specific to InfiniAI provider.
+// Different providers may have different model naming conventions for vision capabilities.
+// Adjust the imageInput heuristic based on your provider's model naming patterns.
 ```
 
 Add a helper function for context length inference:

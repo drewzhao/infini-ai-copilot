@@ -111,6 +111,7 @@ export class OpenaiApi extends CommonApi {
 				if (role === "user") {
 					if (imageParts.length > 0) {
 						// 多模态消息：包含图片、文本
+						console.log(`[InfiniAI Debug] Building multimodal message with ${imageParts.length} image(s)`);
 						const contentArray: ChatMessageContent[] = [];
 						contentArray.push({
 							type: "text",
@@ -120,6 +121,7 @@ export class OpenaiApi extends CommonApi {
 						// 添加图片内容
 						for (const imagePart of imageParts) {
 							const dataUrl = createDataUrl(imagePart);
+							console.log(`[InfiniAI Debug] Image data URL prefix: ${dataUrl.substring(0, 50)}...`);
 							contentArray.push({
 								type: "image_url",
 								image_url: {
@@ -127,6 +129,9 @@ export class OpenaiApi extends CommonApi {
 								},
 							});
 						}
+						console.log(`[InfiniAI Debug] Final message content array:`, JSON.stringify(contentArray.map(c =>
+							c.type === 'image_url' ? { type: 'image_url', url_length: c.image_url?.url.length } : c
+						), null, 2));
 						out.push({ role, content: contentArray });
 					} else {
 						// 纯文本消息
