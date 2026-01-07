@@ -45,53 +45,11 @@ To repurpose for a new provider, you need to replace:
 
 ## Repurposing Procedure
 
-### Phase 1: Brand Replacement
+> **⚠️ IMPORTANT**: The order of phases matters! Publisher/repository replacement must be done **before** brand replacement, because brand replacement changes `zenmux-copilot` to `{newprovider}-copilot`, which would break the repository path patterns.
 
-Replace all occurrences of brand-related strings in the following order (order matters to avoid partial replacements):
+### Phase 1: Publisher Information (MUST run first)
 
-| Step | Find | Replace With | Case Sensitive |
-|------|------|--------------|----------------|
-| 1.1 | `zenmux-copilot` | `{newprovider}-copilot` | Yes |
-| 1.2 | `ZenMuxChatModelProvider` | `{NewProvider}ChatModelProvider` | Yes |
-| 1.3 | `ZenMuxModelInfo` | `{NewProvider}ModelInfo` | Yes |
-| 1.4 | `ZenMuxModelResponse` | `{NewProvider}ModelResponse` | Yes |
-| 1.5 | `ZenMux` | `{NewProvider}` | Yes |
-| 1.6 | `zenmux` | `{newprovider}` | Yes |
-
-**Files affected:**
-- `package.json`
-- `src/extension.ts`
-- `src/provider.ts`
-- `src/utils.ts`
-- `src/types.ts`
-- `src/commonApi.ts`
-- `src/openai/openaiApi.ts`
-- `src/anthropic/anthropicApi.ts`
-- `src/vertex/vertexApi.ts`
-- `README.md`
-- `README.zh.md`
-- `.vscode/launch.json`
-
-### Phase 2: API Endpoints
-
-Update the following API URLs:
-
-| Location | Current Value | Replace With |
-|----------|---------------|--------------|
-| `package.json` L71 | `https://zenmux.ai/api/v1` | Your OpenAI-compatible endpoint |
-| `package.json` L76 | `https://zenmux.ai/api/anthropic` | Your Anthropic-compatible endpoint (or remove) |
-| `package.json` L81 | `https://zenmux.ai/api/vertex-ai` | Your Vertex AI-compatible endpoint (or remove) |
-| `src/provider.ts` L157 | `https://zenmux.ai/api/anthropic` | Your Anthropic-compatible endpoint |
-| `src/provider.ts` L207 | `https://zenmux.ai/api/v1` | Your OpenAI-compatible endpoint |
-| `src/utils.ts` L41 | `https://zenmux.ai/api/frontend/model/listByFilter` | Your model listing API endpoint |
-
-**Note:** If your provider does not support all three API formats, you can:
-- Remove the unused configuration entries from `package.json`
-- The code will automatically fall back to OpenAI-compatible mode
-
-### Phase 3: Publisher Information
-
-Update publisher and repository references:
+Update publisher and repository references **before** brand replacement:
 
 | Location | Field | Current Value | Replace With |
 |----------|-------|---------------|--------------|
@@ -108,31 +66,147 @@ Update publisher and repository references:
 | `README.zh.md` L9 | Marketplace link | `hugehardzhang.zenmux-copilot` | Your extension ID |
 | `README.zh.md` L92 | Issues link | `ilimei/zenmux-copilot` | Your GitHub repo path |
 
-### Phase 4: Type Definitions (Optional)
+### Phase 2: Brand Replacement
 
-If your provider's model listing API returns a different JSON structure, update:
+Replace all occurrences of brand-related strings in the following order (order matters to avoid partial replacements):
 
-**File: `src/types.ts`**
+| Step | Find | Replace With | Case Sensitive |
+|------|------|--------------|----------------|
+| 2.1 | `zenmux-copilot` | `{newprovider}-copilot` | Yes |
+| 2.2 | `ZenMuxChatModelProvider` | `{NewProvider}ChatModelProvider` | Yes |
+| 2.3 | `ZenMuxModelInfo` | `{NewProvider}ModelInfo` | Yes |
+| 2.4 | `ZenMuxModelResponse` | `{NewProvider}ModelResponse` | Yes |
+| 2.5 | `ZenMux` | `{NewProvider}` | Yes |
+| 2.6 | `zenmux` | `{newprovider}` | Yes |
+
+**Files affected:**
+- `package.json`
+- `src/extension.ts`
+- `src/provider.ts`
+- `src/utils.ts`
+- `src/types.ts`
+- `src/commonApi.ts`
+- `src/openai/openaiApi.ts`
+- `src/anthropic/anthropicApi.ts`
+- `src/vertex/vertexApi.ts`
+- `README.md`
+- `README.zh.md`
+- `.vscode/launch.json`
+
+### Phase 3: API Endpoints
+
+Update the following API URLs:
+
+| Location | Current Value | Replace With |
+|----------|---------------|--------------|
+| `package.json` L71 | `https://zenmux.ai/api/v1` | Your OpenAI-compatible endpoint |
+| `package.json` L76 | `https://zenmux.ai/api/anthropic` | Your Anthropic-compatible endpoint (or remove) |
+| `package.json` L81 | `https://zenmux.ai/api/vertex-ai` | Your Vertex AI-compatible endpoint (or remove) |
+| `src/provider.ts` L157 | `https://zenmux.ai/api/anthropic` | Your Anthropic-compatible endpoint |
+| `src/provider.ts` L207 | `https://zenmux.ai/api/v1` | Your OpenAI-compatible endpoint |
+| `src/utils.ts` L41 | `https://zenmux.ai/api/frontend/model/listByFilter` | Your model listing API endpoint |
+
+**Note:** If your provider does not support all three API formats, you can:
+- Remove the unused configuration entries from `package.json`
+- The code will automatically fall back to OpenAI-compatible mode
+
+### Phase 4: Type Definitions (Required if API format differs)
+
+The type definition changes depend on your provider's model listing API format:
+
+#### Scenario A: Provider uses ZenMux custom format
+
+If your provider returns a similar structure to ZenMux (with fields like `slug`, `context_length`, `max_completion_tokens`, etc.), only rename the interfaces:
+- `ZenMuxModelInfo` → `{NewProvider}ModelInfo`
+- `ZenMuxModelResponse` → `{NewProvider}ModelResponse`
+
+#### Scenario B: Provider uses standard OpenAI format (RECOMMENDED)
+
+Many providers (like OpenRouter, InfiniAI) use the standard OpenAI `/v1/models` format:
 
 ```typescript
-// Current ZenMuxModelInfo interface (lines 104-132)
-export interface ZenMuxModelInfo {
-  all_tokens: number;
-  author: string;
-  context_length: number;
-  // ... other fields
+// Standard OpenAI format
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "model-id",
+      "object": "model",
+      "created": 1234567890,
+      "owned_by": "organization"
+    }
+  ]
 }
 ```
 
-Modify the interface fields to match your provider's API response.
+In this case, you need to **simplify** the type definitions:
 
-**File: `src/utils.ts`**
+**File: `src/types.ts`** (lines 104-137)
 
-Update the `fetchModels()` function (around line 34) to parse your provider's response format.
+Replace the complex `ZenMuxModelInfo` interface with:
 
-**File: `src/provider.ts`**
+```typescript
+export interface {NewProvider}ModelInfo {
+  id: string;
+  object: string;
+  created: number;
+  owned_by: string;
+}
 
-Update `provideLanguageModelChatInformation()` (around line 52) to map your model fields to VS Code's `LanguageModelChatInformation` interface.
+export interface {NewProvider}ModelResponse {
+  object: string;
+  data: {NewProvider}ModelInfo[];
+}
+```
+
+**File: `src/utils.ts`** (lines 41-65)
+
+Update the `fetchModels()` function:
+1. Change the API URL to your provider's `/v1/models` endpoint
+2. Update response parsing: `const parsed = (await resp.json()) as {NewProvider}ModelResponse;`
+3. Change return: `return parsed.data ?? [];`
+
+**File: `src/provider.ts`** (lines 64-80)
+
+Update `provideLanguageModelChatInformation()` to handle missing fields:
+
+```typescript
+return models.map(m => {
+  // Infer context length from model name or use defaults
+  const contextLength = inferContextLength(m.id) || DEFAULT_CONTEXT_LENGTH;
+  const maxOutput = DEFAULT_MAX_TOKENS;
+  const maxInput = Math.max(1, contextLength - maxOutput);
+
+  return {
+    id: m.id,
+    name: m.id,
+    tooltip: '{NewProvider} Model ' + m.id,
+    detail: '{NewProvider}',
+    family: 'oai-compatible',
+    version: m.created.toString() || '1.0.0',
+    maxInputTokens: maxInput,
+    maxOutputTokens: maxOutput,
+    capabilities: {
+      toolCalling: !m.id.includes('embed'),  // Heuristic
+      imageInput: m.id.includes('-vision') || m.id.includes('-vl-'),  // Heuristic
+    },
+  } as LanguageModelChatInformation;
+});
+```
+
+Add a helper function for context length inference:
+
+```typescript
+function inferContextLength(modelId: string): number | undefined {
+  // Common patterns
+  if (modelId.includes('128k')) return 128000;
+  if (modelId.includes('32k')) return 32000;
+  if (modelId.includes('16k')) return 16000;
+  if (modelId.includes('8k')) return 8000;
+  if (modelId.includes('4k')) return 4000;
+  return undefined;
+}
+```
 
 ---
 

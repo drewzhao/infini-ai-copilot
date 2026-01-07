@@ -89,17 +89,39 @@ FILES=(
     ".vscode/launch.json"
 )
 
-# Detect OS for sed compatibility
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    SED_INPLACE="sed -i ''"
-else
-    SED_INPLACE="sed -i"
-fi
+# Define sed_inplace function for cross-platform compatibility
+# macOS sed requires '' as a separate argument for in-place editing without backup
+# GNU sed (Linux) does not need the empty string argument
+sed_inplace() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' "$@"
+    else
+        sed -i "$@"
+    fi
+}
 
 # =============================================================================
-# Phase 1: Brand Replacement
+# Phase 1: Publisher/Repository Replacement (MUST run before brand replacement)
 # =============================================================================
-echo -e "${YELLOW}Phase 1: Replacing brand names...${NC}"
+echo -e "${YELLOW}Phase 1: Replacing publisher info...${NC}"
+
+for file in "${FILES[@]}"; do
+    if [ -f "$file" ]; then
+        # Replace publisher ID
+        sed_inplace "s/hugehardzhang/${NEW_PUBLISHER}/g" "$file"
+
+        # Replace repository paths (must be done before brand replacement)
+        sed_inplace "s|ilimei/zenmux-copilot|${NEW_REPO}|g" "$file"
+    fi
+done
+
+echo -e "${GREEN}  ✓ Publisher info replacement complete${NC}"
+echo ""
+
+# =============================================================================
+# Phase 2: Brand Replacement
+# =============================================================================
+echo -e "${YELLOW}Phase 2: Replacing brand names...${NC}"
 
 for file in "${FILES[@]}"; do
     if [ -f "$file" ]; then
@@ -109,40 +131,22 @@ for file in "${FILES[@]}"; do
         # to avoid partial replacements
 
         # 1. Compound names with hyphens
-        $SED_INPLACE "s/zenmux-copilot/${NEW_PROVIDER_LOWER}-copilot/g" "$file"
+        sed_inplace "s/zenmux-copilot/${NEW_PROVIDER_LOWER}-copilot/g" "$file"
 
         # 2. Class names (PascalCase compound)
-        $SED_INPLACE "s/ZenMuxChatModelProvider/${NEW_PROVIDER_PASCAL}ChatModelProvider/g" "$file"
-        $SED_INPLACE "s/ZenMuxModelInfo/${NEW_PROVIDER_PASCAL}ModelInfo/g" "$file"
-        $SED_INPLACE "s/ZenMuxModelResponse/${NEW_PROVIDER_PASCAL}ModelResponse/g" "$file"
+        sed_inplace "s/ZenMuxChatModelProvider/${NEW_PROVIDER_PASCAL}ChatModelProvider/g" "$file"
+        sed_inplace "s/ZenMuxModelInfo/${NEW_PROVIDER_PASCAL}ModelInfo/g" "$file"
+        sed_inplace "s/ZenMuxModelResponse/${NEW_PROVIDER_PASCAL}ModelResponse/g" "$file"
 
         # 3. Simple names
-        $SED_INPLACE "s/ZenMux/${NEW_PROVIDER_PASCAL}/g" "$file"
-        $SED_INPLACE "s/zenmux/${NEW_PROVIDER_LOWER}/g" "$file"
+        sed_inplace "s/ZenMux/${NEW_PROVIDER_PASCAL}/g" "$file"
+        sed_inplace "s/zenmux/${NEW_PROVIDER_LOWER}/g" "$file"
     else
         echo -e "  ${RED}Warning: File not found: $file${NC}"
     fi
 done
 
 echo -e "${GREEN}  ✓ Brand replacement complete${NC}"
-echo ""
-
-# =============================================================================
-# Phase 2: Publisher/Repository Replacement
-# =============================================================================
-echo -e "${YELLOW}Phase 2: Replacing publisher info...${NC}"
-
-for file in "${FILES[@]}"; do
-    if [ -f "$file" ]; then
-        # Replace publisher ID
-        $SED_INPLACE "s/hugehardzhang/${NEW_PUBLISHER}/g" "$file"
-
-        # Replace repository paths
-        $SED_INPLACE "s|ilimei/zenmux-copilot|${NEW_REPO}|g" "$file"
-    fi
-done
-
-echo -e "${GREEN}  ✓ Publisher info replacement complete${NC}"
 echo ""
 
 # =============================================================================
