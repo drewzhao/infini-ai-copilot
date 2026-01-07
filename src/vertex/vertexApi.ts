@@ -7,7 +7,7 @@ import {
 	Progress,
 } from "vscode";
 
-import type { HFModelItem, ZenMuxModelInfo } from "../types";
+import type { HFModelItem, InfiniAIModelInfo } from "../types";
 
 import type {
 	VertexRequestBody,
@@ -152,7 +152,7 @@ export class VertexApi extends CommonApi {
 
 	prepareRequestBody(
 		rb: any,
-		um: ZenMuxModelInfo | undefined,
+		um: InfiniAIModelInfo | undefined,
 		options: ProvideLanguageModelChatResponseOptions
 	): any {
 		const vrb = rb as VertexRequestBody;

@@ -1,8 +1,8 @@
 {
-	"name": "zenmux-copilot",
-	"publisher": "hugehardzhang",
-	"displayName": "ZenMux Provider for Copilot",
-	"description": "An extension that ZenMux API Providers into GitHub Copilot Chat",
+	"name": "infiniai-copilot",
+	"publisher": "drewzhao",
+	"displayName": "InfiniAI Provider for Copilot",
+	"description": "An extension that InfiniAI API Providers into GitHub Copilot Chat",
 	"icon": "assets/logo.png",
 	"keywords": [
 		"ai",
@@ -11,13 +11,13 @@
 		"github-copilot",
 		"language-model",
 		"openai",
-		"zenmux",
+		"infiniai",
 		"anthropic",
 		"claude"
 	],
 	"repository": {
 		"type": "git",
-		"url": "git@github.com:ilimei/zenmux-copilot.git"
+		"url": "git@github.com:drewzhao/infini-ai-copilot.git"
 	},
 	"version": "0.1.7",
 	"engines": {
@@ -32,13 +32,13 @@
 	],
 	"badges": [
 		{
-			"url": "https://img.shields.io/github/stars/ilimei/zenmux-copilot?style=social",
-			"description": "Star zenmux-copilot on Github",
-			"href": "https://github.com/ilimei/zenmux-copilot"
+			"url": "https://img.shields.io/github/stars/drewzhao/infini-ai-copilot?style=social",
+			"description": "Star infini-ai-copilot on Github",
+			"href": "https://github.com/drewzhao/infini-ai-copilot"
 		}
 	],
 	"bugs": {
-		"url": "https://github.com/ilimei/zenmux-copilot/issues"
+		"url": "https://github.com/drewzhao/infini-ai-copilot/issues"
 	},
 	"license": "MIT",
 	"enabledApiProposals": [
@@ -47,41 +47,36 @@
 	],
 	"activationEvents": [
 		"onStartupFinished",
-		"onCommand:zenmux.setApikey"
+		"onCommand:infiniai.setApikey"
 	],
 	"contributes": {
 		"languageModelChatProviders": [
 			{
-				"vendor": "zenmux",
-				"displayName": "ZenMux",
-				"managementCommand": "zenmux.setApikey"
+				"vendor": "infiniai",
+				"displayName": "InfiniAI",
+				"managementCommand": "infiniai.setApikey"
 			}
 		],
 		"commands": [
 			{
-				"command": "zenmux.setApikey",
-				"title": "ZenMux: Set ZenMux Apikey"
+				"command": "infiniai.setApikey",
+				"title": "InfiniAI: Set InfiniAI Apikey"
 			}
 		],
 		"configuration": {
-			"title": "ZenMux Compatible Copilot",
+			"title": "InfiniAI Compatible Copilot",
 			"properties": {
-				"zenmux.baseUrl": {
+				"infiniai.baseUrl": {
 					"type": "string",
-					"default": "https://zenmux.ai/api/v1",
-					"description": "The base URL for the ZenMux Compatible Inference API. Default value is Hugging Face."
+					"default": "https://cloud.infini-ai.com/maas/v1",
+					"description": "The base URL for the InfiniAI Compatible Inference API."
 				},
-				"zenmux.anthropic.baseUrl": {
+				"infiniai.anthropic.baseUrl": {
 					"type": "string",
-					"default": "https://zenmux.ai/api/anthropic",
-					"description": "The base URL for the Anthropic Compatible Inference API. Default value is Anthropic official API."
+					"default": "https://cloud.infini-ai.com/maas",
+					"description": "The base URL for the Anthropic Compatible Inference API."
 				},
-				"zenmux.vertex.baseUrl": {
-					"type": "string",
-					"default": "https://zenmux.ai/api/vertex-ai",
-					"description": "The base URL for the Vertex AI Compatible Inference API. Default value is Google Vertex AI official API."
-				},
-				"zenmux.retry": {
+				"infiniai.retry": {
 					"type": "object",
 					"default": {
 						"enabled": true,
@@ -116,7 +111,7 @@
 					},
 					"description": "Retry configuration for handling api errors like [429, 500, 502, 503, 504]."
 				},
-				"zenmux.delay": {
+				"infiniai.delay": {
 					"type": "number",
 					"default": 0,
 					"minimum": 0,
@@ -134,7 +129,7 @@
 		"format": "prettier --write .",
 		"watch": "tsc -watch -p ./",
 		"test": "npm run compile && vscode-test",
-		"build": "npx @vscode/vsce package --baseContentUrl https://raw.githubusercontent.com/ilimei/zenmux-copilot/refs/heads/initial-commit/ -o extension.vsix"
+		"build": "npx @vscode/vsce package --baseContentUrl https://raw.githubusercontent.com/drewzhao/infini-ai-copilot/refs/heads/main/ -o extension.vsix"
 	},
 	"devDependencies": {
 		"@eslint/js": "^9.13.0",

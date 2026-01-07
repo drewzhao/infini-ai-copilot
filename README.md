@@ -1,21 +1,21 @@
-# 🚀 ZenMux Provider for Copilot
+# 🚀 InfiniAI Provider for Copilot
 
-Welcome to **ZenMux Provider for Copilot**! This is a model provider extension designed specifically for VS Code Copilot. With this extension, you can seamlessly integrate the powerful model gateway capabilities of [ZenMux](https://zenmux.ai) into VS Code Copilot, giving you the freedom to use top-tier AI models.
+Welcome to **InfiniAI Provider for Copilot**! This is a model provider extension designed specifically for VS Code Copilot. With this extension, you can seamlessly integrate the powerful model gateway capabilities of [InfiniAI](https://infiniai.ai) into VS Code Copilot, giving you the freedom to use top-tier AI models.
 
 ## 💡 Usage
 
-Just a few simple steps to start your ZenMux journey:
+Just a few simple steps to start your InfiniAI journey:
 
-1.  📥 **Install Extension**: Click [here](https://marketplace.visualstudio.com/items?itemName=hugehardzhang.zenmux-copilot) to install the extension.
+1.  📥 **Install Extension**: Click [here](https://marketplace.visualstudio.com/items?itemName=drewzhao.infiniai-copilot) to install the extension.
 2.  💬 **Open Copilot**: Open the GitHub Copilot Chat interface in VS Code.
 3.  ⚙️ **Manage Models**: Click the model picker below the chat input box and select "Manage Models...".
-4.  ✅ **Select ZenMux**: Click "Add Models" and then select the "ZenMux" provider.
-5.  🔑 **Configure Key**: Enter your ZenMux API Key (the key will be securely saved locally).
+4.  ✅ **Select InfiniAI**: Click "Add Models" and then select the "InfiniAI" provider.
+5.  🔑 **Configure Key**: Enter your InfiniAI API Key (the key will be securely saved locally).
 6.  🎯 **Pick Models**: Select the specific models you wish to use in the model picker.
 
 ## ℹ️ Extension Information
 
-- **Name**: ZenMux Provider for Copilot
+- **Name**: InfiniAI Provider for Copilot
 - **Version**: See `package.json`
 
 ## ✅ Prerequisites
@@ -24,7 +24,7 @@ Before you begin, please ensure you meet the following requirements:
 
 - 💻 **VS Code Version**: >= 1.104.0
 - 🧩 **Copilot Extension**: `github.copilot-chat` extension installed
-- 🔑 **API Key**: A valid ZenMux API Key (get it from [zenmux.ai](https://zenmux.ai))
+- 🔑 **API Key**: A valid InfiniAI API Key (get it from [infiniai.ai](https://infiniai.ai))
 - 🟢 **Node.js**: (Required only for development and building)
 
 ## 🛠️ Installation & Build (Development Guide)
@@ -53,34 +53,34 @@ npm run build
 
 1.  Open this repository in VS Code.
 2.  Press `F5` to launch the **Extension Development Host**.
-3.  In the development host, open Copilot Chat; you should be able to see and use the `ZenMux Provider`.
+3.  In the development host, open Copilot Chat; you should be able to see and use the `InfiniAI Provider`.
 
 ## 📝 Activation & Logging
 
 - **Activation Events**: The extension activates when events declared in `package.json` are triggered (e.g., `onStartupFinished` or when running a command).
 - **View Logs**:
     1.  Open the Output Panel (View → Output or `Ctrl+Shift+U`).
-    2.  Select the `ZenMux` channel from the dropdown menu in the top right corner.
+    2.  Select the `InfiniAI` channel from the dropdown menu in the top right corner.
 
 ## ⚙️ Configuration (Common)
 
 You can adjust the following parameters in VS Code Settings:
 
-- `zenmux.baseUrl`: Base URL for the ZenMux gateway (Default: `https://zenmux.ai/api/v1`).
-- `zenmux.anthropic.baseUrl`: Anthropic-compatible backend URL.
-- `zenmux.retry`: Request retry policy (enabled, max attempts, interval in ms).
-- `zenmux.delay`: Fixed delay between requests (in milliseconds).
+- `infiniai.baseUrl`: Base URL for the InfiniAI gateway (Default: `https://infiniai.ai/api/v1`).
+- `infiniai.anthropic.baseUrl`: Anthropic-compatible backend URL.
+- `infiniai.retry`: Request retry policy (enabled, max attempts, interval in ms).
+- `infiniai.delay`: Fixed delay between requests (in milliseconds).
 
 ## ⌨️ Commands
 
-- `zenmux.setApikey`: Run this command via the Command Palette (`Ctrl+Shift+P`) to set or update your ZenMux API Key at any time.
+- `infiniai.setApikey`: Run this command via the Command Palette (`Ctrl+Shift+P`) to set or update your InfiniAI API Key at any time.
 
 ## 🔍 Debugging Tips
 
 If the extension does not activate or shows no logs:
 
 - 🧐 Ensure you are viewing the **Extension Development Host** window.
-- 📄 Check the `ZenMux` channel in the **Output Panel**.
+- 📄 Check the `InfiniAI` channel in the **Output Panel**.
 - 🐞 Open **Developer Tools** (Help → Toggle Developer Tools) to check for console errors.
 - 🔄 Try **Reload Window** (`Developer: Reload Window`).
 - 📁 Confirm that the `out/extension.js` file exists (ensure you have run `npm run compile`).
@@ -89,7 +89,7 @@ If the extension does not activate or shows no logs:
 
 We welcome your participation!
 
-- 🐛 **Submit Issues**: [GitHub Issues](https://github.com/ilimei/zenmux-copilot/issues)
+- 🐛 **Submit Issues**: [GitHub Issues](https://github.com/drewzhao/infini-ai-copilot/issues)
 - 🔀 **Contribute Code**: Feel free to Fork this repository and submit a Pull Request.
 
 ## 📄 License

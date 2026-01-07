@@ -12,7 +12,7 @@
 			"args": [
 				"--extensionDevelopmentPath=${workspaceFolder}",
 				"--enable-proposed-api",
-				"zenmux.zenmux-copilot"
+				"infiniai.infiniai-copilot"
 			],
 			"outFiles": [
 				"${workspaceFolder}/out/**/*.js"

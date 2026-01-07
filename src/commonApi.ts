@@ -11,7 +11,7 @@ import {
 import type { OpenAIChatMessage } from "./openai/openaiTypes";
 import type { AnthropicMessage, AnthropicRequestBody } from "./anthropic/anthropicTypes";
 import type { VertexContent, VertexRequestBody } from "./vertex/vertexTypes";
-import { HFModelItem, ZenMuxModelInfo } from "./types";
+import { HFModelItem, InfiniAIModelInfo } from "./types";
 import { tryParseJSONObject } from "./utils";
 
 export abstract class CommonApi {
@@ -64,7 +64,7 @@ export abstract class CommonApi {
 	 */
 	abstract prepareRequestBody(
 		rb: any,
-		um: ZenMuxModelInfo | undefined,
+		um: InfiniAIModelInfo | undefined,
 		options: ProvideLanguageModelChatResponseOptions
 	): any;
 
@@ -123,7 +123,7 @@ export abstract class CommonApi {
 			const parsed = tryParseJSONObject(buf.args);
 			if (!parsed.ok) {
 				if (throwOnInvalid) {
-					console.error("[ZenMux Model Provider] Invalid JSON for tool call", {
+					console.error("[InfiniAI Model Provider] Invalid JSON for tool call", {
 						idx,
 						snippet: (buf.args || "").slice(0, 200),
 					});
@@ -154,7 +154,7 @@ export abstract class CommonApi {
 			// End the current thinking sequence with empty content and same ID
 			progress.report(new LanguageModelThinkingPart("", this._currentThinkingId));
 		} catch (e) {
-			console.error("[ZenMux Model Provider] Failed to end thinking sequence:", e);
+			console.error("[InfiniAI Model Provider] Failed to end thinking sequence:", e);
 		}
 		this._currentThinkingId = null;
 		// Clear thinking buffer and timer since sequence ended

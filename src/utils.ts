@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { RetryConfig, ZenMuxModelInfo, ZenMuxModelResponse } from "./types";
+import { RetryConfig, InfiniAIModelInfo, InfiniAIModelResponse } from "./types";
 import { OpenAIFunctionToolDef } from "./openai/openaiTypes";
 
 /**
@@ -9,18 +9,18 @@ import { OpenAIFunctionToolDef } from "./openai/openaiTypes";
  */
 export async function ensureApiKey(silent: boolean, secrets: vscode.SecretStorage): Promise<string | undefined> {
 	// Fall back to generic API key
-	let apiKey = await secrets.get("zenmux.apiKey");
+	let apiKey = await secrets.get("infiniai.apiKey");
 
 	if (!apiKey && !silent) {
 		const entered = await vscode.window.showInputBox({
-			title: "ZenMux API Key",
-			prompt: "Enter your ZenMux API key",
+			title: "InfiniAI API Key",
+			prompt: "Enter your InfiniAI API key",
 			ignoreFocusOut: true,
 			password: true,
 		});
 		if (entered && entered.trim()) {
 			apiKey = entered.trim();
-			await secrets.store("zenmux.apiKey", apiKey);
+			await secrets.store("infiniai.apiKey", apiKey);
 		}
 	}
 	return apiKey;
@@ -28,19 +28,17 @@ export async function ensureApiKey(silent: boolean, secrets: vscode.SecretStorag
 
 
 /**
- * Fetch the list of models and supplementary metadata from Hugging Face.
- * @param apiKey The HF API key used to authenticate.
+ * Fetch the list of models from InfiniAI API.
+ * @param apiKey The InfiniAI API key used to authenticate.
  */
-export async function fetchModels(apiKey: string, userAgent: string, output: vscode.OutputChannel): Promise<{ models: ZenMuxModelInfo[] }> {
-	const config = vscode.workspace.getConfiguration();
-	const BASE_URL = config.get<string>("zenmux.baseUrl", "");
-	if (!BASE_URL || !BASE_URL.startsWith("http")) {
-		throw new Error(`Invalid base URL configuration.`);
-	}
+export async function fetchModels(apiKey: string, userAgent: string, output: vscode.OutputChannel): Promise<{ models: InfiniAIModelInfo[] }> {
 	const modelsList = (async () => {
-		const resp = await fetch(`https://zenmux.ai/api/frontend/model/listByFilter`, {
+		const resp = await fetch(`https://cloud.infini-ai.com/maas/v1/models`, {
 			method: "GET",
-			headers: { "User-Agent": userAgent },
+			headers: {
+				"Authorization": `Bearer ${apiKey}`,
+				"User-Agent": userAgent
+			},
 		});
 		if (!resp.ok) {
 			let text = "";
@@ -53,15 +51,15 @@ export async function fetchModels(apiKey: string, userAgent: string, output: vsc
 				} else {
 					output.appendLine(`Unknown error reading response text: ${String(error)}`);
 				}
-				console.error("[ZenMux Model Provider] Failed to read response text", error);
+				console.error("[InfiniAI Model Provider] Failed to read response text", error);
 			}
 			const err = new Error(
-				`Failed to fetch ZenMux models: ${resp.status} ${resp.statusText}${text ? `\n${text}` : ""}`
+				`Failed to fetch InfiniAI models: ${resp.status} ${resp.statusText}${text ? `\n${text}` : ""}`
 			);
-			console.error("[ZenMux Model Provider] Failed to fetch ZenMux models", err);
+			console.error("[InfiniAI Model Provider] Failed to fetch InfiniAI models", err);
 			throw err;
 		}
-		const parsed = (await resp.json()) as ZenMuxModelResponse;
+		const parsed = (await resp.json()) as InfiniAIModelResponse;
 		return parsed.data ?? [];
 	})();
 
@@ -70,12 +68,12 @@ export async function fetchModels(apiKey: string, userAgent: string, output: vsc
 		return { models };
 	} catch (err) {
 		if (err instanceof Error) {
-			output.appendLine(`Failed to fetch ZenMux models: ${err.message}`);
+			output.appendLine(`Failed to fetch InfiniAI models: ${err.message}`);
 			err.stack && output.appendLine(err.stack);
 		} else {
-			output.appendLine(`Failed to fetch ZenMux models: ${String(err)}`);
+			output.appendLine(`Failed to fetch InfiniAI models: ${String(err)}`);
 		}
-		console.error("[ZenMux Model Provider] Failed to fetch ZenMux models", err);
+		console.error("[InfiniAI Model Provider] Failed to fetch InfiniAI models", err);
 		throw err;
 	}
 }
@@ -177,7 +175,7 @@ export function convertToolsToOpenAI(options: vscode.ProvideLanguageModelChatRes
 	let tool_choice: "auto" | { type: "function"; function: { name: string } } = "auto";
 	if (options.toolMode === vscode.LanguageModelChatToolMode.Required) {
 		if (tools.length !== 1) {
-			console.error("[ZenMux Model Provider] ToolMode.Required but multiple tools:", tools.length);
+			console.error("[InfiniAI Model Provider] ToolMode.Required but multiple tools:", tools.length);
 			throw new Error("LanguageModelChatToolMode.Required is not supported with more than one tool");
 		}
 		tool_choice = { type: "function", function: { name: tools[0].name } };
@@ -271,7 +269,7 @@ export async function executeWithRetry<T>(fn: () => Promise<T>, retryConfig: Ret
 			}
 
 			console.error(
-				`[ZenMux Model Provider] Retryable error detected, retrying in ${intervalMs}ms (attempt ${attempt + 1}/${maxAttempts})`
+				`[InfiniAI Model Provider] Retryable error detected, retrying in ${intervalMs}ms (attempt ${attempt + 1}/${maxAttempts})`
 			);
 
 			// Wait for the specified interval before retrying

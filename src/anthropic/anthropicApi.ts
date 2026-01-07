@@ -7,7 +7,7 @@ import {
 	Progress,
 } from "vscode";
 
-import type { HFModelItem, ZenMuxModelInfo } from "../types";
+import type { HFModelItem, InfiniAIModelInfo } from "../types";
 
 import type {
 	AnthropicMessage,
@@ -212,7 +212,7 @@ export class AnthropicApi extends CommonApi {
 
 	prepareRequestBody(
 		rb: any,
-		um: ZenMuxModelInfo | undefined,
+		um: InfiniAIModelInfo | undefined,
 		options: ProvideLanguageModelChatResponseOptions
 	): any {
 		const arb = rb as AnthropicRequestBody;
@@ -331,7 +331,7 @@ export class AnthropicApi extends CommonApi {
 
 					try {
 						const chunk: AnthropicStreamChunk = JSON.parse(data);
-						// console.debug("[ZenMux Model Provider] data:", JSON.stringify(chunk));
+						// console.debug("[InfiniAI Model Provider] data:", JSON.stringify(chunk));
 
 						await this.processAnthropicChunk(chunk, progress);
 					} catch (e) {

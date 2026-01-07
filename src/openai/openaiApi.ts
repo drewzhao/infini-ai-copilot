@@ -7,7 +7,7 @@ import {
 	Progress,
 } from "vscode";
 
-import type { HFModelItem, ReasoningConfig, ZenMuxModelInfo } from "../types";
+import type { HFModelItem, ReasoningConfig, InfiniAIModelInfo } from "../types";
 
 import type {
 	OpenAIChatMessage,
@@ -189,7 +189,7 @@ export class OpenaiApi extends CommonApi {
 
 	prepareRequestBody(
 		rb: any,
-		um: ZenMuxModelInfo | undefined,
+		um: InfiniAIModelInfo | undefined,
 		options: ProvideLanguageModelChatResponseOptions,
 	): any {
 		const orb = rb as Record<string, unknown>;
@@ -348,7 +348,7 @@ export class OpenaiApi extends CommonApi {
 
 					try {
 						const parsed = JSON.parse(data);
-						// console.debug("[ZenMux Model Provider] data:", JSON.stringify(parsed));
+						// console.debug("[InfiniAI Model Provider] data:", JSON.stringify(parsed));
 
 						await this.processDelta(parsed, progress);
 					} catch {
@@ -434,7 +434,7 @@ export class OpenaiApi extends CommonApi {
 				}
 			}
 		} catch (e) {
-			console.error("[ZenMux Model Provider] Failed to process thinking/reasoning_details:", e);
+			console.error("[InfiniAI Model Provider] Failed to process thinking/reasoning_details:", e);
 		}
 
 		if (deltaObj?.content) {
