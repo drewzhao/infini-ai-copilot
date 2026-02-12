@@ -50,39 +50,44 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider {
    * @returns A promise that resolves to the list of available language models
    */
   async provideLanguageModelChatInformation(options: vscode.PrepareLanguageModelChatModelOptions, token: CancellationToken): Promise<vscode.LanguageModelChatInformation[]> {
-    // Fallback: Fetch models from API
-    const apiKey = await ensureApiKey(options.silent, this.secrets);
-    if (!apiKey) {
-      if (options.silent) {
-        return [];
-      } else {
-        throw new Error("InfiniAI API key not found");
+    try {
+      const apiKey = await ensureApiKey(options.silent, this.secrets);
+      if (!apiKey) {
+        if (options.silent) {
+          return [];
+        } else {
+          throw new Error("InfiniAI API key not found");
+        }
       }
-    }
-    const { models } = await fetchModels(apiKey, this.userAgent, this.output);
-    this._models = models;
-    this.output.appendLine(`Fetched ${models.length} models from InfiniAI API.`);
-    return models.map(m => {
-      // Infer context length from model name or use defaults
-      const contextLength = this.inferContextLength(m.id) || DEFAULT_CONTEXT_LENGTH;
-      const maxOutput = DEFAULT_MAX_TOKENS;
-      const maxInput = Math.max(1, contextLength - maxOutput);
+      const { models } = await fetchModels(apiKey, this.userAgent, this.output);
+      this._models = models;
+      this.output.appendLine(`Fetched ${models.length} models from InfiniAI API.`);
+      return models.map(m => {
+        // Infer context length from model name or use defaults
+        const contextLength = this.inferContextLength(m.id) || DEFAULT_CONTEXT_LENGTH;
+        const maxOutput = DEFAULT_MAX_TOKENS;
+        const maxInput = Math.max(1, contextLength - maxOutput);
 
-      return {
-        id: m.id,
-        name: m.id,
-        tooltip: 'InfiniAI Model ' + m.id,
-        detail: 'InfiniAI',
-        family: 'oai-compatible',
-        version: m.created.toString() || '1.0.0',
-        maxInputTokens: maxInput,
-        maxOutputTokens: maxOutput,
-        capabilities: {
-          toolCalling: !m.id.includes('embed') && !m.id.includes('reranker'),
-          imageInput: m.id.includes('-vision') || m.id.includes('-vl-') || (m.id.startsWith('glm') && /\dv$/.test(m.id)),
-        },
-      } as LanguageModelChatInformation;
-    });
+        return {
+          id: m.id,
+          name: m.id,
+          tooltip: 'InfiniAI Model ' + m.id,
+          detail: 'InfiniAI',
+          family: 'oai-compatible',
+          version: m.created?.toString() || '1.0.0',
+          maxInputTokens: maxInput,
+          maxOutputTokens: maxOutput,
+          capabilities: {
+            toolCalling: !m.id.includes('embed') && !m.id.includes('reranker'),
+            imageInput: m.id.includes('-vision') || m.id.includes('-vl-') || (m.id.startsWith('glm') && /\dv$/.test(m.id)),
+          },
+        } as LanguageModelChatInformation;
+      });
+    } catch (err) {
+      this.output.appendLine(`Error in provideLanguageModelChatInformation: ${err instanceof Error ? err.message : String(err)}`);
+      console.error("[InfiniAI Model Provider] Failed to provide model information", err);
+      return [];
+    }
   }
 
   private inferContextLength(modelId: string): number | undefined {

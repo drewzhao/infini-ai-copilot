@@ -83,8 +83,23 @@ export async function fetchModels(apiKey: string, userAgent: string, output: vsc
 			console.error("[InfiniAI Model Provider] Failed to fetch InfiniAI models", err);
 			throw err;
 		}
-		const parsed = (await resp.json()) as InfiniAIModelResponse;
-		return parsed.data ?? [];
+		const parsed = (await resp.json()) as Record<string, any>;
+		// Handle both response formats:
+		// Standard API: { object: "list", data: [...] }
+		// Coding API:   { code: 0, msg: "Success", data: { object: "list", data: [...] } }
+		let models: InfiniAIModelInfo[];
+		if (Array.isArray(parsed.data)) {
+			// Standard format: data is the array directly
+			models = parsed.data;
+		} else if (parsed.data && Array.isArray(parsed.data.data)) {
+			// Coding format: data is an envelope with nested data array
+			models = parsed.data.data;
+		} else {
+			output.appendLine(`Unexpected models response structure: ${JSON.stringify(parsed).slice(0, 500)}`);
+			models = [];
+		}
+		output.appendLine(`Parsed ${models.length} models from API response`);
+		return models;
 	})();
 
 	try {
