@@ -39,6 +39,12 @@ export function activate(context: vscode.ExtensionContext) {
 			const secretKey = planChoice.plan === "coding" ? "infiniai.codingApiKey" : "infiniai.apiKey";
 			const planLabel = planChoice.label;
 
+			// Update the plan setting to match the user's choice
+			const config = vscode.workspace.getConfiguration("infiniai");
+			if (config.get<string>("plan") !== planChoice.plan) {
+				await config.update("plan", planChoice.plan, vscode.ConfigurationTarget.Global);
+			}
+
 			const existing = await context.secrets.get(secretKey);
 			const apiKey = await vscode.window.showInputBox({
 				title: `InfiniAI ${planLabel} API Key`,

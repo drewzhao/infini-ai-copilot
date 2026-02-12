@@ -175,10 +175,9 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider {
       // get model config from user settings
       const config = vscode.workspace.getConfiguration();
       const plan = getActivePlan();
-      const codingPrefix = plan === "coding" ? "/coding" : "";
       if (this.isSupportMessage(model)) {
-        const defaultAnthropicUrl = `https://cloud.infini-ai.com/maas${codingPrefix}`;
-        const BASE_URL = config.get<string>("infiniai.anthropic.baseUrl", defaultAnthropicUrl);
+        const anthropicKey = plan === "coding" ? "infiniai.coding.anthropic.baseUrl" : "infiniai.anthropic.baseUrl";
+        const BASE_URL = config.get<string>(anthropicKey, "https://cloud.infini-ai.com/maas");
         // Anthropic API mode
         const anthropicApi = new AnthropicApi();
         const anthropicMessages = anthropicApi.convertMessages(messages, {
@@ -228,8 +227,8 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider {
         }
         await anthropicApi.processStreamingResponse(response.body, trackingProgress, token);
       } else {
-        const defaultOpenaiUrl = `https://cloud.infini-ai.com/maas${codingPrefix}/v1`;
-        const BASE_URL = config.get<string>("infiniai.baseUrl", defaultOpenaiUrl);
+        const openaiKey = plan === "coding" ? "infiniai.coding.baseUrl" : "infiniai.baseUrl";
+        const BASE_URL = config.get<string>(openaiKey, "https://cloud.infini-ai.com/maas/v1");
         // OpenAI compatible API mode (default)
         const openaiApi = new OpenaiApi();
         const openaiMessages = openaiApi.convertMessages(messages, {

@@ -66,9 +66,11 @@ npm run build
 
 您可以在 VS Code 设置中调整以下参数：
 
-- `infiniai.plan`: 选择 InfiniAI 计费方案 — `"standard"`（按量付费，默认）或 `"coding"`（Coding Plan 订阅）。Coding Plan 使用独立的 API Key 和不同的 API 端点（`/maas/coding/v1/...`）。
-- `infiniai.baseUrl`: InfiniAI 网关的基础 URL（默认：`https://cloud.infini-ai.com/maas/v1`）。当 `infiniai.plan` 设为 `"coding"` 时自动调整。
-- `infiniai.anthropic.baseUrl`: 兼容 Anthropic 的后端 URL。当 `infiniai.plan` 设为 `"coding"` 时自动调整。
+- `infiniai.plan`: 选择 InfiniAI 计费方案 — `"standard"`（按量付费，默认）或 `"coding"`（Coding Plan 订阅）。Coding Plan 使用独立的 API Key 和不同的 API 端点。
+- `infiniai.baseUrl`: OpenAI 兼容 API 基础 URL，标准版（默认：`https://cloud.infini-ai.com/maas/v1`）。
+- `infiniai.anthropic.baseUrl`: Anthropic 兼容 API 基础 URL，标准版（默认：`https://cloud.infini-ai.com/maas`）。
+- `infiniai.coding.baseUrl`: OpenAI 兼容 API 基础 URL，Coding Plan（默认：`https://cloud.infini-ai.com/maas/coding/v1`）。
+- `infiniai.coding.anthropic.baseUrl`: Anthropic 兼容 API 基础 URL，Coding Plan（默认：`https://cloud.infini-ai.com/maas/coding`）。
 - `infiniai.retry`: 请求重试策略（是否启用、最大尝试次数、间隔毫秒数）。
 - `infiniai.delay`: 请求之间的固定延迟（毫秒）。
 
