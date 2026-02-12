@@ -88,24 +88,6 @@ npm run build
 - 🔄 尝试 **重载窗口** (`Developer: Reload Window`)。
 - 📁 确认 `out/extension.js` 文件是否存在（请确保已运行 `npm run compile`）。
 
-## 🐞 已知问题与解决方案
-
-### Coding Plan API 的非标准 `/v1/models` 响应 (2026-02-12)
-
-InfiniAI Coding Plan API 返回的 `/v1/models` 响应格式不符合标准 OpenAI 兼容格式。标准格式为：
-
-```json
-{ "object": "list", "data": [ { "id": "model-name", ... } ] }
-```
-
-而 Coding Plan 额外包裹了一层信封结构：
-
-```json
-{ "code": 0, "msg": "Success", "data": { "object": "list", "data": [ { "id": "model-name", ... } ] } }
-```
-
-**修复方案：** 扩展在运行时自动检测两种响应结构 —— 先尝试将 `response.data` 作为数组解析（标准格式），若不匹配则回退到 `response.data.data`（Coding Plan 信封格式）。此方案向前兼容：如果 Coding Plan API 后续修复为标准格式，无需修改代码。
-
 ## 🤝 贡献与反馈
 
 我们非常欢迎您的参与！

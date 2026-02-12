@@ -88,24 +88,6 @@ If the extension does not activate or shows no logs:
 - 🔄 Try **Reload Window** (`Developer: Reload Window`).
 - 📁 Confirm that the `out/extension.js` file exists (ensure you have run `npm run compile`).
 
-## 🐞 Known Issues & Workarounds
-
-### Non-standard `/v1/models` response from Coding Plan API (2026-02-12)
-
-The InfiniAI Coding Plan API returns a non-standard `/v1/models` response. Instead of the standard OpenAI-compatible format:
-
-```json
-{ "object": "list", "data": [ { "id": "model-name", ... } ] }
-```
-
-The Coding Plan wraps the response in an extra envelope:
-
-```json
-{ "code": 0, "msg": "Success", "data": { "object": "list", "data": [ { "id": "model-name", ... } ] } }
-```
-
-**Fix:** The extension detects both response structures at runtime — it checks `response.data` as an array first (standard format), then falls back to `response.data.data` (Coding Plan envelope). This is forward-compatible: if the Coding Plan API is later fixed to return the standard format, no code change is needed.
-
 ## 🤝 Contributing & Feedback
 
 We welcome your participation!
