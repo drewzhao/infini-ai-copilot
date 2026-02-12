@@ -10,7 +10,8 @@ Just a few simple steps to start your InfiniAI journey:
 2.  💬 **Open Copilot**: Open the GitHub Copilot Chat interface in VS Code.
 3.  ⚙️ **Manage Models**: Click the model picker below the chat input box and select "Manage Models...".
 4.  ✅ **Select InfiniAI**: Click "Add Models" and then select the "InfiniAI" provider.
-5.  🔑 **Configure Key**: Enter your InfiniAI API Key (the key will be securely saved locally).
+5.  🧭 **Select Plan (first time only)**: If you haven't configured `infiniai.plan` yet, you'll be prompted to pick **Standard Plan** or **Coding Plan**. The choice will be saved to your VS Code user settings.
+6.  🔑 **Configure Key**: Enter your InfiniAI API Key for the selected plan (the key is stored securely in VS Code Secret Storage).
 6.  🎯 **Pick Models**: Select the specific models you wish to use in the model picker.
 
 ## ℹ️ Extension Information
@@ -66,7 +67,7 @@ npm run build
 
 You can adjust the following parameters in VS Code Settings:
 
-- `infiniai.plan`: Select the InfiniAI billing plan — `"standard"` (pay-per-token, default) or `"coding"` (Coding Plan subscription). The Coding Plan uses a separate API key and different API endpoints.
+- `infiniai.plan`: Select the InfiniAI billing plan — `"standard"` (pay-per-token) or `"coding"` (Coding Plan subscription). If unset, the extension treats it as `"standard"` for API routing, and will prompt you to pick a plan the next time it needs to ask for an API key interactively.
 - `infiniai.baseUrl`: Base URL for OpenAI-compatible API, Standard Plan (Default: `https://cloud.infini-ai.com/maas/v1`).
 - `infiniai.anthropic.baseUrl`: Base URL for Anthropic-compatible API, Standard Plan (Default: `https://cloud.infini-ai.com/maas`).
 - `infiniai.coding.baseUrl`: Base URL for OpenAI-compatible API, Coding Plan (Default: `https://cloud.infini-ai.com/maas/coding/v1`).
@@ -77,6 +78,12 @@ You can adjust the following parameters in VS Code Settings:
 ## ⌨️ Commands
 
 - `infiniai.setApikey`: Run this command via the Command Palette (`Ctrl+Shift+P`) to set or update your InfiniAI API Key. You will be prompted to choose which plan (Standard or Coding) to configure the key for.
+
+## 🧪 Tests
+
+```powershell
+npm test
+```
 
 ## 🔍 Debugging Tips
 

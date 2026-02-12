@@ -10,7 +10,8 @@
 2.  💬 **打开 Copilot**：在 VS Code 中打开 GitHub Copilot Chat 界面。
 3.  ⚙️ **管理模型**：点击聊天输入框上方的模型选择器，选择 "Manage Models..."（管理模型）。
 4.  ✅ **选择 InfiniAI**：点击 "Add Models" (添加模型)，然后选择 "InfiniAI" 提供方。
-5.  🔑 **配置密钥**：输入您的 InfiniAI API Key（密钥将安全地保存在本地）。
+5.  🧭 **选择方案（仅首次）**：如果您尚未配置 `infiniai.plan`，系统会提示您选择 **Standard Plan** 或 **Coding Plan**，并将选择保存到 VS Code 用户设置中。
+6.  🔑 **配置密钥**：输入所选方案对应的 InfiniAI API Key（密钥会安全存储在 VS Code Secret Storage 中）。
 6.  🎯 **挑选模型**：选择您希望在模型选择器中使用的具体模型。
 
 ## ℹ️ 扩展信息
@@ -66,7 +67,7 @@ npm run build
 
 您可以在 VS Code 设置中调整以下参数：
 
-- `infiniai.plan`: 选择 InfiniAI 计费方案 — `"standard"`（按量付费，默认）或 `"coding"`（Coding Plan 订阅）。Coding Plan 使用独立的 API Key 和不同的 API 端点。
+- `infiniai.plan`: 选择 InfiniAI 计费方案 — `"standard"`（按量付费）或 `"coding"`（Coding Plan 订阅）。如果未设置，扩展在接口路由上会按 `"standard"` 处理；当扩展需要交互式提示输入 API Key 时，会先提示您选择方案并保存。
 - `infiniai.baseUrl`: OpenAI 兼容 API 基础 URL，标准版（默认：`https://cloud.infini-ai.com/maas/v1`）。
 - `infiniai.anthropic.baseUrl`: Anthropic 兼容 API 基础 URL，标准版（默认：`https://cloud.infini-ai.com/maas`）。
 - `infiniai.coding.baseUrl`: OpenAI 兼容 API 基础 URL，Coding Plan（默认：`https://cloud.infini-ai.com/maas/coding/v1`）。
@@ -77,6 +78,12 @@ npm run build
 ## ⌨️ 命令
 
 - `infiniai.setApikey`: 通过命令面板 (`Ctrl+Shift+P`) 运行此命令，可随时设置或更新您的 InfiniAI API Key。系统会先提示您选择要配置哪个方案（标准版或 Coding Plan）的密钥。
+
+## 🧪 测试
+
+```powershell
+npm test
+```
 
 ## 🔍 调试技巧
 
