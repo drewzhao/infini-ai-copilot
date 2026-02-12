@@ -19,7 +19,7 @@
 		"type": "git",
 		"url": "https://github.com/drewzhao/infini-ai-copilot.git"
 	},
-	"version": "0.1.7",
+	"version": "0.1.8",
 	"engines": {
 		"vscode": "^1.104.0"
 	},
@@ -66,15 +66,25 @@
 		"configuration": {
 			"title": "InfiniAI Compatible Copilot",
 			"properties": {
+				"infiniai.plan": {
+					"type": "string",
+					"enum": ["standard", "coding"],
+					"default": "standard",
+					"enumDescriptions": [
+						"Pay-per-token billing. Uses the standard API endpoints.",
+						"Coding Plan subscription. Uses /coding/ API endpoints and a separate API key."
+					],
+					"description": "Select the InfiniAI billing plan. The 'coding' plan uses a separate API key and different API endpoints."
+				},
 				"infiniai.baseUrl": {
 					"type": "string",
 					"default": "https://cloud.infini-ai.com/maas/v1",
-					"description": "The base URL for the InfiniAI Compatible Inference API."
+					"description": "The base URL for the InfiniAI Compatible Inference API. Automatically adjusted when infiniai.plan is 'coding'."
 				},
 				"infiniai.anthropic.baseUrl": {
 					"type": "string",
 					"default": "https://cloud.infini-ai.com/maas",
-					"description": "The base URL for the Anthropic Compatible Inference API."
+					"description": "The base URL for the Anthropic Compatible Inference API. Automatically adjusted when infiniai.plan is 'coding'."
 				},
 				"infiniai.retry": {
 					"type": "object",
@@ -129,7 +139,7 @@
 		"format": "prettier --write .",
 		"watch": "tsc -watch -p ./",
 		"test": "npm run compile && vscode-test",
-		"build": "npx @vscode/vsce package --baseContentUrl https://raw.githubusercontent.com/drewzhao/infini-ai-copilot/refs/heads/infini-ai-copilot/ -o extension.vsix"
+		"build": "npx @vscode/vsce package --baseContentUrl https://raw.githubusercontent.com/drewzhao/infini-ai-copilot/refs/heads/infini-ai-copilot/ -o infiniai-copilot-$(node -p \"require('./package.json').version\").vsix"
 	},
 	"devDependencies": {
 		"@eslint/js": "^9.13.0",

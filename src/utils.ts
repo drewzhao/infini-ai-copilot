@@ -3,24 +3,43 @@ import { RetryConfig, InfiniAIModelInfo, InfiniAIModelResponse } from "./types";
 import { OpenAIFunctionToolDef } from "./openai/openaiTypes";
 
 /**
+ * Get the active InfiniAI plan from user settings.
+ * @returns "standard" or "coding"
+ */
+export function getActivePlan(): "standard" | "coding" {
+	return vscode.workspace.getConfiguration().get<string>("infiniai.plan", "standard") === "coding" ? "coding" : "standard";
+}
+
+/**
+ * Get the secret storage key name for the active plan's API key.
+ */
+export function getApiKeySecretName(plan?: "standard" | "coding"): string {
+	const p = plan ?? getActivePlan();
+	return p === "coding" ? "infiniai.codingApiKey" : "infiniai.apiKey";
+}
+
+/**
  * Ensure an API key exists in SecretStorage, optionally prompting the user when not silent.
  * @param silent If true, do not prompt the user.
  * @param secrets vscode.SecretStorage
  */
 export async function ensureApiKey(silent: boolean, secrets: vscode.SecretStorage): Promise<string | undefined> {
-	// Fall back to generic API key
-	let apiKey = await secrets.get("infiniai.apiKey");
+	const plan = getActivePlan();
+	const secretKey = getApiKeySecretName(plan);
+	const planLabel = plan === "coding" ? "Coding Plan" : "Standard Plan";
+
+	let apiKey = await secrets.get(secretKey);
 
 	if (!apiKey && !silent) {
 		const entered = await vscode.window.showInputBox({
-			title: "InfiniAI API Key",
-			prompt: "Enter your InfiniAI API key",
+			title: `InfiniAI ${planLabel} API Key`,
+			prompt: `Enter your InfiniAI ${planLabel} API key`,
 			ignoreFocusOut: true,
 			password: true,
 		});
 		if (entered && entered.trim()) {
 			apiKey = entered.trim();
-			await secrets.store("infiniai.apiKey", apiKey);
+			await secrets.store(secretKey, apiKey);
 		}
 	}
 	return apiKey;
@@ -32,8 +51,13 @@ export async function ensureApiKey(silent: boolean, secrets: vscode.SecretStorag
  * @param apiKey The InfiniAI API key used to authenticate.
  */
 export async function fetchModels(apiKey: string, userAgent: string, output: vscode.OutputChannel): Promise<{ models: InfiniAIModelInfo[] }> {
+	const plan = getActivePlan();
+	const pathPrefix = plan === "coding" ? "/coding" : "";
+	const modelsUrl = `https://cloud.infini-ai.com/maas${pathPrefix}/v1/models`;
+	output.appendLine(`Fetching models from ${modelsUrl} (plan: ${plan})`);
+
 	const modelsList = (async () => {
-		const resp = await fetch(`https://cloud.infini-ai.com/maas/v1/models`, {
+		const resp = await fetch(modelsUrl, {
 			method: "GET",
 			headers: {
 				"Authorization": `Bearer ${apiKey}`,

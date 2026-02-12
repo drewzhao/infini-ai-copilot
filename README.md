@@ -66,14 +66,15 @@ npm run build
 
 You can adjust the following parameters in VS Code Settings:
 
-- `infiniai.baseUrl`: Base URL for the InfiniAI gateway (Default: `https://infiniai.ai/api/v1`).
-- `infiniai.anthropic.baseUrl`: Anthropic-compatible backend URL.
+- `infiniai.plan`: Select the InfiniAI billing plan — `"standard"` (pay-per-token, default) or `"coding"` (Coding Plan subscription). The Coding Plan uses a separate API key and different API endpoints (`/maas/coding/v1/...`).
+- `infiniai.baseUrl`: Base URL for the InfiniAI gateway (Default: `https://cloud.infini-ai.com/maas/v1`). Automatically adjusted when `infiniai.plan` is `"coding"`.
+- `infiniai.anthropic.baseUrl`: Anthropic-compatible backend URL. Automatically adjusted when `infiniai.plan` is `"coding"`.
 - `infiniai.retry`: Request retry policy (enabled, max attempts, interval in ms).
 - `infiniai.delay`: Fixed delay between requests (in milliseconds).
 
 ## ⌨️ Commands
 
-- `infiniai.setApikey`: Run this command via the Command Palette (`Ctrl+Shift+P`) to set or update your InfiniAI API Key at any time.
+- `infiniai.setApikey`: Run this command via the Command Palette (`Ctrl+Shift+P`) to set or update your InfiniAI API Key. You will be prompted to choose which plan (Standard or Coding) to configure the key for.
 
 ## 🔍 Debugging Tips
 
