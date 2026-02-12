@@ -19,7 +19,7 @@
 		"type": "git",
 		"url": "https://github.com/drewzhao/infini-ai-copilot.git"
 	},
-	"version": "0.1.8",
+	"version": "0.1.9",
 	"engines": {
 		"vscode": "^1.104.0"
 	},
@@ -68,8 +68,10 @@
 			"properties": {
 				"infiniai.plan": {
 					"type": "string",
-					"enum": ["standard", "coding"],
-					"default": "standard",
+					"enum": [
+						"standard",
+						"coding"
+					],
 					"enumDescriptions": [
 						"Pay-per-token billing. Uses 'infiniai.baseUrl' and 'infiniai.anthropic.baseUrl' for API requests.",
 						"Coding Plan subscription. Uses 'infiniai.coding.baseUrl' and 'infiniai.coding.anthropic.baseUrl' for API requests, with a separate API key."
@@ -148,7 +150,7 @@
 		"lint": "eslint",
 		"format": "prettier --write .",
 		"watch": "tsc -watch -p ./",
-		"test": "npm run compile && vscode-test",
+		"test": "npm run compile && mocha \"out/**/*.test.js\"",
 		"build": "npx @vscode/vsce package --baseContentUrl https://raw.githubusercontent.com/drewzhao/infini-ai-copilot/refs/heads/infini-ai-copilot/ -o infiniai-copilot-$(node -p \"require('./package.json').version\").vsix"
 	},
 	"devDependencies": {
@@ -162,6 +164,7 @@
 		"@vscode/test-electron": "^2.5.2",
 		"@vscode/vsce": "^3.7.1",
 		"eslint": "^9.13.0",
+		"mocha": "^11.7.5",
 		"prettier": "^3.1.0",
 		"typescript": "^5.9.2",
 		"typescript-eslint": "^8.39.0"

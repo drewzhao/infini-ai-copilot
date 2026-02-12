@@ -2,20 +2,52 @@ import * as vscode from "vscode";
 import { RetryConfig, InfiniAIModelInfo, InfiniAIModelResponse } from "./types";
 import { OpenAIFunctionToolDef } from "./openai/openaiTypes";
 
+export type InfiniAIPlan = "standard" | "coding";
+
 /**
  * Get the active InfiniAI plan from user settings.
  * @returns "standard" or "coding"
  */
-export function getActivePlan(): "standard" | "coding" {
-	return vscode.workspace.getConfiguration().get<string>("infiniai.plan", "standard") === "coding" ? "coding" : "standard";
+export function getActivePlan(): InfiniAIPlan {
+	return getConfiguredPlan() === "coding" ? "coding" : "standard";
 }
 
 /**
  * Get the secret storage key name for the active plan's API key.
  */
-export function getApiKeySecretName(plan?: "standard" | "coding"): string {
+export function getApiKeySecretName(plan?: InfiniAIPlan): string {
 	const p = plan ?? getActivePlan();
 	return p === "coding" ? "infiniai.codingApiKey" : "infiniai.apiKey";
+}
+
+/**
+ * Get the configured plan value without applying defaults.
+ */
+export function getConfiguredPlan(): InfiniAIPlan | undefined {
+	const value = vscode.workspace.getConfiguration().get<string>("infiniai.plan");
+	if (value === "coding" || value === "standard") {
+		return value;
+	}
+	return undefined;
+}
+
+/**
+ * Resolve the plan to use for prompting, optionally persisting a user choice.
+ */
+export async function resolvePlanForApiKey(options: {
+	configuredPlan: InfiniAIPlan | undefined;
+	promptPlan: () => Promise<InfiniAIPlan | undefined>;
+	updatePlan: (plan: InfiniAIPlan) => Promise<void>;
+}): Promise<InfiniAIPlan | undefined> {
+	if (options.configuredPlan) {
+		return options.configuredPlan;
+	}
+	const selected = await options.promptPlan();
+	if (!selected) {
+		return undefined;
+	}
+	await options.updatePlan(selected);
+	return selected;
 }
 
 /**
@@ -24,7 +56,35 @@ export function getApiKeySecretName(plan?: "standard" | "coding"): string {
  * @param secrets vscode.SecretStorage
  */
 export async function ensureApiKey(silent: boolean, secrets: vscode.SecretStorage): Promise<string | undefined> {
-	const plan = getActivePlan();
+	const config = vscode.workspace.getConfiguration("infiniai");
+	const configuredPlan = getConfiguredPlan();
+	let plan = configuredPlan ?? "standard";
+
+	if (!silent) {
+		const selectedPlan = await resolvePlanForApiKey({
+			configuredPlan,
+			promptPlan: async () => {
+				const choice = await vscode.window.showQuickPick(
+					[
+						{ label: "Standard Plan", description: "Pay-per-token billing", plan: "standard" as const },
+						{ label: "Coding Plan", description: "Coding Plan subscription", plan: "coding" as const },
+					],
+					{ title: "InfiniAI: Select Plan", placeHolder: "Which plan's API key do you want to configure?" }
+				);
+				return choice?.plan;
+			},
+			updatePlan: async (selected) => {
+				if (config.get<string>("plan") !== selected) {
+					await config.update("plan", selected, vscode.ConfigurationTarget.Global);
+				}
+			},
+		});
+		if (!selectedPlan) {
+			return undefined;
+		}
+		plan = selectedPlan;
+	}
+
 	const secretKey = getApiKeySecretName(plan);
 	const planLabel = plan === "coding" ? "Coding Plan" : "Standard Plan";
 
