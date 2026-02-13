@@ -19,7 +19,7 @@
 		"type": "git",
 		"url": "https://github.com/drewzhao/infini-ai-copilot.git"
 	},
-	"version": "0.1.9",
+	"version": "0.2.0",
 	"engines": {
 		"vscode": "^1.104.0"
 	},
@@ -138,6 +138,22 @@
 					"default": 0,
 					"minimum": 0,
 					"description": "Fixed delay in milliseconds between consecutive requests. Default is 0 (no delay)."
+				},
+				"infiniai.imageInputModels": {
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					},
+					"description": "Force-enable image input for specific model IDs. Supports '*' wildcard patterns (e.g. 'kimi-*'). Useful when a multimodal model doesn't include a name marker like '-vision'."
+				},
+				"infiniai.disableImageInputModels": {
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					},
+					"description": "Force-disable image input for specific model IDs. Supports '*' wildcard patterns."
 				}
 			}
 		}

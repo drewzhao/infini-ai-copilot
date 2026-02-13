@@ -72,6 +72,8 @@ You can adjust the following parameters in VS Code Settings:
 - `infiniai.anthropic.baseUrl`: Base URL for Anthropic-compatible API, Standard Plan (Default: `https://cloud.infini-ai.com/maas`).
 - `infiniai.coding.baseUrl`: Base URL for OpenAI-compatible API, Coding Plan (Default: `https://cloud.infini-ai.com/maas/coding/v1`).
 - `infiniai.coding.anthropic.baseUrl`: Base URL for Anthropic-compatible API, Coding Plan (Default: `https://cloud.infini-ai.com/maas/coding`).
+- `infiniai.imageInputModels`: Force-enable image input for specific model IDs (supports `*` wildcard, e.g. `kimi-*`). Useful when a multimodal model doesn’t include a name marker like `-vision`.
+- `infiniai.disableImageInputModels`: Force-disable image input for specific model IDs (supports `*` wildcard).
 - `infiniai.retry`: Request retry policy (enabled, max attempts, interval in ms).
 - `infiniai.delay`: Fixed delay between requests (in milliseconds).
 

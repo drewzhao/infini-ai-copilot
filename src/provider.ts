@@ -18,6 +18,7 @@ import { prepareTokenCount } from "./provideToken";
 import { updateContextStatusBar } from "./statusBar";
 import { OpenaiApi } from "./openai/openaiApi";
 import { InfiniAIModelInfo } from "./types";
+import { resolveImageInputCapability } from "./modelCapabilities";
 
 
 const DEFAULT_CONTEXT_LENGTH = 128000;
@@ -62,6 +63,11 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider {
       const { models } = await fetchModels(apiKey, this.userAgent, this.output);
       this._models = models;
       this.output.appendLine(`Fetched ${models.length} models from InfiniAI API.`);
+
+      const cfg = vscode.workspace.getConfiguration("infiniai");
+      const enablePatterns = cfg.get<string[]>("imageInputModels", []);
+      const disablePatterns = cfg.get<string[]>("disableImageInputModels", []);
+
       return models.map(m => {
         // Infer context length from model name or use defaults
         const contextLength = this.inferContextLength(m.id) || DEFAULT_CONTEXT_LENGTH;
@@ -79,7 +85,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider {
           maxOutputTokens: maxOutput,
           capabilities: {
             toolCalling: !m.id.includes('embed') && !m.id.includes('reranker'),
-            imageInput: m.id.includes('-vision') || m.id.includes('-vl-') || (m.id.startsWith('glm') && /\dv$/.test(m.id)),
+            imageInput: resolveImageInputCapability(m as any, { enablePatterns, disablePatterns }),
           },
         } as LanguageModelChatInformation;
       });

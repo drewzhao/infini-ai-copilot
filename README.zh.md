@@ -72,6 +72,8 @@ npm run build
 - `infiniai.anthropic.baseUrl`: Anthropic 兼容 API 基础 URL，标准版（默认：`https://cloud.infini-ai.com/maas`）。
 - `infiniai.coding.baseUrl`: OpenAI 兼容 API 基础 URL，Coding Plan（默认：`https://cloud.infini-ai.com/maas/coding/v1`）。
 - `infiniai.coding.anthropic.baseUrl`: Anthropic 兼容 API 基础 URL，Coding Plan（默认：`https://cloud.infini-ai.com/maas/coding`）。
+- `infiniai.imageInputModels`: 强制为指定模型启用图片输入（支持 `*` 通配符，例如 `kimi-*`）。当某些多模态模型名称不包含 `-vision` 等标识时可使用。
+- `infiniai.disableImageInputModels`: 强制为指定模型禁用图片输入（支持 `*` 通配符）。
 - `infiniai.retry`: 请求重试策略（是否启用、最大尝试次数、间隔毫秒数）。
 - `infiniai.delay`: 请求之间的固定延迟（毫秒）。
 
