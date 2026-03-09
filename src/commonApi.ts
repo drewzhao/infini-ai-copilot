@@ -2,11 +2,10 @@ import {
 	ProvideLanguageModelChatResponseOptions,
 	LanguageModelChatRequestMessage,
 	LanguageModelToolCallPart,
-	LanguageModelResponsePart2,
-	LanguageModelThinkingPart,
 	Progress,
 	CancellationToken,
 } from "vscode";
+import * as vscode from "vscode";
 
 import type { OpenAIChatMessage } from "./openai/openaiTypes";
 import type { AnthropicMessage, AnthropicRequestBody } from "./anthropic/anthropicTypes";
@@ -76,7 +75,7 @@ export abstract class CommonApi {
 	 */
 	abstract processStreamingResponse(
 		responseBody: ReadableStream<Uint8Array>,
-		progress: Progress<LanguageModelResponsePart2>,
+		progress: Progress<vscode.LanguageModelResponsePart>,
 		token: CancellationToken
 	): Promise<void>;
 
@@ -87,7 +86,7 @@ export abstract class CommonApi {
 	 */
 	protected async tryEmitBufferedToolCall(
 		index: number,
-		progress: Progress<LanguageModelResponsePart2>
+		progress: Progress<vscode.LanguageModelResponsePart>
 	): Promise<void> {
 		const buf = this._toolCallBuffers.get(index);
 		if (!buf) {
@@ -113,7 +112,7 @@ export abstract class CommonApi {
 	 * @param throwOnInvalid If true, throw when a tool call has invalid JSON args.
 	 */
 	protected async flushToolCallBuffers(
-		progress: Progress<LanguageModelResponsePart2>,
+		progress: Progress<vscode.LanguageModelResponsePart>,
 		throwOnInvalid: boolean
 	): Promise<void> {
 		if (this._toolCallBuffers.size === 0) {
@@ -144,18 +143,11 @@ export abstract class CommonApi {
 	 * Report to VS Code for ending thinking
 	 * @param progress Progress reporter for parts
 	 */
-	protected reportEndThinking(progress: Progress<LanguageModelResponsePart2>) {
+	protected reportEndThinking(_progress: Progress<vscode.LanguageModelResponsePart>) {
 		if (!this._currentThinkingId) {
 			return;
 		}
-		// Always clean up state after attempting to end the thinking sequence
-		try {
-			this.flushThinkingBuffer(progress);
-			// End the current thinking sequence with empty content and same ID
-			progress.report(new LanguageModelThinkingPart("", this._currentThinkingId));
-		} catch (e) {
-			console.error("[InfiniAI Model Provider] Failed to end thinking sequence:", e);
-		}
+		this.flushThinkingBuffer();
 		this._currentThinkingId = null;
 		// Clear thinking buffer and timer since sequence ended
 		this._thinkingBuffer = "";
@@ -177,7 +169,7 @@ export abstract class CommonApi {
 	 * @param text The thinking text to buffer
 	 * @param progress Progress reporter for parts
 	 */
-	protected bufferThinkingContent(text: string, progress: Progress<LanguageModelResponsePart2>): void {
+	protected bufferThinkingContent(text: string, _progress: Progress<vscode.LanguageModelResponsePart>): void {
 		// Generate thinking ID if not provided by the model
 		if (!this._currentThinkingId) {
 			this._currentThinkingId = this.generateThinkingId();
@@ -189,7 +181,7 @@ export abstract class CommonApi {
 		// Schedule flush with 100ms delay
 		if (!this._thinkingFlushTimer) {
 			this._thinkingFlushTimer = setTimeout(() => {
-				this.flushThinkingBuffer(progress);
+				this.flushThinkingBuffer();
 			}, 100);
 		}
 	}
@@ -198,7 +190,7 @@ export abstract class CommonApi {
 	 * Flush the thinking buffer to the progress reporter.
 	 * @param progress Progress reporter for parts.
 	 */
-	protected flushThinkingBuffer(progress: Progress<LanguageModelResponsePart2>): void {
+	protected flushThinkingBuffer(): void {
 		// Always clear existing timer first
 		if (this._thinkingFlushTimer) {
 			clearTimeout(this._thinkingFlushTimer);
@@ -207,9 +199,7 @@ export abstract class CommonApi {
 
 		// Flush current buffer if we have content
 		if (this._thinkingBuffer && this._currentThinkingId) {
-			const text = this._thinkingBuffer;
 			this._thinkingBuffer = "";
-			progress.report(new LanguageModelThinkingPart(text, this._currentThinkingId));
 		}
 	}
 }

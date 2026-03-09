@@ -5,7 +5,6 @@ import {
   LanguageModelChatProvider,
   LanguageModelChatRequestMessage,
   ProvideLanguageModelChatResponseOptions,
-  LanguageModelResponsePart2,
   Progress,
 } from "vscode";
 
@@ -161,10 +160,9 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider {
       }
     }
 
-    const trackingProgress: Progress<LanguageModelResponsePart2> = {
+    const trackingProgress: Progress<vscode.LanguageModelResponsePart> = {
       report: (part) => {
         try {
-          // @ts-expect-error not error
           progress.report(part);
         } catch (e) {
           const msg = `[InfiniAI Model Provider] Progress.report failed modelId=${model.id} error=${e instanceof Error ? e.message : String(e)}`;

@@ -3,7 +3,6 @@ import {
 	CancellationToken,
 	LanguageModelChatRequestMessage,
 	ProvideLanguageModelChatResponseOptions,
-	LanguageModelResponsePart2,
 	Progress,
 } from "vscode";
 
@@ -77,9 +76,6 @@ export class VertexApi extends CommonApi {
 							},
 						},
 					});
-				} else if (part instanceof vscode.LanguageModelThinkingPart) {
-					const content = Array.isArray(part.value) ? part.value.join("") : part.value;
-					thinkingParts.push(content);
 				}
 			}
 
@@ -245,7 +241,7 @@ export class VertexApi extends CommonApi {
 	 */
 	async processStreamingResponse(
 		responseBody: ReadableStream<Uint8Array>,
-		progress: Progress<LanguageModelResponsePart2>,
+		progress: Progress<vscode.LanguageModelResponsePart>,
 		token: CancellationToken
 	): Promise<void> {
 		const reader = responseBody.getReader();
@@ -304,7 +300,7 @@ export class VertexApi extends CommonApi {
 	 */
 	private async processVertexChunk(
 		chunk: VertexStreamChunk,
-		progress: Progress<LanguageModelResponsePart2>
+		progress: Progress<vscode.LanguageModelResponsePart>
 	): Promise<void> {
 		// Vertex AI returns candidates array
 		if (!chunk.candidates || chunk.candidates.length === 0) {

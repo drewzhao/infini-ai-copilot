@@ -3,7 +3,6 @@ import {
 	CancellationToken,
 	LanguageModelChatRequestMessage,
 	ProvideLanguageModelChatResponseOptions,
-	LanguageModelResponsePart2,
 	Progress,
 } from "vscode";
 
@@ -73,9 +72,6 @@ export class AnthropicApi extends CommonApi {
 						tool_use_id: callId,
 						content,
 					});
-				} else if (part instanceof vscode.LanguageModelThinkingPart) {
-					const content = Array.isArray(part.value) ? part.value.join("") : part.value;
-					thinkingParts.push(content);
 				}
 			}
 
@@ -292,7 +288,7 @@ export class AnthropicApi extends CommonApi {
 	 */
 	async processStreamingResponse(
 		responseBody: ReadableStream<Uint8Array>,
-		progress: Progress<LanguageModelResponsePart2>,
+		progress: Progress<vscode.LanguageModelResponsePart>,
 		token: CancellationToken
 	): Promise<void> {
 		const reader = responseBody.getReader();
@@ -353,7 +349,7 @@ export class AnthropicApi extends CommonApi {
 	 */
 	private async processAnthropicChunk(
 		chunk: AnthropicStreamChunk,
-		progress: Progress<LanguageModelResponsePart2>
+		progress: Progress<vscode.LanguageModelResponsePart>
 	): Promise<void> {
 		// Handle ping events (ignore)
 		if (chunk.type === "ping") {

@@ -3,7 +3,6 @@ import {
 	CancellationToken,
 	LanguageModelChatRequestMessage,
 	ProvideLanguageModelChatResponseOptions,
-	LanguageModelResponsePart2,
 	Progress,
 } from "vscode";
 
@@ -51,7 +50,6 @@ export class OpenaiApi extends CommonApi {
 			const imageParts: vscode.LanguageModelDataPart[] = [];
 			const toolCalls: OpenAIToolCall[] = [];
 			const toolResults: { callId: string; content: string }[] = [];
-			const reasoningParts: string[] = [];
 
 			for (const part of m.content ?? []) {
 				if (part instanceof vscode.LanguageModelTextPart) {
@@ -71,10 +69,6 @@ export class OpenaiApi extends CommonApi {
 					const callId = (part as { callId?: string }).callId ?? "";
 					const content = collectToolResultText(part as { content?: ReadonlyArray<unknown> });
 					toolResults.push({ callId, content });
-				} else if (part instanceof vscode.LanguageModelThinkingPart) {
-					// 处理思考内容
-					const content = Array.isArray(part.value) ? part.value.join("") : part.value;
-					reasoningParts.push(content);
 				}
 			}
 
@@ -85,18 +79,13 @@ export class OpenaiApi extends CommonApi {
 					content: textParts.join("\n") || undefined,
 				};
 
-				// 添加思考内容（根据配置决定是否包含）
-				if (modelConfig.includeReasoningInRequest && reasoningParts.length > 0) {
-					assistantMessage.reasoning_content = reasoningParts.join("\n");
-				}
-
 				// 添加工具调用
 				if (toolCalls.length > 0) {
 					assistantMessage.tool_calls = toolCalls;
 				}
 
-				// 只有当消息有内容、思考内容或工具调用时才添加
-				if (assistantMessage.content || assistantMessage.reasoning_content || assistantMessage.tool_calls) {
+				// 只有当消息有内容或工具调用时才添加
+				if (assistantMessage.content || assistantMessage.tool_calls) {
 					out.push(assistantMessage);
 				}
 			}
@@ -318,7 +307,7 @@ export class OpenaiApi extends CommonApi {
 	 */
 	async processStreamingResponse(
 		responseBody: ReadableStream<Uint8Array>,
-		progress: Progress<LanguageModelResponsePart2>,
+		progress: Progress<vscode.LanguageModelResponsePart>,
 		token: CancellationToken
 	): Promise<void> {
 		const reader = responseBody.getReader();
@@ -375,7 +364,7 @@ export class OpenaiApi extends CommonApi {
 	 */
 	private async processDelta(
 		delta: Record<string, unknown>,
-		progress: Progress<LanguageModelResponsePart2>
+		progress: Progress<vscode.LanguageModelResponsePart>
 	): Promise<boolean> {
 		let emitted = false;
 		const choice = (delta.choices as Record<string, unknown>[] | undefined)?.[0];
@@ -515,7 +504,7 @@ export class OpenaiApi extends CommonApi {
 	 */
 	private processTextContent(
 		input: string,
-		progress: Progress<LanguageModelResponsePart2>
+		progress: Progress<vscode.LanguageModelResponsePart>
 	): { emittedText: boolean; emittedAny: boolean } {
 		let emittedText = false;
 		let emittedAny = false;
@@ -537,7 +526,7 @@ export class OpenaiApi extends CommonApi {
 	 */
 	private processXmlThinkBlocks(
 		input: string,
-		progress: Progress<LanguageModelResponsePart2>
+		_progress: Progress<vscode.LanguageModelResponsePart>
 	): { emittedAny: boolean } {
 		// If we've already attempted detection and found no THINK_START, skip processing
 		if (this._xmlThinkDetectionAttempted && !this._xmlThinkActive) {
@@ -577,7 +566,6 @@ export class OpenaiApi extends CommonApi {
 				// No end tag found, emit current chunk content as thinking part
 				const thinkContent = data.trim();
 				if (thinkContent) {
-					progress.report(new vscode.LanguageModelThinkingPart(thinkContent, this._currentThinkingId || undefined));
 					emittedAny = true;
 				}
 				data = "";
@@ -587,7 +575,6 @@ export class OpenaiApi extends CommonApi {
 			// Found end tag, emit final thinking part
 			const thinkContent = data.slice(0, endIdx);
 			if (thinkContent) {
-				progress.report(new vscode.LanguageModelThinkingPart(thinkContent, this._currentThinkingId || undefined));
 				emittedAny = true;
 			}
 
