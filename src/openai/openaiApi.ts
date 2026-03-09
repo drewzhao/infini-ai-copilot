@@ -79,12 +79,12 @@ export class OpenaiApi extends CommonApi {
 					content: textParts.join("\n") || undefined,
 				};
 
-				// 添加工具调用
+				// Add tool calls
 				if (toolCalls.length > 0) {
 					assistantMessage.tool_calls = toolCalls;
 				}
 
-				// 只有当消息有内容或工具调用时才添加
+				// Only include assistant messages that contain text or tool calls
 				if (assistantMessage.content || assistantMessage.tool_calls) {
 					out.push(assistantMessage);
 				}
@@ -353,7 +353,7 @@ export class OpenaiApi extends CommonApi {
 		} finally {
 			reader.releaseLock();
 			// If there's an active thinking sequence, end it first
-			this.reportEndThinking(progress);
+			this.reportEndThinking();
 		}
 	}
 
@@ -404,7 +404,7 @@ export class OpenaiApi extends CommonApi {
 					}
 
 					if (extractedText) {
-						this.bufferThinkingContent(extractedText, progress);
+						this.bufferThinkingContent(extractedText);
 						emitted = true;
 					}
 				}
@@ -423,7 +423,7 @@ export class OpenaiApi extends CommonApi {
 					text = maybeThinking;
 				}
 				if (text) {
-					this.bufferThinkingContent(text, progress);
+					this.bufferThinkingContent(text);
 					emitted = true;
 				}
 			}
@@ -435,14 +435,12 @@ export class OpenaiApi extends CommonApi {
 			const content = String(deltaObj.content);
 
 			// Process XML think blocks or text content (mutually exclusive)
-			const xmlRes = this.processXmlThinkBlocks(content, progress);
-			if (xmlRes.emittedAny) {
-				emitted = true;
-			} else {
+			const xmlRes = this.processXmlThinkBlocks(content);
+			if (!xmlRes.hasThinkContent) {
 				// If there's an active thinking sequence, end it first
-				this.reportEndThinking(progress);
+				this.reportEndThinking();
 
-				// Only process text content if no XML think blocks were emitted
+				// Only process text content if no XML think blocks were consumed
 				const res = this.processTextContent(content, progress);
 				if (res.emittedText) {
 					this._hasEmittedAssistantText = true;
@@ -455,7 +453,7 @@ export class OpenaiApi extends CommonApi {
 
 		if (deltaObj?.tool_calls) {
 			// If there's an active thinking sequence, end it first
-			this.reportEndThinking(progress);
+			this.reportEndThinking();
 
 			const toolCalls = deltaObj.tool_calls as Array<Record<string, unknown>>;
 
@@ -524,20 +522,17 @@ export class OpenaiApi extends CommonApi {
 	 * Process streamed text content for XML think blocks and emit thinking parts.
 	 * Returns whether any thinking content was emitted.
 	 */
-	private processXmlThinkBlocks(
-		input: string,
-		_progress: Progress<vscode.LanguageModelResponsePart>
-	): { emittedAny: boolean } {
+	private processXmlThinkBlocks(input: string): { hasThinkContent: boolean } {
 		// If we've already attempted detection and found no THINK_START, skip processing
 		if (this._xmlThinkDetectionAttempted && !this._xmlThinkActive) {
-			return { emittedAny: false };
+			return { hasThinkContent: false };
 		}
 
 		const THINK_START = "<think>";
 		const THINK_END = "</think>";
 
 		let data = input;
-		let emittedAny = false;
+		let hasThinkContent = false;
 
 		while (data.length > 0) {
 			if (!this._xmlThinkActive) {
@@ -566,7 +561,7 @@ export class OpenaiApi extends CommonApi {
 				// No end tag found, emit current chunk content as thinking part
 				const thinkContent = data.trim();
 				if (thinkContent) {
-					emittedAny = true;
+					hasThinkContent = true;
 				}
 				data = "";
 				break;
@@ -575,7 +570,7 @@ export class OpenaiApi extends CommonApi {
 			// Found end tag, emit final thinking part
 			const thinkContent = data.slice(0, endIdx);
 			if (thinkContent) {
-				emittedAny = true;
+				hasThinkContent = true;
 			}
 
 			// Reset state and continue with remaining data
@@ -584,6 +579,6 @@ export class OpenaiApi extends CommonApi {
 			data = data.slice(endIdx + THINK_END.length);
 		}
 
-		return { emittedAny };
+		return { hasThinkContent };
 	}
 }

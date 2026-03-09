@@ -36,12 +36,6 @@ export abstract class CommonApi {
 	// Thinking content state management
 	protected _currentThinkingId: string | null = null;
 
-	/** Buffer for accumulating thinking content before emitting. */
-	protected _thinkingBuffer = "";
-
-	/** Timer for delayed flushing of thinking buffer. */
-	protected _thinkingFlushTimer: NodeJS.Timeout | null = null;
-
 	constructor() {}
 
 	/**
@@ -141,20 +135,12 @@ export abstract class CommonApi {
 
 	/**
 	 * Report to VS Code for ending thinking
-	 * @param progress Progress reporter for parts
 	 */
-	protected reportEndThinking(_progress: Progress<vscode.LanguageModelResponsePart>) {
+	protected reportEndThinking() {
 		if (!this._currentThinkingId) {
 			return;
 		}
-		this.flushThinkingBuffer();
 		this._currentThinkingId = null;
-		// Clear thinking buffer and timer since sequence ended
-		this._thinkingBuffer = "";
-		if (this._thinkingFlushTimer) {
-			clearTimeout(this._thinkingFlushTimer);
-			this._thinkingFlushTimer = null;
-		}
 	}
 
 	/**
@@ -165,41 +151,20 @@ export abstract class CommonApi {
 	}
 
 	/**
-	 * Buffer and schedule a flush for thinking content.
-	 * @param text The thinking text to buffer
-	 * @param progress Progress reporter for parts
+	 * Track that a reasoning/thinking sequence is active in stable mode.
+	 * Thinking content is intentionally not emitted as response parts.
+	 * @param text The thinking text chunk observed in the stream
 	 */
-	protected bufferThinkingContent(text: string, _progress: Progress<vscode.LanguageModelResponsePart>): void {
+	protected bufferThinkingContent(text: string): void {
+		// Stable Marketplace build does not emit thinking parts.
+		// Keep this hook so stream processors can still mark and close thinking spans.
+		if (!text) {
+			return;
+		}
+
 		// Generate thinking ID if not provided by the model
 		if (!this._currentThinkingId) {
 			this._currentThinkingId = this.generateThinkingId();
-		}
-
-		// Append to thinking buffer
-		this._thinkingBuffer += text;
-
-		// Schedule flush with 100ms delay
-		if (!this._thinkingFlushTimer) {
-			this._thinkingFlushTimer = setTimeout(() => {
-				this.flushThinkingBuffer();
-			}, 100);
-		}
-	}
-
-	/**
-	 * Flush the thinking buffer to the progress reporter.
-	 * @param progress Progress reporter for parts.
-	 */
-	protected flushThinkingBuffer(): void {
-		// Always clear existing timer first
-		if (this._thinkingFlushTimer) {
-			clearTimeout(this._thinkingFlushTimer);
-			this._thinkingFlushTimer = null;
-		}
-
-		// Flush current buffer if we have content
-		if (this._thinkingBuffer && this._currentThinkingId) {
-			this._thinkingBuffer = "";
 		}
 	}
 }

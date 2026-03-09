@@ -338,7 +338,7 @@ export class AnthropicApi extends CommonApi {
 		} finally {
 			reader.releaseLock();
 			// If there's an active thinking sequence, end it first
-			this.reportEndThinking(progress);
+			this.reportEndThinking();
 		}
 	}
 
@@ -382,7 +382,7 @@ export class AnthropicApi extends CommonApi {
 			if (chunk.content_block.type === "thinking") {
 				// Start thinking block
 				if (chunk.content_block.thinking) {
-					this.bufferThinkingContent(chunk.content_block.thinking, progress);
+					this.bufferThinkingContent(chunk.content_block.thinking);
 				}
 			} else if (chunk.content_block.type === "tool_use") {
 				// Start tool call block
@@ -409,7 +409,7 @@ export class AnthropicApi extends CommonApi {
 				this._hasEmittedAssistantText = true;
 			} else if (chunk.delta.type === "thinking_delta" && chunk.delta.thinking) {
 				// Buffer thinking content
-				this.bufferThinkingContent(chunk.delta.thinking, progress);
+				this.bufferThinkingContent(chunk.delta.thinking);
 			} else if (chunk.delta.type === "input_json_delta" && chunk.delta.partial_json) {
 				// Handle tool call argument streaming
 				// Find the latest tool call buffer and append partial JSON
@@ -428,7 +428,7 @@ export class AnthropicApi extends CommonApi {
 		} else if (chunk.type === "content_block_stop" || chunk.type === "message_stop") {
 			// End of message - ensure thinking is ended and flush all tool calls
 			await this.flushToolCallBuffers(progress, false);
-			this.reportEndThinking(progress);
+			this.reportEndThinking();
 		}
 	}
 }

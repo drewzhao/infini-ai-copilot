@@ -289,7 +289,7 @@ export class VertexApi extends CommonApi {
 		} finally {
 			reader.releaseLock();
 			// If there's an active thinking sequence, end it first
-			this.reportEndThinking(progress);
+			this.reportEndThinking();
 		}
 	}
 
@@ -321,7 +321,7 @@ export class VertexApi extends CommonApi {
 				this._hasEmittedAssistantText = true;
 			} else if ("thought" in part && part.thought && part.thought.thought) {
 				// Buffer thinking content
-				this.bufferThinkingContent(part.thought.thought, progress);
+				this.bufferThinkingContent(part.thought.thought);
 			} else if ("functionCall" in part && part.functionCall) {
 				// Handle tool call
 				// Emit whitespace hint if first tool call after text
@@ -340,7 +340,7 @@ export class VertexApi extends CommonApi {
 
 		// Check for finish reason to end thinking if present
 		if (candidate.finishReason) {
-			this.reportEndThinking(progress);
+			this.reportEndThinking();
 		}
 	}
 }
