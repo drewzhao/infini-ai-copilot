@@ -77,6 +77,16 @@ You can adjust the following parameters in VS Code Settings:
 - `infiniai.retry`: Request retry policy (enabled, max attempts, interval in ms).
 - `infiniai.delay`: Fixed delay between requests (in milliseconds).
 
+## 🧠 Thinking / Reasoning Parameters
+
+**Status (v0.2.1+)**: Thinking/reasoning parameters are currently **not sent to the API**. The extension recognizes these model configuration options internally (`enable_thinking`, `thinking_budget`, `reasoning_effort`, `thinking`), but the code to include them in API requests is commented out. This means:
+
+- Models that support thinking/reasoning will use their default behavior
+- You cannot currently enable or configure thinking through this extension
+- Thinking content received from models is tracked internally but not displayed in Copilot Chat
+
+If you need thinking capabilities enabled, this would require modifying the extension code in `src/openai/openaiApi.ts` to uncomment the relevant parameter handling.
+
 ## ⌨️ Commands
 
 - `infiniai.setApikey`: Run this command via the Command Palette (`Ctrl+Shift+P`) to set or update your InfiniAI API Key. You will be prompted to choose which plan (Standard or Coding) to configure the key for.
