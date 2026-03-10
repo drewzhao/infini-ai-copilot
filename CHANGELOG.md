@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-03-09
+
+### Changed
+- Migrated from proposed VS Code APIs to stable marketplace APIs.
+- Removed `enabledApiProposals` from `package.json` (was `["chatProvider", "languageModelThinkingPart"]`).
+- Removed `LanguageModelThinkingPart` usage; thinking content is now tracked internally without emitting response parts.
+- Simplified thinking buffer management by removing flush timers and delayed reporting.
+
+### Fixed
+- Updated type definitions to use stable `vscode.LanguageModelResponsePart` instead of proposed `LanguageModelResponsePart2`.
+
 ## [0.2.0] - 2026-02-13
 
 ### Added

@@ -19,7 +19,7 @@
 		"type": "git",
 		"url": "https://github.com/drewzhao/infini-ai-copilot.git"
 	},
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"engines": {
 		"vscode": "^1.104.0"
 	},
@@ -41,10 +41,7 @@
 		"url": "https://github.com/drewzhao/infini-ai-copilot/issues"
 	},
 	"license": "MIT",
-	"enabledApiProposals": [
-		"chatProvider",
-		"languageModelThinkingPart"
-	],
+	"enabledApiProposals": [],
 	"activationEvents": [
 		"onStartupFinished",
 		"onCommand:infiniai.setApikey"

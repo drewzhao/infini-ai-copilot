@@ -77,6 +77,16 @@ npm run build
 - `infiniai.retry`: 请求重试策略（是否启用、最大尝试次数、间隔毫秒数）。
 - `infiniai.delay`: 请求之间的固定延迟（毫秒）。
 
+## 🧠 思考 / 推理参数
+
+**状态 (v0.2.1+)**: 思考/推理参数目前**不会发送到 API**。扩展在内部识别这些模型配置选项（`enable_thinking`、`thinking_budget`、`reasoning_effort`、`thinking`），但将这些参数包含在 API 请求中的代码已被注释掉。这意味着：
+
+- 支持思考/推理的模型将使用其默认行为
+- 您目前无法通过此扩展启用或配置思考功能
+- 从模型接收到的思考内容会在内部跟踪，但不会显示在 Copilot Chat 中
+
+如果您需要启用思考功能，需要修改扩展代码 `src/openai/openaiApi.ts` 以取消相关参数处理的注释。
+
 ## ⌨️ 命令
 
 - `infiniai.setApikey`: 通过命令面板 (`Ctrl+Shift+P`) 运行此命令，可随时设置或更新您的 InfiniAI API Key。系统会先提示您选择要配置哪个方案（标准版或 Coding Plan）的密钥。

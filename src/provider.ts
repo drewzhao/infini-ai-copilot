@@ -5,7 +5,6 @@ import {
   LanguageModelChatProvider,
   LanguageModelChatRequestMessage,
   ProvideLanguageModelChatResponseOptions,
-  LanguageModelResponsePart2,
   Progress,
 } from "vscode";
 
@@ -103,9 +102,29 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider {
     if (modelId.includes('16k')) return 16000;
     if (modelId.includes('8k')) return 8000;
     if (modelId.includes('4k')) return 4000;
-    // Default for various models
-    if (modelId.includes('qwen3-235b') || modelId.includes('deepseek-v3')) return 64000;
-    if (modelId.includes('qwen') || modelId.includes('glm')) return 32000;
+
+    // Provider/model-specific overrides.
+    if (modelId.includes('qwen3') || modelId.includes('deepseek-v3')) return 128000;
+
+    if (modelId.includes('glm-4.5v')) return 64000;
+
+    // Keep -v variants before base variants to avoid accidental matches.
+    if (modelId.includes('glm-4.6v') || modelId.includes('glm-4.5-air') || modelId.includes('glm-4.5')) {
+      return 128000;
+    }
+
+    if (modelId.includes('glm-4.6') || modelId.includes('glm-4.7')) return 200000;
+    if (modelId.includes('glm-5')) return 198000;
+    if (modelId.includes('minimax-m')) return 200000;
+
+    if (
+      modelId.includes('kimi-k2.5') ||
+      modelId.includes('kimi-k2-instruct') ||
+      modelId.includes('kimi-k2-thinking')
+    ) {
+      return 256000;
+    }
+
     return undefined;
   }
 
@@ -161,10 +180,9 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider {
       }
     }
 
-    const trackingProgress: Progress<LanguageModelResponsePart2> = {
+    const trackingProgress: Progress<vscode.LanguageModelResponsePart> = {
       report: (part) => {
         try {
-          // @ts-expect-error not error
           progress.report(part);
         } catch (e) {
           const msg = `[InfiniAI Model Provider] Progress.report failed modelId=${model.id} error=${e instanceof Error ? e.message : String(e)}`;
