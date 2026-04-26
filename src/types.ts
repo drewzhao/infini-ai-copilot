@@ -109,6 +109,17 @@ export interface InfiniAIModelInfo {
 	object: string;
 	created: number;
 	owned_by: string;
+	family?: string;
+	apiMode?: ModelTransport | "ollama";
+	baseUrl?: string;
+	endpointKind?: ModelEndpointKind;
+	context_length?: number;
+	max_tokens?: number;
+	architecture?: HFArchitecture;
+	input_modalities?: string[];
+	modalities?: string[];
+	vision?: boolean;
+	extra?: Record<string, unknown>;
 }
 
 /**
@@ -142,4 +153,21 @@ export interface RetryConfig {
 	max_attempts?: number;
 	interval_ms?: number;
 	status_codes?: number[];
+}
+
+export type ModelTransport = "openai" | "anthropic" | "vertex";
+
+export type ModelEndpointKind = "chat.completions" | "messages" | "generateContent";
+
+export interface ModelRouteConfig {
+	pattern: string;
+	transport: ModelTransport;
+	baseUrl?: string;
+}
+
+export interface ModelRoute {
+	transport: ModelTransport;
+	endpointKind: ModelEndpointKind;
+	baseUrl: string;
+	source: "user" | "metadata" | "catalog" | "heuristic";
 }

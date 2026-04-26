@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
 import { InfiniAIChatModelProvider } from "./provider";
 import { initStatusBar } from "./statusBar";
+import { registerInfiniAIChatParticipant } from "./participant";
+import { logInfo } from "./utils";
 
 export function activate(context: vscode.ExtensionContext) {
 	// Build a descriptive User-Agent to help quantify API usage
@@ -12,14 +14,28 @@ export function activate(context: vscode.ExtensionContext) {
 
 	const tokenCountStatusBarItem: vscode.StatusBarItem = initStatusBar(context);
 	// Create an output channel for logging and add it to subscriptions so it is disposed with the extension
-	const output = vscode.window.createOutputChannel("InfiniAI");
+	const output = vscode.window.createOutputChannel("InfiniAI", { log: true });
 	context.subscriptions.push(output);
 
 	const provider = new InfiniAIChatModelProvider(context.secrets, ua, tokenCountStatusBarItem, output);
 	// Register the InfiniAI provider under the vendor id used in package.json
-	vscode.lm.registerLanguageModelChatProvider("infiniai", provider);
+	context.subscriptions.push(
+		provider,
+		vscode.lm.registerLanguageModelChatProvider("infiniai", provider),
+		registerInfiniAIChatParticipant(provider, output),
+		vscode.workspace.onDidChangeConfiguration((event) => {
+			if (event.affectsConfiguration("infiniai")) {
+				provider.refreshModels();
+			}
+		}),
+		context.secrets.onDidChange((event) => {
+			if (event.key === "infiniai.apiKey" || event.key === "infiniai.codingApiKey") {
+				provider.refreshModels();
+			}
+		})
+	);
 
-	output.appendLine("InfiniAI Chat Model Provider activated.");
+	logInfo(output, "InfiniAI Chat Model Provider activated.");
 
 	// Management command to configure API key (with plan picker)
 	context.subscriptions.push(
@@ -58,10 +74,12 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 			if (!apiKey.trim()) {
 				await context.secrets.delete(secretKey);
+				provider.refreshModels();
 				vscode.window.showInformationMessage(`InfiniAI ${planLabel} API key cleared.`);
 				return;
 			}
 			await context.secrets.store(secretKey, apiKey.trim());
+			provider.refreshModels();
 			vscode.window.showInformationMessage(`InfiniAI ${planLabel} API key saved.`);
 		})
 	);

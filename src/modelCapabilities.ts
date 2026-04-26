@@ -89,10 +89,5 @@ export function resolveImageInputCapability(model: ModelLike, config: ImageInput
 	}
 
 	// 3) Fallback heuristics (best-effort)
-	return (
-		modelId.includes("-vision") ||
-		modelId.includes("-vl-") ||
-		(modelId.startsWith("glm") && /\dv$/.test(modelId))
-	);
+	return modelId.includes("-vision") || modelId.includes("-vl-") || (modelId.startsWith("glm") && /\dv$/.test(modelId));
 }
-

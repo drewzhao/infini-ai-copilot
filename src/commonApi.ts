@@ -8,9 +8,9 @@ import {
 import * as vscode from "vscode";
 
 import type { OpenAIChatMessage } from "./openai/openaiTypes";
-import type { AnthropicMessage, AnthropicRequestBody } from "./anthropic/anthropicTypes";
-import type { VertexContent, VertexRequestBody } from "./vertex/vertexTypes";
-import { HFModelItem, InfiniAIModelInfo } from "./types";
+import type { AnthropicMessage } from "./anthropic/anthropicTypes";
+import type { VertexContent } from "./vertex/vertexTypes";
+import { InfiniAIModelInfo } from "./types";
 import { tryParseJSONObject } from "./utils";
 
 export abstract class CommonApi {
@@ -116,13 +116,10 @@ export abstract class CommonApi {
 			const parsed = tryParseJSONObject(buf.args);
 			if (!parsed.ok) {
 				if (throwOnInvalid) {
-					console.error("[InfiniAI Model Provider] Invalid JSON for tool call", {
-						idx,
-						snippet: (buf.args || "").slice(0, 200),
-					});
 					throw new Error("Invalid JSON for tool call");
 				}
 				// When not throwing (e.g. on [DONE]), drop silently to reduce noise
+				this._toolCallBuffers.delete(idx);
 				continue;
 			}
 			const id = buf.id ?? `call_${Math.random().toString(36).slice(2, 10)}`;

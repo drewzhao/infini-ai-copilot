@@ -6,7 +6,7 @@ import {
 	Progress,
 } from "vscode";
 
-import type { HFModelItem, ReasoningConfig, InfiniAIModelInfo } from "../types";
+import type { InfiniAIModelInfo } from "../types";
 
 import type {
 	OpenAIChatMessage,
@@ -27,6 +27,8 @@ import {
 } from "../utils";
 
 import { CommonApi } from "../commonApi";
+import { readSseEvents } from "../sse";
+import { StreamParseError, sanitizeForLog } from "../utils";
 
 export class OpenaiApi extends CommonApi {
 	constructor() {
@@ -41,7 +43,7 @@ export class OpenaiApi extends CommonApi {
 	 */
 	convertMessages(
 		messages: readonly LanguageModelChatRequestMessage[],
-		modelConfig: { includeReasoningInRequest: boolean; }
+		_modelConfig: { includeReasoningInRequest: boolean }
 	): OpenAIChatMessage[] {
 		const out: OpenAIChatMessage[] = [];
 		for (const m of messages) {
@@ -99,8 +101,6 @@ export class OpenaiApi extends CommonApi {
 			if (textParts.length > 0 && role !== "assistant") {
 				if (role === "user") {
 					if (imageParts.length > 0) {
-						// 多模态消息：包含图片、文本
-						console.log(`[InfiniAI Debug] Building multimodal message with ${imageParts.length} image(s)`);
 						const contentArray: ChatMessageContent[] = [];
 						contentArray.push({
 							type: "text",
@@ -110,7 +110,6 @@ export class OpenaiApi extends CommonApi {
 						// 添加图片内容
 						for (const imagePart of imageParts) {
 							const dataUrl = createDataUrl(imagePart);
-							console.log(`[InfiniAI Debug] Image data URL prefix: ${dataUrl.substring(0, 50)}...`);
 							contentArray.push({
 								type: "image_url",
 								image_url: {
@@ -118,9 +117,6 @@ export class OpenaiApi extends CommonApi {
 								},
 							});
 						}
-						console.log(`[InfiniAI Debug] Final message content array:`, JSON.stringify(contentArray.map(c =>
-							c.type === 'image_url' ? { type: 'image_url', url_length: c.image_url?.url.length } : c
-						), null, 2));
 						out.push({ role, content: contentArray });
 					} else {
 						// 纯文本消息
@@ -184,7 +180,7 @@ export class OpenaiApi extends CommonApi {
 	prepareRequestBody(
 		rb: any,
 		um: InfiniAIModelInfo | undefined,
-		options: ProvideLanguageModelChatResponseOptions,
+		options: ProvideLanguageModelChatResponseOptions
 	): any {
 		const orb = rb as Record<string, unknown>;
 		// // temperature
@@ -310,48 +306,27 @@ export class OpenaiApi extends CommonApi {
 		progress: Progress<vscode.LanguageModelResponsePart>,
 		token: CancellationToken
 	): Promise<void> {
-		const reader = responseBody.getReader();
-		const decoder = new TextDecoder();
-		let buffer = "";
-
 		try {
-			while (true) {
-				if (token.isCancellationRequested) {
-					break;
+			for await (const event of readSseEvents(responseBody, token)) {
+				const data = event.data.trim();
+				if (!data) {
+					continue;
 				}
-
-				const { done, value } = await reader.read();
-				if (done) {
-					break;
+				if (data === "[DONE]") {
+					await this.flushToolCallBuffers(progress, /*throwOnInvalid*/ false);
+					continue;
 				}
-
-				buffer += decoder.decode(value, { stream: true });
-				const lines = buffer.split("\n");
-				buffer = lines.pop() || "";
-
-				for (const line of lines) {
-					if (!line.startsWith("data:")) {
-						continue;
-					}
-					const data = line.slice(5).trim();
-					if (data === "[DONE]") {
-						// Do not throw on [DONE]; any incomplete/empty buffers are ignored.
-						await this.flushToolCallBuffers(progress, /*throwOnInvalid*/ false);
-						continue;
-					}
-
-					try {
-						const parsed = JSON.parse(data);
-						// console.debug("[InfiniAI Model Provider] data:", JSON.stringify(parsed));
-
-						await this.processDelta(parsed, progress);
-					} catch {
-						// Silently ignore malformed SSE lines temporarily
-					}
+				try {
+					const parsed = JSON.parse(data);
+					await this.processDelta(parsed, progress);
+				} catch (err) {
+					throw new StreamParseError(
+						`OpenAI stream parse failed: ${sanitizeForLog(err instanceof Error ? err.message : String(err))}`
+					);
 				}
 			}
 		} finally {
-			reader.releaseLock();
+			await this.flushToolCallBuffers(progress, /*throwOnInvalid*/ false);
 			// If there's an active thinking sequence, end it first
 			this.reportEndThinking();
 		}
@@ -427,8 +402,8 @@ export class OpenaiApi extends CommonApi {
 					emitted = true;
 				}
 			}
-		} catch (e) {
-			console.error("[InfiniAI Model Provider] Failed to process thinking/reasoning_details:", e);
+		} catch {
+			// Reasoning metadata is optional and provider-specific; ignore malformed detail chunks.
 		}
 
 		if (deltaObj?.content) {

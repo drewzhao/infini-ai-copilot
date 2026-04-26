@@ -6,7 +6,7 @@ import {
 	Progress,
 } from "vscode";
 
-import type { HFModelItem, InfiniAIModelInfo } from "../types";
+import type { InfiniAIModelInfo } from "../types";
 
 import type {
 	VertexRequestBody,
@@ -20,6 +20,8 @@ import type {
 import { isImageMimeType, isToolResultPart, collectToolResultText, convertToolsToOpenAI, mapRole } from "../utils";
 
 import { CommonApi } from "../commonApi";
+import { readSseEvents } from "../sse";
+import { StreamParseError, sanitizeForLog } from "../utils";
 
 export class VertexApi extends CommonApi {
 	private _systemContent: string | undefined;
@@ -128,8 +130,7 @@ export class VertexApi extends CommonApi {
 					parts.push(toolResult);
 				}
 			} else if (toolResults.length > 0) {
-				// If tool results appear in non-user messages, log warning
-				console.warn("[Vertex Provider] Tool results found in non-user message, ignoring");
+				// Tool results in non-user messages are ignored by Vertex.
 			}
 
 			// Only add message if we have parts
@@ -140,8 +141,6 @@ export class VertexApi extends CommonApi {
 				});
 			}
 		}
-
-		console.info(out);
 
 		return out;
 	}
@@ -244,50 +243,27 @@ export class VertexApi extends CommonApi {
 		progress: Progress<vscode.LanguageModelResponsePart>,
 		token: CancellationToken
 	): Promise<void> {
-		const reader = responseBody.getReader();
-		const decoder = new TextDecoder();
-		let buffer = "";
-
 		try {
-			while (true) {
-				if (token.isCancellationRequested) {
-					break;
+			for await (const event of readSseEvents(responseBody, token)) {
+				const data = event.data.trim();
+				if (!data) {
+					continue;
 				}
-
-				const { done, value } = await reader.read();
-				if (done) {
-					break;
+				if (data === "[DONE]") {
+					await this.flushToolCallBuffers(progress, /*throwOnInvalid*/ false);
+					continue;
 				}
-
-				buffer += decoder.decode(value, { stream: true });
-				const lines = buffer.split("\n");
-				buffer = lines.pop() || "";
-
-				for (const line of lines) {
-					if (line.trim() === "") {
-						continue;
-					}
-					if (!line.startsWith("data: ")) {
-						continue;
-					}
-
-					const data = line.slice(6);
-					if (data === "[DONE]") {
-						// Flush any incomplete tool calls
-						await this.flushToolCallBuffers(progress, /*throwOnInvalid*/ false);
-						continue;
-					}
-
-					try {
-						const chunk: VertexStreamChunk = JSON.parse(data);
-						await this.processVertexChunk(chunk, progress);
-					} catch (e) {
-						console.error("[Vertex Provider] Failed to parse SSE chunk:", e, "data:", data);
-					}
+				try {
+					const chunk: VertexStreamChunk = JSON.parse(data);
+					await this.processVertexChunk(chunk, progress);
+				} catch (err) {
+					throw new StreamParseError(
+						`Vertex stream parse failed: ${sanitizeForLog(err instanceof Error ? err.message : String(err))}`
+					);
 				}
 			}
 		} finally {
-			reader.releaseLock();
+			await this.flushToolCallBuffers(progress, /*throwOnInvalid*/ false);
 			// If there's an active thinking sequence, end it first
 			this.reportEndThinking();
 		}
