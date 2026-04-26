@@ -122,6 +122,47 @@ npm run build
 4. 检查 `infiniai.modelDiscoveryUrl` 和路由覆盖配置。
 5. 执行 `Developer: Reload Window` 后重试模型发现。
 
+## 故障排查
+
+### 从旧版本升级
+
+VS Code 可能会在磁盘上保留旧扩展版本目录，但它会按扩展标识扫描已安装扩展，并加载最新的有效版本。旧的 proposed API 文件或旧源码文件不会影响此版本，因为 VSIX 只打包 `out/` 中的编译后运行时代码。
+
+升级后仍会保留的 VS Code 状态可能影响行为：
+
+- Secret Storage 中的 API Key 会保留：`infiniai.apiKey` 和 `infiniai.codingApiKey`。
+- 用户/工作区设置会保留，包括 `infiniai.plan`、基础 URL、`infiniai.modelDiscoveryUrl` 和 `infiniai.modelRoutes`。
+- 已打开窗口可能继续运行旧的扩展主机，直到重新加载窗口。
+
+升级后建议运行：
+
+```text
+@infiniai /doctor
+@infiniai /models refresh
+```
+
+如果诊断结果显示了意外的端点、方案或路由覆盖，请重置对应的 `infiniai.*` 设置并重新加载窗口。
+
+### 没有模型出现
+
+按以下顺序检查：
+
+1. 运行 `InfiniAI: Set InfiniAI API Key`，确认 API Key 已保存到当前激活的方案。
+2. 运行 `@infiniai /doctor`，检查当前方案、密钥是否存在、模型发现端点和最近错误。
+3. 清空 `infiniai.modelDiscoveryUrl`，除非您明确需要自定义模型发现端点。
+4. 临时清空 `infiniai.modelRoutes`，排除错误路由覆盖的影响。
+5. 执行 `Developer: Reload Window`，然后运行 `@infiniai /models refresh`。
+
+### Anthropic 或 Vertex 路由请求失败
+
+路由覆盖会直接决定实际请求形态。如果路由被强制为 `anthropic`，扩展会发送 `/v1/messages`；如果路由被强制为 `vertex`，扩展会发送 `:streamGenerateContent`。请确认配置的 `baseUrl` 与选择的 transport 匹配。
+
+快速隔离问题时，可以删除 `infiniai.modelRoutes` 中匹配的项目，让扩展回退到模型元数据或 OpenAI 兼容路由。
+
+### 需要共享日志
+
+请使用 `InfiniAI` 输出通道，但共享前仍应检查并脱敏。日志设计上会避免记录 API Key、提示词、工具结果、图片数据、认证头和完整响应体，但仍建议检查是否包含组织内部端点名或模型 ID。
+
 ## 贡献
 
 欢迎提交 issue 和 pull request：

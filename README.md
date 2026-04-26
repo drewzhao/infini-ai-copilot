@@ -122,6 +122,47 @@ If InfiniAI models do not appear:
 4. Check `infiniai.modelDiscoveryUrl` and route overrides.
 5. Run `Developer: Reload Window` and retry model discovery.
 
+## Troubleshooting
+
+### Upgrade From An Older Version
+
+VS Code may leave older extension version folders on disk, but it scans installed extensions by identifier and loads the latest valid version. Old proposed API files or old source files should not affect this release because the VSIX packages only compiled runtime files from `out/`.
+
+Persistent VS Code state can still affect upgraded installs:
+
+- API keys in Secret Storage are preserved: `infiniai.apiKey` and `infiniai.codingApiKey`.
+- User/workspace settings are preserved, including `infiniai.plan`, base URLs, `infiniai.modelDiscoveryUrl`, and `infiniai.modelRoutes`.
+- Already-open windows may keep the old extension host running until reload.
+
+After upgrading, run:
+
+```text
+@infiniai /doctor
+@infiniai /models refresh
+```
+
+If the diagnostics show an unexpected endpoint, plan, or route override, reset the corresponding `infiniai.*` setting and reload the window.
+
+### No Models Appear
+
+Check these in order:
+
+1. Run `InfiniAI: Set InfiniAI API Key` and confirm the key is stored for the active plan.
+2. Run `@infiniai /doctor` and verify the active plan, key presence, discovery endpoint, and last error.
+3. Clear `infiniai.modelDiscoveryUrl` unless you intentionally use a custom discovery endpoint.
+4. Temporarily clear `infiniai.modelRoutes` to rule out a bad route override.
+5. Run `Developer: Reload Window`, then `@infiniai /models refresh`.
+
+### Requests Fail For Anthropic Or Vertex Routes
+
+Route overrides are exact product behavior. If a route is forced to `anthropic`, the extension sends `/v1/messages`; if it is forced to `vertex`, the extension sends `:streamGenerateContent`. Make sure the configured `baseUrl` matches the selected transport.
+
+For a quick isolation test, remove the matching item from `infiniai.modelRoutes` and let the extension fall back to model metadata or the OpenAI-compatible route.
+
+### Logs Need To Be Shared
+
+Use the `InfiniAI` output channel, but redact before sharing. Logs are designed to avoid API keys, prompts, tool results, image data, auth headers, and full response bodies. Still review them for organization-specific endpoint names or model IDs.
+
 ## Contributing
 
 Issues and pull requests are welcome:
