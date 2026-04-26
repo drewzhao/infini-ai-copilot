@@ -8,6 +8,7 @@ export function initStatusBar(context: vscode.ExtensionContext): vscode.StatusBa
 	tokenCountStatusBarItem.name = "Token Count";
 	tokenCountStatusBarItem.text = "$(symbol-numeric) Ready";
 	tokenCountStatusBarItem.tooltip = "Current model token usage - Click to Manage ApiKeys";
+	tokenCountStatusBarItem.command = "infiniai.setApikey";
 	context.subscriptions.push(tokenCountStatusBarItem);
 	// Show the status bar item initially
 	tokenCountStatusBarItem.show();
@@ -58,14 +59,18 @@ export async function updateContextStatusBar(
 ): Promise<void> {
 	// Create a single CancellationTokenSource for all token count operations
 	const cancellationTokenSource = new CancellationTokenSource();
+	let totalTokenCount = 0;
+	try {
+		// Calculate tokens for all messages in parallel
+		const tokenCountPromises = messages.map((message) =>
+			prepareTokenCount(model, message, cancellationTokenSource.token)
+		);
 
-	// Calculate tokens for all messages in parallel
-	const tokenCountPromises = messages.map((message) =>
-		prepareTokenCount(model, message, cancellationTokenSource.token)
-	);
-
-	const tokenCounts = await Promise.all(tokenCountPromises);
-	const totalTokenCount = tokenCounts.reduce((sum, count) => sum + count, 0);
+		const tokenCounts = await Promise.all(tokenCountPromises);
+		totalTokenCount = tokenCounts.reduce((sum, count) => sum + count, 0);
+	} finally {
+		cancellationTokenSource.dispose();
+	}
 
 	// Update status bar with token count and model context window
 	const maxTokens = model.maxInputTokens + model.maxOutputTokens;

@@ -2,7 +2,7 @@
 	"name": "infiniai-copilot",
 	"publisher": "drewzhao",
 	"displayName": "InfiniAI Provider for Copilot",
-	"description": "An extension that InfiniAI API Providers into GitHub Copilot Chat",
+	"description": "InfiniAI language model provider and diagnostics participant for VS Code",
 	"icon": "assets/logo.png",
 	"keywords": [
 		"ai",
@@ -19,13 +19,10 @@
 		"type": "git",
 		"url": "https://github.com/drewzhao/infini-ai-copilot.git"
 	},
-	"version": "0.2.1",
+	"version": "0.4.0",
 	"engines": {
-		"vscode": "^1.104.0"
+		"vscode": "^1.117.0"
 	},
-	"extensionDependencies": [
-		"github.copilot-chat"
-	],
 	"categories": [
 		"AI",
 		"Chat"
@@ -41,9 +38,7 @@
 		"url": "https://github.com/drewzhao/infini-ai-copilot/issues"
 	},
 	"license": "MIT",
-	"enabledApiProposals": [],
 	"activationEvents": [
-		"onStartupFinished",
 		"onCommand:infiniai.setApikey"
 	],
 	"contributes": {
@@ -57,11 +52,33 @@
 		"commands": [
 			{
 				"command": "infiniai.setApikey",
-				"title": "InfiniAI: Set InfiniAI Apikey"
+				"title": "InfiniAI: Set InfiniAI API Key"
+			}
+		],
+		"chatParticipants": [
+			{
+				"id": "infiniai",
+				"name": "infiniai",
+				"fullName": "InfiniAI",
+				"description": "Diagnose and test InfiniAI language model integration",
+				"commands": [
+					{
+						"name": "doctor",
+						"description": "Check InfiniAI configuration and provider health"
+					},
+					{
+						"name": "models",
+						"description": "List discovered InfiniAI models and capabilities"
+					},
+					{
+						"name": "test",
+						"description": "Run a minimal test request against the selected InfiniAI route"
+					}
+				]
 			}
 		],
 		"configuration": {
-			"title": "InfiniAI Compatible Copilot",
+			"title": "InfiniAI Provider for VS Code",
 			"properties": {
 				"infiniai.plan": {
 					"type": "string",
@@ -112,7 +129,7 @@
 							"type": "number",
 							"default": 3,
 							"minimum": 1,
-							"description": "Maximum number of retry attempts. Default is 3."
+							"description": "Maximum total number of attempts, including the first request. Default is 3."
 						},
 						"interval_ms": {
 							"type": "number",
@@ -125,16 +142,55 @@
 							"items": {
 								"type": "number"
 							},
-							"description": "Additional HTTP status codes that will be merged. Default is [429, 500, 502, 503, 504]."
+							"description": "Additional HTTP status codes to merge with the default retryable list [408, 429, 500, 502, 503, 504]."
 						}
 					},
-					"description": "Retry configuration for handling api errors like [429, 500, 502, 503, 504]."
+					"description": "Retry configuration for retryable network failures and HTTP [408, 429, 500, 502, 503, 504]."
 				},
 				"infiniai.delay": {
 					"type": "number",
 					"default": 0,
 					"minimum": 0,
 					"description": "Fixed delay in milliseconds between consecutive requests. Default is 0 (no delay)."
+				},
+				"infiniai.modelDiscoveryUrl": {
+					"type": "string",
+					"default": "",
+					"description": "Optional absolute URL for model discovery. Empty uses the selected InfiniAI plan default."
+				},
+				"infiniai.modelCacheTtlMs": {
+					"type": "number",
+					"default": 300000,
+					"minimum": 0,
+					"description": "How long to cache discovered models. Set 0 to refresh every request."
+				},
+				"infiniai.modelRoutes": {
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "object",
+						"properties": {
+							"pattern": {
+								"type": "string"
+							},
+							"transport": {
+								"type": "string",
+								"enum": [
+									"openai",
+									"anthropic",
+									"vertex"
+								]
+							},
+							"baseUrl": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"pattern",
+							"transport"
+						]
+					},
+					"description": "Route matching overrides for model transports. The first matching pattern wins."
 				},
 				"infiniai.imageInputModels": {
 					"type": "array",
@@ -158,9 +214,8 @@
 	"main": "./out/extension.js",
 	"scripts": {
 		"vscode:prepublish": "npm run compile",
-		"download-api": "dts dev && mv vscode.proposed.*.ts src",
 		"compile": "tsc -p ./",
-		"lint": "eslint",
+		"lint": "eslint \"src/**/*.ts\"",
 		"format": "prettier --write .",
 		"watch": "tsc -watch -p ./",
 		"test": "npm run compile && mocha \"out/**/*.test.js\"",
@@ -171,8 +226,7 @@
 		"@stylistic/eslint-plugin": "^2.9.0",
 		"@types/mocha": "^10.0.6",
 		"@types/node": "^22",
-		"@types/vscode": "^1.100.0",
-		"@vscode/dts": "^0.4.1",
+		"@types/vscode": "^1.116.0",
 		"@vscode/test-cli": "^0.0.11",
 		"@vscode/test-electron": "^2.5.2",
 		"@vscode/vsce": "^3.7.1",

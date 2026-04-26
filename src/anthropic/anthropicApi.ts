@@ -6,7 +6,7 @@ import {
 	Progress,
 } from "vscode";
 
-import type { HFModelItem, InfiniAIModelInfo } from "../types";
+import type { InfiniAIModelInfo } from "../types";
 
 import type {
 	AnthropicMessage,
@@ -20,6 +20,8 @@ import type {
 import { isImageMimeType, isToolResultPart, collectToolResultText, convertToolsToOpenAI, mapRole } from "../utils";
 
 import { CommonApi } from "../commonApi";
+import { readSseEvents } from "../sse";
+import { ProviderProtocolError, StreamParseError, sanitizeForLog } from "../utils";
 
 export class AnthropicApi extends CommonApi {
 	private _systemContent: string | undefined;
@@ -36,7 +38,7 @@ export class AnthropicApi extends CommonApi {
 	 */
 	convertMessages(
 		messages: readonly LanguageModelChatRequestMessage[],
-		modelConfig: { includeReasoningInRequest: boolean; supportParameters: string; }
+		modelConfig: { includeReasoningInRequest: boolean; supportParameters: string }
 	): AnthropicMessage[] {
 		const out: AnthropicMessage[] = [];
 
@@ -127,8 +129,7 @@ export class AnthropicApi extends CommonApi {
 					contentBlocks.push(toolResult);
 				}
 			} else if (toolResults.length > 0) {
-				// If tool results appear in non-user messages, log warning
-				console.warn("[Anthropic Provider] Tool results found in non-user message, ignoring");
+				// Tool results in non-user messages are ignored by Anthropic.
 			}
 
 			// Only add message if we have content blocks
@@ -156,7 +157,7 @@ export class AnthropicApi extends CommonApi {
 
 			// 策略2：缓存包含大量文本内容的消息（如代码上下文）
 			const totalTextLength = msg.content
-				.filter(block => block.type === "text")
+				.filter((block) => block.type === "text")
 				.reduce((sum, block) => sum + ((block as any).text?.length || 0), 0);
 			const shouldCacheLongContent = totalTextLength > 1024;
 
@@ -291,52 +292,30 @@ export class AnthropicApi extends CommonApi {
 		progress: Progress<vscode.LanguageModelResponsePart>,
 		token: CancellationToken
 	): Promise<void> {
-		const reader = responseBody.getReader();
-		const decoder = new TextDecoder();
-		let buffer = "";
-
 		try {
-			while (true) {
-				if (token.isCancellationRequested) {
-					break;
+			for await (const event of readSseEvents(responseBody, token)) {
+				const data = event.data.trim();
+				if (!data) {
+					continue;
 				}
-
-				const { done, value } = await reader.read();
-				if (done) {
-					break;
+				if (data === "[DONE]") {
+					await this.flushToolCallBuffers(progress, /*throwOnInvalid*/ false);
+					continue;
 				}
-
-				buffer += decoder.decode(value, { stream: true });
-				const lines = buffer.split("\n");
-				buffer = lines.pop() || "";
-
-				for (const line of lines) {
-					if (line.trim() === "") {
-						continue;
+				try {
+					const chunk: AnthropicStreamChunk = JSON.parse(data);
+					await this.processAnthropicChunk(chunk, progress);
+				} catch (err) {
+					if (err instanceof ProviderProtocolError) {
+						throw err;
 					}
-					if (!line.startsWith("data: ")) {
-						continue;
-					}
-
-					const data = line.slice(6);
-					if (data === "[DONE]") {
-						// Do not throw on [DONE]; any incomplete/empty buffers are ignored.
-						await this.flushToolCallBuffers(progress, /*throwOnInvalid*/ false);
-						continue;
-					}
-
-					try {
-						const chunk: AnthropicStreamChunk = JSON.parse(data);
-						// console.debug("[InfiniAI Model Provider] data:", JSON.stringify(chunk));
-
-						await this.processAnthropicChunk(chunk, progress);
-					} catch (e) {
-						console.error("[Anthropic Provider] Failed to parse SSE chunk:", e, "data:", data);
-					}
+					throw new StreamParseError(
+						`Anthropic stream parse failed: ${sanitizeForLog(err instanceof Error ? err.message : String(err))}`
+					);
 				}
 			}
 		} finally {
-			reader.releaseLock();
+			await this.flushToolCallBuffers(progress, /*throwOnInvalid*/ false);
 			// If there's an active thinking sequence, end it first
 			this.reportEndThinking();
 		}
@@ -360,9 +339,7 @@ export class AnthropicApi extends CommonApi {
 		if (chunk.type === "error") {
 			const errorType = chunk.error?.type || "unknown_error";
 			const errorMessage = chunk.error?.message || "Anthropic API streaming error";
-			console.error(`[Anthropic Provider] Streaming error: ${errorType} - ${errorMessage}`);
-			// We could throw here, but for now just log and continue
-			return;
+			throw new ProviderProtocolError(`Anthropic stream error: ${errorType} - ${errorMessage}`);
 		}
 
 		if (chunk.type === "message_start" && chunk.message) {

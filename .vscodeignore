@@ -3,9 +3,15 @@
 src/**
 .gitignore
 .yarnrc
+.prettierignore
+eslint.config.mjs
 webpack.config.js
 vsc-extension-quickstart.md
 **/tsconfig.json
 **/.eslintrc.json
 **/*.map
 **/*.ts
+**/*.test.js
+**/*.test.js.map
+scripts/**
+*.vsix

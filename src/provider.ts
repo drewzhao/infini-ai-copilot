@@ -1,329 +1,652 @@
 import * as vscode from "vscode";
 import {
-  CancellationToken,
-  LanguageModelChatInformation,
-  LanguageModelChatProvider,
-  LanguageModelChatRequestMessage,
-  ProvideLanguageModelChatResponseOptions,
-  Progress,
+	CancellationToken,
+	LanguageModelChatInformation,
+	LanguageModelChatProvider,
+	LanguageModelChatRequestMessage,
+	ProvideLanguageModelChatResponseOptions,
+	Progress,
 } from "vscode";
 
-import { createRetryConfig, ensureApiKey, executeWithRetry, fetchModels, getActivePlan } from "./utils";
 import { AnthropicApi } from "./anthropic/anthropicApi";
 import { AnthropicRequestBody } from "./anthropic/anthropicTypes";
+import { OpenaiApi } from "./openai/openaiApi";
+import { prepareTokenCount } from "./provideToken";
+import { resolveModelRoute } from "./route";
+import { updateContextStatusBar } from "./statusBar";
+import { InfiniAIModelInfo, ModelRoute, ModelRouteConfig } from "./types";
+import {
+	cancellableDelay,
+	createRetryConfig,
+	ensureApiKey,
+	executeWithRetry,
+	fetchModels,
+	fetchWithCancellation,
+	getActivePlan,
+	InfiniAILogger,
+	logDebug,
+	logError,
+	logInfo,
+	logWarn,
+	readHttpErrorResponse,
+	sanitizeForLog,
+} from "./utils";
 import { VertexApi } from "./vertex/vertexApi";
 import { VertexRequestBody } from "./vertex/vertexTypes";
-import { prepareTokenCount } from "./provideToken";
-import { updateContextStatusBar } from "./statusBar";
-import { OpenaiApi } from "./openai/openaiApi";
-import { InfiniAIModelInfo } from "./types";
 import { resolveImageInputCapability } from "./modelCapabilities";
-
+import { parseModelRouteConfigs } from "./route";
 
 const DEFAULT_CONTEXT_LENGTH = 128000;
 const DEFAULT_MAX_TOKENS = 4096;
+const DEFAULT_CACHE_TTL_MS = 300000;
+
+interface ModelCacheEntry {
+	key: string;
+	models: InfiniAIModelInfo[];
+	infos: LanguageModelChatInformation[];
+	routes: Map<string, ModelRoute>;
+	fetchedAt: number;
+	lastError?: string;
+}
+
+interface DiagnosticSnapshot {
+	vscodeVersion: string;
+	plan: string;
+	hasStandardKey: boolean;
+	hasCodingKey: boolean;
+	modelCount: number;
+	cacheAgeMs?: number;
+	modelDiscoveryUrl: string;
+	lastError?: string;
+}
+
+function hashString(value: string): string {
+	let hash = 2166136261;
+	for (let i = 0; i < value.length; i++) {
+		hash ^= value.charCodeAt(i);
+		hash = Math.imul(hash, 16777619);
+	}
+	return (hash >>> 0).toString(16);
+}
+
+function normalizeBaseUrl(baseUrl: string): string {
+	return baseUrl.replace(/\/+$/, "");
+}
+
+function safeEndpointLabel(url: string): string {
+	try {
+		const parsed = new URL(url);
+		return `${parsed.host}${parsed.pathname}`;
+	} catch {
+		return sanitizeForLog(url, 160);
+	}
+}
+
+function lowerIncludes(value: string | undefined, needle: string): boolean {
+	return value?.toLowerCase().includes(needle) ?? false;
+}
 
 /**
  * VS Code Chat provider backed by InfiniAI Inference Providers.
  */
-export class InfiniAIChatModelProvider implements LanguageModelChatProvider {
-  /** Track last request completion time for delay calculation. */
-  private _lastRequestTime: number | null = null;
+export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vscode.Disposable {
+	private readonly _onDidChange = new vscode.EventEmitter<void>();
+	readonly onDidChangeLanguageModelChatInformation = this._onDidChange.event;
 
-  private _models: InfiniAIModelInfo[] = [];
+	private _lastRequestTime: number | null = null;
+	private _cache?: ModelCacheEntry;
+	private _lastGoodCache?: ModelCacheEntry;
+	private _modelsFetchPromise?: Promise<ModelCacheEntry>;
+	private _modelsFetchPromiseKey?: string;
+	private _lastError?: string;
 
-  /**
- * Create a provider using the given secret storage for the API key.
- * @param secrets VS Code secret storage.
- */
-  constructor(
-    private readonly secrets: vscode.SecretStorage,
-    private readonly userAgent: string,
-    private readonly statusBarItem: vscode.StatusBarItem,
-    private readonly output: vscode.OutputChannel
-  ) { }
+	constructor(
+		private readonly secrets: vscode.SecretStorage,
+		private readonly userAgent: string,
+		private readonly statusBarItem: vscode.StatusBarItem,
+		private readonly output: InfiniAILogger
+	) {}
 
-  /**
-   * Get the list of available language models contributed by this provider
-   * @param options Options which specify the calling context of this function
-   * @param token A cancellation token which signals if the user cancelled the request or not
-   * @returns A promise that resolves to the list of available language models
-   */
-  async provideLanguageModelChatInformation(options: vscode.PrepareLanguageModelChatModelOptions, token: CancellationToken): Promise<vscode.LanguageModelChatInformation[]> {
-    try {
-      const apiKey = await ensureApiKey(options.silent, this.secrets);
-      if (!apiKey) {
-        if (options.silent) {
-          return [];
-        } else {
-          throw new Error("InfiniAI API key not found");
-        }
-      }
-      const { models } = await fetchModels(apiKey, this.userAgent, this.output);
-      this._models = models;
-      this.output.appendLine(`Fetched ${models.length} models from InfiniAI API.`);
+	dispose(): void {
+		this._onDidChange.dispose();
+	}
 
-      const cfg = vscode.workspace.getConfiguration("infiniai");
-      const enablePatterns = cfg.get<string[]>("imageInputModels", []);
-      const disablePatterns = cfg.get<string[]>("disableImageInputModels", []);
+	refreshModels(): void {
+		this._cache = undefined;
+		this._modelsFetchPromise = undefined;
+		this._modelsFetchPromiseKey = undefined;
+		this._onDidChange.fire();
+	}
 
-      return models.map(m => {
-        // Infer context length from model name or use defaults
-        const contextLength = this.inferContextLength(m.id) || DEFAULT_CONTEXT_LENGTH;
-        const maxOutput = DEFAULT_MAX_TOKENS;
-        const maxInput = Math.max(1, contextLength - maxOutput);
+	async provideLanguageModelChatInformation(
+		options: vscode.PrepareLanguageModelChatModelOptions,
+		token: CancellationToken
+	): Promise<LanguageModelChatInformation[]> {
+		try {
+			const apiKey = await ensureApiKey(options.silent, this.secrets);
+			if (!apiKey) {
+				if (options.silent) {
+					return [];
+				}
+				throw new Error("InfiniAI API key not found");
+			}
+			const entry = await this.getModelCache(apiKey, options.silent, token);
+			return entry.infos;
+		} catch (err) {
+			this._lastError = err instanceof Error ? err.message : String(err);
+			logError(this.output, `Failed to provide model information: ${sanitizeForLog(this._lastError)}`);
+			if (options.silent) {
+				return this._lastGoodCache?.infos ?? [];
+			}
+			throw err;
+		}
+	}
 
-        return {
-          id: m.id,
-          name: m.id,
-          tooltip: 'InfiniAI Model ' + m.id,
-          detail: 'InfiniAI',
-          family: 'oai-compatible',
-          version: m.created?.toString() || '1.0.0',
-          maxInputTokens: maxInput,
-          maxOutputTokens: maxOutput,
-          capabilities: {
-            toolCalling: !m.id.includes('embed') && !m.id.includes('reranker'),
-            imageInput: resolveImageInputCapability(m as any, { enablePatterns, disablePatterns }),
-          },
-        } as LanguageModelChatInformation;
-      });
-    } catch (err) {
-      this.output.appendLine(`Error in provideLanguageModelChatInformation: ${err instanceof Error ? err.message : String(err)}`);
-      console.error("[InfiniAI Model Provider] Failed to provide model information", err);
-      return [];
-    }
-  }
+	async provideLanguageModelChatResponse(
+		model: LanguageModelChatInformation,
+		messages: readonly LanguageModelChatRequestMessage[],
+		options: ProvideLanguageModelChatResponseOptions,
+		progress: Progress<vscode.LanguageModelResponsePart>,
+		token: CancellationToken
+	): Promise<void> {
+		void updateContextStatusBar(messages, model, this.statusBarItem).catch((err) => {
+			logDebug(
+				this.output,
+				`Status bar update failed: ${sanitizeForLog(err instanceof Error ? err.message : String(err))}`
+			);
+		});
 
-  private inferContextLength(modelId: string): number | undefined {
-    // Common patterns in model names
-    if (modelId.includes('128k')) return 128000;
-    if (modelId.includes('32k')) return 32000;
-    if (modelId.includes('16k')) return 16000;
-    if (modelId.includes('8k')) return 8000;
-    if (modelId.includes('4k')) return 4000;
+		const streamedProgress = this.createTrackingProgress(model, progress);
 
-    // Provider/model-specific overrides.
-    if (modelId.includes('qwen3') || modelId.includes('deepseek-v3')) return 128000;
+		try {
+			await this.applyRequestDelay(token);
+			const apiKey = await ensureApiKey(false, this.secrets);
+			if (!apiKey) {
+				throw new Error("InfiniAI API key not found");
+			}
 
-    if (modelId.includes('glm-4.5v')) return 64000;
+			const cache = await this.getModelCache(apiKey, false, token);
+			const infiniAIModel = cache.models.find((m) => m.id === model.id);
+			const route =
+				cache.routes.get(model.id) ?? resolveModelRoute(this.toModelInfo(model, infiniAIModel), this.getRouteConfigs());
 
-    // Keep -v variants before base variants to avoid accidental matches.
-    if (modelId.includes('glm-4.6v') || modelId.includes('glm-4.5-air') || modelId.includes('glm-4.5')) {
-      return 128000;
-    }
+			logInfo(
+				this.output,
+				`Starting request model=${model.id} transport=${route.transport} endpoint=${safeEndpointLabel(route.baseUrl)}`
+			);
 
-    if (modelId.includes('glm-4.6') || modelId.includes('glm-4.7')) return 200000;
-    if (modelId.includes('glm-5')) return 198000;
-    if (modelId.includes('minimax-m')) return 200000;
+			if (route.transport === "anthropic") {
+				await this.runAnthropicRequest(model, messages, options, streamedProgress, token, apiKey, infiniAIModel, route);
+			} else if (route.transport === "vertex") {
+				await this.runVertexRequest(model, messages, options, streamedProgress, token, apiKey, infiniAIModel, route);
+			} else {
+				await this.runOpenAIRequest(model, messages, options, streamedProgress, token, apiKey, infiniAIModel, route);
+			}
+		} catch (err) {
+			if (!(err instanceof vscode.CancellationError)) {
+				this._lastError = err instanceof Error ? err.message : String(err);
+				logError(this.output, `Chat request failed model=${model.id} error=${sanitizeForLog(this._lastError)}`);
+			}
+			throw err;
+		} finally {
+			this._lastRequestTime = Date.now();
+		}
+	}
 
-    if (
-      modelId.includes('kimi-k2.5') ||
-      modelId.includes('kimi-k2-instruct') ||
-      modelId.includes('kimi-k2-thinking')
-    ) {
-      return 256000;
-    }
+	async provideTokenCount(
+		model: LanguageModelChatInformation,
+		text: string | LanguageModelChatRequestMessage,
+		token: CancellationToken
+	): Promise<number> {
+		return prepareTokenCount(model, text, token);
+	}
 
-    return undefined;
-  }
+	async getDiagnostics(token: CancellationToken): Promise<DiagnosticSnapshot> {
+		const plan = getActivePlan();
+		const standardKey = await this.secrets.get("infiniai.apiKey");
+		const codingKey = await this.secrets.get("infiniai.codingApiKey");
+		const discoveryUrl = this.getModelDiscoveryUrl();
+		let modelCount = this._lastGoodCache?.infos.length ?? 0;
+		if (!modelCount && !token.isCancellationRequested) {
+			const apiKey = plan === "coding" ? codingKey : standardKey;
+			if (apiKey) {
+				const entry = await this.getModelCache(apiKey, true, token);
+				modelCount = entry.infos.length;
+			}
+		}
+		return {
+			vscodeVersion: vscode.version,
+			plan,
+			hasStandardKey: !!standardKey,
+			hasCodingKey: !!codingKey,
+			modelCount,
+			cacheAgeMs: this._lastGoodCache ? Date.now() - this._lastGoodCache.fetchedAt : undefined,
+			modelDiscoveryUrl: discoveryUrl,
+			lastError: this._lastError,
+		};
+	}
 
-  private isSupportMessage(model: vscode.LanguageModelChatInformation): boolean {
-    const family = model.family?.toLowerCase() || "";
-    return family.includes('messages');
-  }
+	async getModelDescriptions(
+		refresh: boolean,
+		token: CancellationToken
+	): Promise<
+		Array<{
+			id: string;
+			transport: string;
+			toolCalling: boolean | number | undefined;
+			imageInput: boolean | undefined;
+			maxInputTokens: number;
+			maxOutputTokens: number;
+		}>
+	> {
+		const apiKey = await ensureApiKey(false, this.secrets);
+		if (!apiKey) {
+			return [];
+		}
+		const entry = await this.getModelCache(apiKey, false, token, refresh);
+		return entry.infos.map((info) => ({
+			id: info.id,
+			transport: entry.routes.get(info.id)?.transport ?? "openai",
+			toolCalling: info.capabilities.toolCalling,
+			imageInput: info.capabilities.imageInput,
+			maxInputTokens: info.maxInputTokens,
+			maxOutputTokens: info.maxOutputTokens,
+		}));
+	}
 
-  private isSupportResponse(model: vscode.LanguageModelChatInformation): boolean {
-    const family = model.family?.toLowerCase() || "";
-    return family.includes('responses');
-  }
+	async testRoute(prompt: string, token: CancellationToken): Promise<string> {
+		const apiKey = await ensureApiKey(false, this.secrets);
+		if (!apiKey) {
+			throw new Error("InfiniAI API key not found");
+		}
+		const entry = await this.getModelCache(apiKey, false, token);
+		const first = entry.infos[0];
+		if (!first) {
+			throw new Error("No InfiniAI models are available");
+		}
+		const model = entry.models.find((m) => m.id === first.id);
+		const route =
+			entry.routes.get(first.id) ?? resolveModelRoute(this.toModelInfo(first, model), this.getRouteConfigs());
+		const body = this.createTestRequestBody(first.id, prompt || "Reply with OK.", route.transport);
+		const response = await this.postJsonWithRetry(
+			this.requestUrl(route, first.id),
+			this.requestHeaders(route, apiKey),
+			body,
+			token
+		);
+		await response.body?.cancel();
+		return `OK: ${first.id} via ${route.transport} (${response.status})`;
+	}
 
-  private isSupportGeneration(model: vscode.LanguageModelChatInformation): boolean {
-    const family = model.family?.toLowerCase() || "";
-    return family.includes('generate');
-  }
+	private createTrackingProgress(
+		model: LanguageModelChatInformation,
+		progress: Progress<vscode.LanguageModelResponsePart>
+	): Progress<vscode.LanguageModelResponsePart> {
+		return {
+			report: (part) => {
+				try {
+					progress.report(part);
+				} catch (err) {
+					logWarn(
+						this.output,
+						`Progress.report failed model=${model.id} error=${sanitizeForLog(err instanceof Error ? err.message : String(err))}`
+					);
+				}
+			},
+		};
+	}
 
-  private isSupportChat(model: vscode.LanguageModelChatInformation): boolean {
-    const family = model.family?.toLowerCase() || "";
-    return family.includes('chat.completions');
-  }
+	private async getModelCache(
+		apiKey: string,
+		silent: boolean,
+		token: CancellationToken,
+		force = false
+	): Promise<ModelCacheEntry> {
+		const key = this.buildCacheKey(apiKey);
+		const ttl = this.getCacheTtlMs();
+		if (!force && this._cache?.key === key && (ttl === 0 ? false : Date.now() - this._cache.fetchedAt < ttl)) {
+			return this._cache;
+		}
+		if (!force && silent && this._lastGoodCache?.key === key) {
+			return this._lastGoodCache;
+		}
+		if (!force && this._modelsFetchPromise && this._modelsFetchPromiseKey === key) {
+			return this._modelsFetchPromise;
+		}
 
-  private isSupportReasoning(model: vscode.LanguageModelChatInformation): boolean {
-    return model.family?.endsWith('-1') || false;
-  }
+		this._modelsFetchPromiseKey = key;
+		this._modelsFetchPromise = this.fetchAndNormalizeModels(apiKey, key, token)
+			.then((entry) => {
+				this._cache = entry;
+				this._lastGoodCache = entry;
+				this._lastError = undefined;
+				this._onDidChange.fire();
+				return entry;
+			})
+			.catch((err) => {
+				this._lastError = err instanceof Error ? err.message : String(err);
+				if (silent && this._lastGoodCache?.key === key) {
+					return this._lastGoodCache;
+				}
+				throw err;
+			})
+			.finally(() => {
+				this._modelsFetchPromise = undefined;
+				this._modelsFetchPromiseKey = undefined;
+			});
+		return this._modelsFetchPromise;
+	}
 
-  async provideLanguageModelChatResponse(
-    model: vscode.LanguageModelChatInformation,
-    messages: readonly LanguageModelChatRequestMessage[],
-    options: ProvideLanguageModelChatResponseOptions,
-    progress: Progress<vscode.LanguageModelResponsePart>,
-    token: CancellationToken) {
-    const infiniAIModel = this._models.find(m => m.id === model.id);
-    try { this.output.appendLine(`Starting provideLanguageModelChatResponse ${model.family}`); } catch { } // for debug breakpoint
-    // Update Token Usage
-    updateContextStatusBar(messages, model, this.statusBarItem);
+	private async fetchAndNormalizeModels(
+		apiKey: string,
+		key: string,
+		token: CancellationToken
+	): Promise<ModelCacheEntry> {
+		const { models } = await fetchModels(apiKey, this.userAgent, this.output, token);
+		const routeConfigs = this.getRouteConfigs();
+		const routes = new Map<string, ModelRoute>();
+		const infos = models.map((model) => {
+			const route = resolveModelRoute(model, routeConfigs);
+			routes.set(model.id, route);
+			return this.toLanguageModelInfo(model, route);
+		});
+		logInfo(this.output, `Fetched ${models.length} models from InfiniAI API`);
+		return {
+			key,
+			models,
+			infos,
+			routes,
+			fetchedAt: Date.now(),
+		};
+	}
 
-    // Apply delay between consecutive requests
-    const config = vscode.workspace.getConfiguration();
-    const delayMs = config.get<number>("infiniai.delay", 0);
+	private toLanguageModelInfo(model: InfiniAIModelInfo, route: ModelRoute): LanguageModelChatInformation {
+		const contextLength = model.context_length ?? this.inferContextLength(model.id) ?? DEFAULT_CONTEXT_LENGTH;
+		const maxOutput = model.max_tokens ?? DEFAULT_MAX_TOKENS;
+		const maxInput = Math.max(1, contextLength - maxOutput);
+		const cfg = vscode.workspace.getConfiguration("infiniai");
+		const enablePatterns = cfg.get<string[]>("imageInputModels", []);
+		const disablePatterns = cfg.get<string[]>("disableImageInputModels", []);
 
-    if (delayMs > 0 && this._lastRequestTime !== null) {
-      const elapsed = Date.now() - this._lastRequestTime;
-      if (elapsed < delayMs) {
-        const remainingDelay = delayMs - elapsed;
-        await new Promise<void>((resolve) => {
-          const timeout = setTimeout(() => {
-            clearTimeout(timeout);
-            resolve();
-          }, remainingDelay);
-        });
-      }
-    }
+		return {
+			id: model.id,
+			name: model.id,
+			tooltip: `InfiniAI Model ${model.id}`,
+			detail: `InfiniAI ${route.transport}`,
+			family: model.family ?? route.endpointKind,
+			version: model.created?.toString() || "1.0.0",
+			maxInputTokens: maxInput,
+			maxOutputTokens: maxOutput,
+			capabilities: {
+				toolCalling: !model.id.includes("embed") && !model.id.includes("reranker"),
+				imageInput: resolveImageInputCapability(model, { enablePatterns, disablePatterns }),
+			},
+		};
+	}
 
-    const trackingProgress: Progress<vscode.LanguageModelResponsePart> = {
-      report: (part) => {
-        try {
-          progress.report(part);
-        } catch (e) {
-          const msg = `[InfiniAI Model Provider] Progress.report failed modelId=${model.id} error=${e instanceof Error ? e.message : String(e)}`;
-          try { this.output.appendLine(msg); } catch { console.error(msg); }
-        }
-      },
-    };
+	private toModelInfo(
+		model: LanguageModelChatInformation,
+		infiniAIModel: InfiniAIModelInfo | undefined
+	): InfiniAIModelInfo {
+		return (
+			infiniAIModel ?? {
+				id: model.id,
+				object: "model",
+				created: Number(model.version) || 0,
+				owned_by: "infiniai",
+				family: model.family,
+				context_length: model.maxInputTokens + model.maxOutputTokens,
+				max_tokens: model.maxOutputTokens,
+			}
+		);
+	}
 
-    try {
-      const apiKey = await ensureApiKey(false, this.secrets);
-      if (!apiKey) {
-        throw new Error("InfiniAI API key not found");
-      }
-      // get model config from user settings
-      const config = vscode.workspace.getConfiguration();
-      const plan = getActivePlan();
-      if (this.isSupportMessage(model)) {
-        const anthropicKey = plan === "coding" ? "infiniai.coding.anthropic.baseUrl" : "infiniai.anthropic.baseUrl";
-        const BASE_URL = config.get<string>(anthropicKey, "https://cloud.infini-ai.com/maas");
-        // Anthropic API mode
-        const anthropicApi = new AnthropicApi();
-        const anthropicMessages = anthropicApi.convertMessages(messages, {
-          includeReasoningInRequest: false,
-          supportParameters: "",
-        });
+	private async runOpenAIRequest(
+		model: LanguageModelChatInformation,
+		messages: readonly LanguageModelChatRequestMessage[],
+		options: ProvideLanguageModelChatResponseOptions,
+		progress: Progress<vscode.LanguageModelResponsePart>,
+		token: CancellationToken,
+		apiKey: string,
+		infiniAIModel: InfiniAIModelInfo | undefined,
+		route: ModelRoute
+	): Promise<void> {
+		const openaiApi = new OpenaiApi();
+		const openaiMessages = openaiApi.convertMessages(messages, { includeReasoningInRequest: false });
+		let requestBody: Record<string, unknown> = {
+			model: model.id,
+			messages: openaiMessages,
+			stream: true,
+			stream_options: { include_usage: true },
+		};
+		requestBody = openaiApi.prepareRequestBody(requestBody, infiniAIModel, options);
+		const response = await this.postJsonWithRetry(
+			this.requestUrl(route, model.id),
+			this.requestHeaders(route, apiKey),
+			requestBody,
+			token
+		);
+		if (!response.body) {
+			throw new Error("No response body from InfiniAI API");
+		}
+		await openaiApi.processStreamingResponse(response.body, progress, token);
+	}
 
-        // requestBody
-        let requestBody: AnthropicRequestBody = {
-          model: model.id,
-          messages: anthropicMessages,
-          stream: true,
-          max_tokens: model.maxOutputTokens || DEFAULT_MAX_TOKENS,
-        };
-        requestBody = anthropicApi.prepareRequestBody(requestBody, {
-          id: model.id,
-          max_tokens: model.maxOutputTokens,
-        } as any, options);
+	private async runAnthropicRequest(
+		model: LanguageModelChatInformation,
+		messages: readonly LanguageModelChatRequestMessage[],
+		options: ProvideLanguageModelChatResponseOptions,
+		progress: Progress<vscode.LanguageModelResponsePart>,
+		token: CancellationToken,
+		apiKey: string,
+		infiniAIModel: InfiniAIModelInfo | undefined,
+		route: ModelRoute
+	): Promise<void> {
+		const anthropicApi = new AnthropicApi();
+		const anthropicMessages = anthropicApi.convertMessages(messages, {
+			includeReasoningInRequest: false,
+			supportParameters: "",
+		});
+		let requestBody: AnthropicRequestBody = {
+			model: model.id,
+			messages: anthropicMessages,
+			stream: true,
+			max_tokens: model.maxOutputTokens || DEFAULT_MAX_TOKENS,
+		};
+		requestBody = anthropicApi.prepareRequestBody(requestBody, infiniAIModel, options);
+		const response = await this.postJsonWithRetry(
+			this.requestUrl(route, model.id),
+			this.requestHeaders(route, apiKey),
+			requestBody,
+			token
+		);
+		if (!response.body) {
+			throw new Error("No response body from Anthropic API");
+		}
+		await anthropicApi.processStreamingResponse(response.body, progress, token);
+	}
 
-        // send Anthropic chat request with retry
-        const response = await executeWithRetry(async () => {
-          const res = await fetch(`${BASE_URL.replace(/\/+$/, "")}/v1/messages`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "User-Agent": this.userAgent,
-              "x-api-key": apiKey,
-              "anthropic-version": "2023-06-01",
-            },
-            body: JSON.stringify(requestBody),
-          });
+	private async runVertexRequest(
+		model: LanguageModelChatInformation,
+		messages: readonly LanguageModelChatRequestMessage[],
+		options: ProvideLanguageModelChatResponseOptions,
+		progress: Progress<vscode.LanguageModelResponsePart>,
+		token: CancellationToken,
+		apiKey: string,
+		infiniAIModel: InfiniAIModelInfo | undefined,
+		route: ModelRoute
+	): Promise<void> {
+		const vertexApi = new VertexApi();
+		const contents = vertexApi.convertMessages(messages, { includeReasoningInRequest: false });
+		let requestBody: VertexRequestBody = {
+			contents,
+			generationConfig: {
+				maxOutputTokens: model.maxOutputTokens || DEFAULT_MAX_TOKENS,
+			},
+		};
+		requestBody = vertexApi.prepareRequestBody(requestBody, infiniAIModel, options);
+		const response = await this.postJsonWithRetry(
+			this.requestUrl(route, model.id),
+			this.requestHeaders(route, apiKey),
+			requestBody,
+			token
+		);
+		if (!response.body) {
+			throw new Error("No response body from Vertex API");
+		}
+		await vertexApi.processStreamingResponse(response.body, progress, token);
+	}
 
-          if (!res.ok) {
-            const errorText = await res.text();
-            const msg = `[Anthropic Provider] Anthropic API error response status=${res.status} statusText=${res.statusText} body=${errorText}`;
-            try { this.output.appendLine(msg); } catch { console.error(msg); }
-            throw new Error(
-              `Anthropic API error: [${res.status}] ${res.statusText}${errorText ? `\n${errorText}` : ""}`
-            );
-          }
+	private requestUrl(route: ModelRoute, modelId: string): string {
+		const baseUrl = normalizeBaseUrl(route.baseUrl);
+		if (route.transport === "anthropic") {
+			return `${baseUrl}/v1/messages`;
+		}
+		if (route.transport === "vertex") {
+			return `${baseUrl}/models/${encodeURIComponent(modelId)}:streamGenerateContent`;
+		}
+		return `${baseUrl}/chat/completions`;
+	}
 
-          return res;
-        }, createRetryConfig());
+	private requestHeaders(route: ModelRoute, apiKey: string): Record<string, string> {
+		if (route.transport === "anthropic") {
+			return {
+				"Content-Type": "application/json",
+				"User-Agent": this.userAgent,
+				"x-api-key": apiKey,
+				"anthropic-version": "2023-06-01",
+			};
+		}
+		return {
+			"Content-Type": "application/json",
+			"User-Agent": this.userAgent,
+			Authorization: `Bearer ${apiKey}`,
+		};
+	}
 
-        if (!response.body) {
-          throw new Error("No response body from Anthropic API");
-        }
-        await anthropicApi.processStreamingResponse(response.body, trackingProgress, token);
-      } else {
-        const openaiKey = plan === "coding" ? "infiniai.coding.baseUrl" : "infiniai.baseUrl";
-        const BASE_URL = config.get<string>(openaiKey, "https://cloud.infini-ai.com/maas/v1");
-        // OpenAI compatible API mode (default)
-        const openaiApi = new OpenaiApi();
-        const openaiMessages = openaiApi.convertMessages(messages, {
-          includeReasoningInRequest: false,
-        });
+	private async postJsonWithRetry(
+		url: string,
+		headers: Record<string, string>,
+		body: unknown,
+		token: CancellationToken
+	): Promise<Response> {
+		return executeWithRetry(
+			async (attempt) => {
+				const started = Date.now();
+				logDebug(this.output, `POST ${safeEndpointLabel(url)} attempt=${attempt}`);
+				const response = await fetchWithCancellation(
+					url,
+					{
+						method: "POST",
+						headers,
+						body: JSON.stringify(body),
+					},
+					token
+				);
+				logDebug(
+					this.output,
+					`POST ${safeEndpointLabel(url)} status=${response.status} elapsedMs=${Date.now() - started}`
+				);
+				if (!response.ok) {
+					throw await readHttpErrorResponse(response);
+				}
+				return response;
+			},
+			createRetryConfig(),
+			token,
+			this.output
+		);
+	}
 
-        // requestBody
-        let requestBody: Record<string, unknown> = {
-          model: model.id,
-          messages: openaiMessages,
-          stream: true,
-          stream_options: { include_usage: true },
-        };
-        requestBody = openaiApi.prepareRequestBody(requestBody, infiniAIModel, options);
+	private createTestRequestBody(modelId: string, prompt: string, transport: string): unknown {
+		if (transport === "anthropic") {
+			return {
+				model: modelId,
+				messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
+				stream: true,
+				max_tokens: 16,
+			};
+		}
+		if (transport === "vertex") {
+			return {
+				contents: [{ role: "user", parts: [{ text: prompt }] }],
+				generationConfig: { maxOutputTokens: 16 },
+			};
+		}
+		return {
+			model: modelId,
+			messages: [{ role: "user", content: prompt }],
+			stream: true,
+			max_tokens: 16,
+		};
+	}
 
-        // send chat request with retry
-        const response = await executeWithRetry(async () => {
-          const res = await fetch(`${BASE_URL.replace(/\/+$/, "")}/chat/completions`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "User-Agent": this.userAgent,
-              "Authorization": `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify(requestBody),
-          });
+	private async applyRequestDelay(token: CancellationToken): Promise<void> {
+		const config = vscode.workspace.getConfiguration();
+		const delayMs = config.get<number>("infiniai.delay", 0);
+		if (delayMs > 0 && this._lastRequestTime !== null) {
+			const elapsed = Date.now() - this._lastRequestTime;
+			if (elapsed < delayMs) {
+				await cancellableDelay(delayMs - elapsed, token);
+			}
+		}
+	}
 
-          if (!res.ok) {
-            const errorText = await res.text();
-            const msg = `[InfiniAI Provider] InfiniAI API error response status=${res.status} statusText=${res.statusText} body=${errorText}`;
-            try { this.output.appendLine(msg); } catch { console.error(msg); }
-            throw new Error(
-              `[InfiniAI Provider] InfiniAI API error: [${res.status}] ${res.statusText}${errorText ? `\n${errorText}` : ""}`
-            );
-          }
+	private buildCacheKey(apiKey: string): string {
+		const cfg = vscode.workspace.getConfiguration("infiniai");
+		const routeConfig = JSON.stringify(cfg.get<ModelRouteConfig[]>("modelRoutes", []));
+		const imageConfig = JSON.stringify({
+			enable: cfg.get<string[]>("imageInputModels", []),
+			disable: cfg.get<string[]>("disableImageInputModels", []),
+		});
+		return [
+			getActivePlan(),
+			this.getModelDiscoveryUrl(),
+			hashString(apiKey),
+			hashString(routeConfig),
+			hashString(imageConfig),
+		].join("|");
+	}
 
-          return res;
-        }, createRetryConfig());
+	private getModelDiscoveryUrl(): string {
+		const plan = getActivePlan();
+		const configured = vscode.workspace.getConfiguration("infiniai").get<string>("modelDiscoveryUrl", "").trim();
+		if (configured) {
+			return configured;
+		}
+		return `https://cloud.infini-ai.com/maas${plan === "coding" ? "/coding" : ""}/v1/models`;
+	}
 
-        if (!response.body) {
-          const msg = "[InfiniAI Provider] No response body from InfiniAI API";
-          try { this.output.appendLine(msg); } catch { console.error(msg); }
-          throw new Error("No response body from InfiniAI API");
-        }
-        await openaiApi.processStreamingResponse(response.body, trackingProgress, token);
-      }
-    } catch (err) {
-      console.error("[InfiniAI Model Provider] Chat request failed", {
-        modelId: model.id,
-        messageCount: messages.length,
-        error: err instanceof Error ? { name: err.name, message: err.message } : String(err),
-      });
-      throw err;
-    } finally {
-      // Update last request time after successful completion
-      this._lastRequestTime = Date.now();
-    }
-  }
+	private getCacheTtlMs(): number {
+		return Math.max(
+			0,
+			vscode.workspace.getConfiguration("infiniai").get<number>("modelCacheTtlMs", DEFAULT_CACHE_TTL_MS)
+		);
+	}
 
-  /**
-   * Returns the number of tokens for a given text using the model specific tokenizer logic
-   * @param model The language model to use
-   * @param text The text to count tokens for
-   * @param token A cancellation token for the request
-   * @returns A promise that resolves to the number of tokens
-   */
-  async provideTokenCount(
-    model: LanguageModelChatInformation,
-    text: string | LanguageModelChatRequestMessage,
-    _token: CancellationToken
-  ): Promise<number> {
-    return prepareTokenCount(model, text, _token);
-  }
+	private getRouteConfigs(): ModelRouteConfig[] {
+		return parseModelRouteConfigs(vscode.workspace.getConfiguration("infiniai").get<unknown>("modelRoutes", []));
+	}
+
+	private inferContextLength(modelId: string): number | undefined {
+		if (modelId.includes("128k")) return 128000;
+		if (modelId.includes("32k")) return 32000;
+		if (modelId.includes("16k")) return 16000;
+		if (modelId.includes("8k")) return 8000;
+		if (modelId.includes("4k")) return 4000;
+		if (modelId.includes("qwen3") || modelId.includes("deepseek-v3")) return 128000;
+		if (modelId.includes("glm-4.5v")) return 64000;
+		if (modelId.includes("glm-4.6v") || modelId.includes("glm-4.5-air") || modelId.includes("glm-4.5")) return 128000;
+		if (modelId.includes("glm-4.6") || modelId.includes("glm-4.7")) return 200000;
+		if (modelId.includes("glm-5")) return 198000;
+		if (modelId.includes("minimax-m")) return 200000;
+		if (
+			lowerIncludes(modelId, "kimi-k2.5") ||
+			lowerIncludes(modelId, "kimi-k2-instruct") ||
+			lowerIncludes(modelId, "kimi-k2-thinking")
+		) {
+			return 256000;
+		}
+		return undefined;
+	}
 }

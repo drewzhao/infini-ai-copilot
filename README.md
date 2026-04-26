@@ -1,119 +1,176 @@
-# 🚀 InfiniAI Provider for Copilot
+# InfiniAI Provider for VS Code
 
-Welcome to **InfiniAI Provider for Copilot**! This is a model provider extension designed specifically for VS Code Copilot. With this extension, you can seamlessly integrate the powerful model gateway capabilities of [InfiniAI](https://infiniai.ai) into VS Code Copilot, giving you the freedom to use top-tier AI models.
+InfiniAI Provider for VS Code registers InfiniAI as a stable VS Code language model provider and adds an `@infiniai` diagnostics participant. It uses only public VS Code APIs and does not depend on the standalone `github.copilot-chat` extension or Copilot private/proposed APIs.
 
-## 💡 Usage
+## Usage
 
-Just a few simple steps to start your InfiniAI journey:
+1. Install the extension from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=drewzhao.infiniai-copilot).
+2. Open VS Code Chat and use the model picker.
+3. Choose **Manage Models...**, then add models from the **InfiniAI** provider.
+4. Pick the Standard or Coding plan when prompted.
+5. Enter the matching InfiniAI API key. The key is stored in VS Code Secret Storage.
+6. Select an InfiniAI model from the model picker.
 
-1.  📥 **Install Extension**: Click [here](https://marketplace.visualstudio.com/items?itemName=drewzhao.infiniai-copilot) to install the extension.
-2.  💬 **Open Copilot**: Open the GitHub Copilot Chat interface in VS Code.
-3.  ⚙️ **Manage Models**: Click the model picker below the chat input box and select "Manage Models...".
-4.  ✅ **Select InfiniAI**: Click "Add Models" and then select the "InfiniAI" provider.
-5.  🧭 **Select Plan (first time only)**: If you haven't configured `infiniai.plan` yet, you'll be prompted to pick **Standard Plan** or **Coding Plan**. The choice will be saved to your VS Code user settings.
-6.  🔑 **Configure Key**: Enter your InfiniAI API Key for the selected plan (the key is stored securely in VS Code Secret Storage).
-6.  🎯 **Pick Models**: Select the specific models you wish to use in the model picker.
+You can also use `@infiniai` in Chat for diagnostics:
 
-## ℹ️ Extension Information
+- `@infiniai /doctor` checks configuration, key presence, endpoint settings, cache state, and the last sanitized provider error.
+- `@infiniai /models` lists discovered models and route capabilities from the local cache.
+- `@infiniai /models refresh` refreshes model discovery before listing models.
+- `@infiniai /test` runs a minimal cancellable health request against the selected/default route.
 
-- **Name**: InfiniAI Provider for Copilot
-- **Version**: See `package.json`
+The participant is diagnostic only. It is not a replacement chat assistant.
 
-## ✅ Prerequisites
+## Requirements
 
-Before you begin, please ensure you meet the following requirements:
+- VS Code `^1.117.0`
+- A valid InfiniAI API key from [infiniai.ai](https://infiniai.ai)
+- Node.js and npm for local development
 
-- 💻 **VS Code Version**: >= 1.104.0
-- 🧩 **Copilot Extension**: `github.copilot-chat` extension installed
-- 🔑 **API Key**: A valid InfiniAI API Key (get it from [infiniai.ai](https://infiniai.ai))
-- 🟢 **Node.js**: (Required only for development and building)
+The extension uses VS Code's built-in Chat and language model provider APIs. No standalone Copilot Chat extension is required.
 
-## 🛠️ Installation & Build (Development Guide)
+## Development
 
-If you are a developer and want to build or modify this project yourself:
+This repository uses npm as the only package manager.
 
-**1. Install Dependencies**
-
-```powershell
-npm install
-```
-
-**2. Compile TypeScript**
-
-```powershell
+```bash
+npm ci
+npm run lint
+npx prettier --check .
 npm run compile
-```
-
-**3. Package VSIX (Optional)**
-
-```powershell
+npm test
 npm run build
 ```
 
-## 🐛 Run in Extension Development Host
+To run the extension locally:
 
-1.  Open this repository in VS Code.
-2.  Press `F5` to launch the **Extension Development Host**.
-3.  In the development host, open Copilot Chat; you should be able to see and use the `InfiniAI Provider`.
+1. Open this repository in VS Code `1.117+`.
+2. Press `F5` to launch the Extension Development Host.
+3. In the development host, use the model picker to add InfiniAI models or run `@infiniai /doctor`.
 
-## 📝 Activation & Logging
+## Activation And Logging
 
-- **Activation Events**: The extension activates when events declared in `package.json` are triggered (e.g., `onStartupFinished` or when running a command).
-- **View Logs**:
-    1.  Open the Output Panel (View → Output or `Ctrl+Shift+U`).
-    2.  Select the `InfiniAI` channel from the dropdown menu in the top right corner.
+The manifest keeps activation lazy. VS Code automatically activates the extension when its stable language model provider or chat participant contribution is needed, or when `infiniai.setApikey` is invoked.
 
-## ⚙️ Configuration (Common)
+Logs are written to a VS Code `LogOutputChannel` named `InfiniAI`. The extension redacts secrets, prompts, tool results, image data, auth headers, and full response bodies.
 
-You can adjust the following parameters in VS Code Settings:
+Useful log fields include request id, model id, provider transport, endpoint host/path, HTTP status, retry attempt, elapsed time, streamed bytes, and finish reason.
 
-- `infiniai.plan`: Select the InfiniAI billing plan — `"standard"` (pay-per-token) or `"coding"` (Coding Plan subscription). If unset, the extension treats it as `"standard"` for API routing, and will prompt you to pick a plan the next time it needs to ask for an API key interactively.
-- `infiniai.baseUrl`: Base URL for OpenAI-compatible API, Standard Plan (Default: `https://cloud.infini-ai.com/maas/v1`).
-- `infiniai.anthropic.baseUrl`: Base URL for Anthropic-compatible API, Standard Plan (Default: `https://cloud.infini-ai.com/maas`).
-- `infiniai.coding.baseUrl`: Base URL for OpenAI-compatible API, Coding Plan (Default: `https://cloud.infini-ai.com/maas/coding/v1`).
-- `infiniai.coding.anthropic.baseUrl`: Base URL for Anthropic-compatible API, Coding Plan (Default: `https://cloud.infini-ai.com/maas/coding`).
-- `infiniai.imageInputModels`: Force-enable image input for specific model IDs (supports `*` wildcard, e.g. `kimi-*`). Useful when a multimodal model doesn’t include a name marker like `-vision`.
-- `infiniai.disableImageInputModels`: Force-disable image input for specific model IDs (supports `*` wildcard).
-- `infiniai.retry`: Request retry policy (enabled, max attempts, interval in ms).
-- `infiniai.delay`: Fixed delay between requests (in milliseconds).
+## Configuration
 
-## 🧠 Thinking / Reasoning Parameters
+Common settings:
 
-**Status (v0.2.1+)**: Thinking/reasoning parameters are currently **not sent to the API**. The extension recognizes these model configuration options internally (`enable_thinking`, `thinking_budget`, `reasoning_effort`, `thinking`), but the code to include them in API requests is commented out. This means:
+- `infiniai.plan`: Select `"standard"` or `"coding"`. If unset, routing defaults to `"standard"` and the key-entry flow prompts for a plan.
+- `infiniai.baseUrl`: OpenAI-compatible Standard Plan base URL.
+- `infiniai.anthropic.baseUrl`: Anthropic-compatible Standard Plan base URL.
+- `infiniai.coding.baseUrl`: OpenAI-compatible Coding Plan base URL.
+- `infiniai.coding.anthropic.baseUrl`: Anthropic-compatible Coding Plan base URL.
+- `infiniai.modelDiscoveryUrl`: Optional absolute URL for model discovery. Empty uses the selected InfiniAI plan default.
+- `infiniai.modelCacheTtlMs`: Model discovery cache TTL in milliseconds. Set `0` to refresh every request.
+- `infiniai.modelRoutes`: Optional model routing overrides. Each item supports `pattern`, `transport` (`"openai"`, `"anthropic"`, or `"vertex"`), and optional `baseUrl`.
+- `infiniai.imageInputModels`: Force-enable image input for matching model IDs. Supports `*` wildcards.
+- `infiniai.disableImageInputModels`: Force-disable image input for matching model IDs. Supports `*` wildcards.
+- `infiniai.retry`: Retry policy for retryable network and HTTP failures.
+- `infiniai.delay`: Fixed delay between requests, in milliseconds.
 
-- Models that support thinking/reasoning will use their default behavior
-- You cannot currently enable or configure thinking through this extension
-- Thinking content received from models is tracked internally but not displayed in Copilot Chat
+Routing precedence:
 
-If you need thinking capabilities enabled, this would require modifying the extension code in `src/openai/openaiApi.ts` to uncomment the relevant parameter handling.
+1. User `infiniai.modelRoutes` pattern match.
+2. Explicit InfiniAI model metadata.
+3. Provider-owned catalog metadata.
+4. Conservative OpenAI-compatible fallback.
 
-## ⌨️ Commands
+Transport behavior:
 
-- `infiniai.setApikey`: Run this command via the Command Palette (`Ctrl+Shift+P`) to set or update your InfiniAI API Key. You will be prompted to choose which plan (Standard or Coding) to configure the key for.
+- OpenAI-compatible routes call `/chat/completions`.
+- Anthropic routes call `/v1/messages` with `x-api-key` and `anthropic-version`.
+- Vertex routes call `:streamGenerateContent` using the Vertex adapter.
 
-## 🧪 Tests
+Unsupported endpoint families fail with a clear provider error instead of silently falling back.
 
-```powershell
-npm test
+## Commands
+
+- `infiniai.setApikey`: Set, update, or delete the Standard or Coding plan API key.
+
+Chat participant commands:
+
+- `@infiniai /doctor`
+- `@infiniai /models`
+- `@infiniai /models refresh`
+- `@infiniai /test`
+
+## Stable API Policy
+
+This extension intentionally avoids:
+
+- `enabledApiProposals`
+- `src/vscode.proposed.*.d.ts`
+- Copilot private commands or extension IDs
+- `configurationSchema`
+- `modelConfiguration`
+- `chatParticipantAdditions`
+- `defaultChatParticipant`
+- `languageModelProxy`
+- `LanguageModelThinkingPart`
+
+## Debugging
+
+If InfiniAI models do not appear:
+
+1. Run `@infiniai /doctor`.
+2. Check the `InfiniAI` output channel.
+3. Confirm that the correct plan key is stored with `infiniai.setApikey`.
+4. Check `infiniai.modelDiscoveryUrl` and route overrides.
+5. Run `Developer: Reload Window` and retry model discovery.
+
+## Troubleshooting
+
+### Upgrade From An Older Version
+
+VS Code may leave older extension version folders on disk, but it scans installed extensions by identifier and loads the latest valid version. Old proposed API files or old source files should not affect this release because the VSIX packages only compiled runtime files from `out/`.
+
+Persistent VS Code state can still affect upgraded installs:
+
+- API keys in Secret Storage are preserved: `infiniai.apiKey` and `infiniai.codingApiKey`.
+- User/workspace settings are preserved, including `infiniai.plan`, base URLs, `infiniai.modelDiscoveryUrl`, and `infiniai.modelRoutes`.
+- Already-open windows may keep the old extension host running until reload.
+
+After upgrading, run:
+
+```text
+@infiniai /doctor
+@infiniai /models refresh
 ```
 
-## 🔍 Debugging Tips
+If the diagnostics show an unexpected endpoint, plan, or route override, reset the corresponding `infiniai.*` setting and reload the window.
 
-If the extension does not activate or shows no logs:
+### No Models Appear
 
-- 🧐 Ensure you are viewing the **Extension Development Host** window.
-- 📄 Check the `InfiniAI` channel in the **Output Panel**.
-- 🐞 Open **Developer Tools** (Help → Toggle Developer Tools) to check for console errors.
-- 🔄 Try **Reload Window** (`Developer: Reload Window`).
-- 📁 Confirm that the `out/extension.js` file exists (ensure you have run `npm run compile`).
+Check these in order:
 
-## 🤝 Contributing & Feedback
+1. Run `InfiniAI: Set InfiniAI API Key` and confirm the key is stored for the active plan.
+2. Run `@infiniai /doctor` and verify the active plan, key presence, discovery endpoint, and last error.
+3. Clear `infiniai.modelDiscoveryUrl` unless you intentionally use a custom discovery endpoint.
+4. Temporarily clear `infiniai.modelRoutes` to rule out a bad route override.
+5. Run `Developer: Reload Window`, then `@infiniai /models refresh`.
 
-We welcome your participation!
+### Requests Fail For Anthropic Or Vertex Routes
 
-- 🐛 **Submit Issues**: [GitHub Issues](https://github.com/drewzhao/infini-ai-copilot/issues)
-- 🔀 **Contribute Code**: Feel free to Fork this repository and submit a Pull Request.
+Route overrides are exact product behavior. If a route is forced to `anthropic`, the extension sends `/v1/messages`; if it is forced to `vertex`, the extension sends `:streamGenerateContent`. Make sure the configured `baseUrl` matches the selected transport.
 
-## 📄 License
+For a quick isolation test, remove the matching item from `infiniai.modelRoutes` and let the extension fall back to model metadata or the OpenAI-compatible route.
+
+### Logs Need To Be Shared
+
+Use the `InfiniAI` output channel, but redact before sharing. Logs are designed to avoid API keys, prompts, tool results, image data, auth headers, and full response bodies. Still review them for organization-specific endpoint names or model IDs.
+
+## Contributing
+
+Issues and pull requests are welcome:
+
+- [GitHub Issues](https://github.com/drewzhao/infini-ai-copilot/issues)
+
+See [CONTRIBUTE.md](CONTRIBUTE.md) for architecture and release guardrails.
+
+## License
 
 [MIT License](LICENSE)

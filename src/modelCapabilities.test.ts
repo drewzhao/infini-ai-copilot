@@ -40,4 +40,3 @@ describe("resolveImageInputCapability", () => {
 		assert.equal(result, false);
 	});
 });
-
