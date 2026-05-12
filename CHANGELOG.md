@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `infiniai.disableThinkingForModels` setting (string-array glob, supports `*` wildcards). Defaults to `mimo-v2-pro`, `mimo-v2.5-pro`, `mimo-v2.5`, `mimo-v2-omni`, `mimo-v2-flash`, `deepseek-v4*` (#17).
 - README "Thinking mode" section (English + Chinese) explaining the upstream `reasoning_content` echo-back requirement, why the stable VS Code language-model API cannot satisfy it, the trade-off, and how to override (#17).
+- Manifest now declares `enabledApiProposals: ["languageModelThinkingPart"]`. The extension performs a runtime capability check (`src/proposedApi.ts`) and, when the host actually exposes `vscode.LanguageModelThinkingPart` (VS Code Insiders launched with `--enable-proposed-api drewzhao.infiniai-copilot`), automatically: (1) streams reasoning chunks as `LanguageModelThinkingPart` parts so the chat UI preserves them across turns, (2) echoes `reasoning_content` back to MiMo V2 / DeepSeek V4 on subsequent turns to avoid the HTTP 400, and (3) skips the force-disable injection. Stable VS Code transparently falls back to the previous force-disable behavior. README + Chinese README updated with Insiders opt-in instructions.
 
 ### Fixed
 

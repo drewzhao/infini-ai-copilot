@@ -96,7 +96,7 @@ Some InfiniAI models stream a `reasoning_content` chain-of-thought in addition t
 HTTP 400 — reasoning_content is required when the previous assistant message contains tool calls
 ```
 
-The stable VS Code language-model API (`vscode.LanguageModelChatMessage`) has no public part type for thinking/reasoning content — `LanguageModelThinkingPart` exists only as a proposed API and is unavailable to extensions published to the stable Marketplace. The extension therefore cannot persist or replay reasoning content across turns.
+The stable VS Code language-model API (`vscode.LanguageModelChatMessage`) has no public part type for thinking/reasoning content — `LanguageModelThinkingPart` is a proposed API. On stable VS Code the extension therefore cannot persist or replay reasoning content across turns and falls back to the workaround below. On VS Code Insiders the extension automatically detects the proposed API at runtime and round-trips `reasoning_content` end-to-end (see [Insiders: end-to-end thinking mode](#insiders-end-to-end-thinking-mode)).
 
 To avoid the 400 error out of the box, the extension force-disables thinking mode on the affected model families by injecting both vendor flavors into the request body:
 
@@ -115,6 +115,30 @@ Defaults disabled: `mimo-v2-pro`, `mimo-v2.5-pro`, `mimo-v2.5`, `mimo-v2-omni`, 
 
 - Add a pattern (e.g. `"my-thinker-*"`) to extend the disable list.
 - Set to `[]` to allow thinking on the default models — only do this if you have an external workaround for round-tripping `reasoning_content` (e.g. an MCP proxy, a custom transport, or VS Code Insiders + `--enable-proposed-api drewzhao.infiniai-copilot`).
+
+### Insiders: end-to-end thinking mode
+
+The extension manifest declares `enabledApiProposals: ["languageModelThinkingPart"]`. When the host actually exposes that proposed API at runtime, the extension automatically:
+
+1. Streams reasoning chunks as `LanguageModelThinkingPart` parts so the chat UI preserves them across turns.
+2. Echoes `reasoning_content` back to MiMo V2 / DeepSeek V4 on subsequent turns, avoiding the HTTP 400.
+3. Skips the force-disable injection so the model can think freely.
+
+To opt in, launch VS Code Insiders with proposed APIs enabled for this publisher:
+
+```sh
+code-insiders --enable-proposed-api drewzhao.infiniai-copilot
+```
+
+Alternatively add the publisher id to `argv.json` (Command Palette → "Preferences: Configure Runtime Arguments"):
+
+```jsonc
+{
+  "enable-proposed-api": ["drewzhao.infiniai-copilot"]
+}
+```
+
+No setting toggle is needed — detection is automatic. On stable VS Code (or Insiders without the flag) the constructor is `undefined` and the extension transparently falls back to the disable behavior described above.
 
 ## Commands
 

@@ -12,6 +12,7 @@ import type { AnthropicMessage } from "./anthropic/anthropicTypes";
 import type { VertexContent } from "./vertex/vertexTypes";
 import { InfiniAIModelInfo } from "./types";
 import { tryParseJSONObject } from "./utils";
+import { getThinkingPartCtor } from "./proposedApi";
 
 export interface ApiUsage {
 	readonly inputTokens: number;
@@ -161,9 +162,7 @@ export abstract class CommonApi {
 	 * Thinking content is intentionally not emitted as response parts.
 	 * @param text The thinking text chunk observed in the stream
 	 */
-	protected bufferThinkingContent(text: string): void {
-		// Stable Marketplace build does not emit thinking parts.
-		// Keep this hook so stream processors can still mark and close thinking spans.
+	protected bufferThinkingContent(text: string, progress?: Progress<vscode.LanguageModelResponsePart>): void {
 		if (!text) {
 			return;
 		}
@@ -171,6 +170,16 @@ export abstract class CommonApi {
 		// Generate thinking ID if not provided by the model
 		if (!this._currentThinkingId) {
 			this._currentThinkingId = this.generateThinkingId();
+		}
+
+		// When the host exposes the proposed `LanguageModelThinkingPart` API
+		// (Insiders + --enable-proposed-api drewzhao.infiniai-copilot, or an
+		// allowlist entry), emit it as a real response part so the chat host
+		// preserves the chain-of-thought across turns. On stable VS Code the
+		// constructor is undefined and we silently drop the chunk.
+		const Ctor = getThinkingPartCtor();
+		if (Ctor && progress) {
+			progress.report(new Ctor(text, this._currentThinkingId) as unknown as vscode.LanguageModelResponsePart);
 		}
 	}
 }

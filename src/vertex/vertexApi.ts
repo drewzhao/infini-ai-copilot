@@ -297,7 +297,7 @@ export class VertexApi extends CommonApi {
 				this._hasEmittedAssistantText = true;
 			} else if ("thought" in part && part.thought && part.thought.thought) {
 				// Buffer thinking content
-				this.bufferThinkingContent(part.thought.thought);
+				this.bufferThinkingContent(part.thought.thought, progress);
 			} else if ("functionCall" in part && part.functionCall) {
 				// Handle tool call
 				// Emit whitespace hint if first tool call after text

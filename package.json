@@ -288,6 +288,9 @@
 		}
 	},
 	"main": "./out/extension.js",
+	"enabledApiProposals": [
+		"languageModelThinkingPart"
+	],
 	"extensionKind": [
 		"ui",
 		"workspace"

@@ -34,6 +34,7 @@ import {
 	getDisableThinkingPatterns,
 	shouldDisableThinking,
 } from "../thinkingMode";
+import { getThinkingPartCtor } from "../proposedApi";
 
 export class OpenaiApi extends CommonApi {
 	constructor() {
@@ -51,16 +52,21 @@ export class OpenaiApi extends CommonApi {
 		_modelConfig: { includeReasoningInRequest: boolean }
 	): OpenAIChatMessage[] {
 		const out: OpenAIChatMessage[] = [];
+		const ThinkingPartCtor = getThinkingPartCtor();
 		for (const m of messages) {
 			const role = mapRole(m);
 			const textParts: string[] = [];
 			const imageParts: vscode.LanguageModelDataPart[] = [];
 			const toolCalls: OpenAIToolCall[] = [];
 			const toolResults: { callId: string; content: string }[] = [];
+			const thinkingTexts: string[] = [];
 
 			for (const part of m.content ?? []) {
 				if (part instanceof vscode.LanguageModelTextPart) {
 					textParts.push(part.value);
+				} else if (ThinkingPartCtor && part instanceof ThinkingPartCtor) {
+					const v = (part as vscode.LanguageModelThinkingPart).value;
+					thinkingTexts.push(Array.isArray(v) ? v.join("") : v);
 				} else if (part instanceof vscode.LanguageModelDataPart && isImageMimeType(part.mimeType)) {
 					imageParts.push(part);
 				} else if (part instanceof vscode.LanguageModelToolCallPart) {
@@ -91,8 +97,15 @@ export class OpenaiApi extends CommonApi {
 					assistantMessage.tool_calls = toolCalls;
 				}
 
-				// Only include assistant messages that contain text or tool calls
-				if (assistantMessage.content || assistantMessage.tool_calls) {
+				// Round-trip reasoning_content when the host supplied thinking parts
+				// (proposed API path on Insiders + --enable-proposed-api). Required by
+				// MiMo V2 / DeepSeek V4 on subsequent turns of a tool-call loop.
+				if (thinkingTexts.length > 0) {
+					assistantMessage.reasoning_content = thinkingTexts.join("");
+				}
+
+				// Only include assistant messages that contain text, tool calls, or reasoning
+				if (assistantMessage.content || assistantMessage.tool_calls || assistantMessage.reasoning_content) {
 					out.push(assistantMessage);
 				}
 			}
@@ -303,8 +316,12 @@ export class OpenaiApi extends CommonApi {
 		// additions via `infiniai.disableThinkingForModels`). Without this
 		// the upstream returns HTTP 400 on the second turn of a tool-call
 		// loop. See README "Thinking mode" for details.
+		//
+		// When the host exposes `LanguageModelThinkingPart` (Insiders +
+		// --enable-proposed-api drewzhao.infiniai-copilot) we can round-trip
+		// reasoning_content via convertMessages, so we leave thinking enabled.
 		const modelId = um?.id ?? (typeof orb.model === "string" ? orb.model : "");
-		if (shouldDisableThinking(modelId, getDisableThinkingPatterns())) {
+		if (!getThinkingPartCtor() && shouldDisableThinking(modelId, getDisableThinkingPatterns())) {
 			applyDisableThinking(orb);
 		}
 
@@ -415,7 +432,7 @@ export class OpenaiApi extends CommonApi {
 					}
 
 					if (extractedText) {
-						this.bufferThinkingContent(extractedText);
+						this.bufferThinkingContent(extractedText, progress);
 						emitted = true;
 					}
 				}
@@ -434,7 +451,7 @@ export class OpenaiApi extends CommonApi {
 					text = maybeThinking;
 				}
 				if (text) {
-					this.bufferThinkingContent(text);
+					this.bufferThinkingContent(text, progress);
 					emitted = true;
 				}
 			}

@@ -96,7 +96,7 @@ npm run build
 HTTP 400 — reasoning_content is required when the previous assistant message contains tool calls
 ```
 
-VS Code 稳定版语言模型 API (`vscode.LanguageModelChatMessage`) 没有公开的思考/推理内容 part 类型 — `LanguageModelThinkingPart` 仅作为 proposed API 存在,发布到稳定版 Marketplace 的扩展无法使用。因此扩展无法跨轮次保存或回放推理内容。
+VS Code 稳定版语言模型 API (`vscode.LanguageModelChatMessage`) 没有公开的思考/推理内容 part 类型 — `LanguageModelThinkingPart` 仅作为 proposed API 存在。在稳定版上扩展无法跨轮次保存或回放推理内容,会回退到下方的强制关闭策略;在 VS Code Insiders 上扩展会运行时检测该 proposed API 是否可用,若可用则自动端到端回传 `reasoning_content`(详见 [Insiders: 端到端思考模式](#insiders-端到端思考模式))。
 
 为避免开箱即遇到上述 400 错误,扩展会对受影响的模型族强制关闭思考模式,在请求体中同时注入两种厂商写法:
 
@@ -115,6 +115,30 @@ VS Code 稳定版语言模型 API (`vscode.LanguageModelChatMessage`) 没有公�
 
 - 添加模式(例如 `"my-thinker-*"`)以扩展禁用列表。
 - 设为 `[]` 可在默认模型上恢复思考模式 — 仅当你已自行解决 `reasoning_content` 回传问题时(例如自建 MCP 代理、自定义传输层,或使用 VS Code Insiders + `--enable-proposed-api drewzhao.infiniai-copilot`)才这样做。
+
+### Insiders: 端到端思考模式
+
+扩展清单声明了 `enabledApiProposals: ["languageModelThinkingPart"]`。当宿主在运行时实际暴露该 proposed API 时,扩展会自动:
+
+1. 将推理片段以 `LanguageModelThinkingPart` 的形式流式输出,聊天 UI 即可在多轮中保留它们。
+2. 在后续轮次中将 `reasoning_content` 原样回传给 MiMo V2 / DeepSeek V4,从而避免 HTTP 400。
+3. 跳过强制关闭注入,让模型自由思考。
+
+启用方式: 使用 VS Code Insiders 并为本扩展 publisher 启用 proposed API:
+
+```sh
+code-insiders --enable-proposed-api drewzhao.infiniai-copilot
+```
+
+或在 `argv.json` 中添加 publisher id(命令面板 → "首选项: 配置运行时参数"):
+
+```jsonc
+{
+  "enable-proposed-api": ["drewzhao.infiniai-copilot"]
+}
+```
+
+无需任何设置开关 — 检测完全自动化。在稳定版 VS Code (或未加 flag 的 Insiders) 上,该构造器为 `undefined`,扩展会透明地回退到上文描述的强制关闭策略。
 
 ## 命令
 
