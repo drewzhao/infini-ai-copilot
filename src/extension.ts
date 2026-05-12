@@ -15,6 +15,7 @@ import { registerInfiniAIUsageDashboard } from "./views/usageDashboard";
 import { pickAccountToSignOut, pickPlan } from "./ui/quickPick";
 import { getActivePlan } from "./utils";
 import { registerCopilotChatDependencyCheck } from "./copilotChatDependency";
+import { registerInfiniAILanguageStatus } from "./views/languageStatusItem";
 
 export function activate(context: vscode.ExtensionContext) {
 	// Build a descriptive User-Agent to help quantify API usage
@@ -38,6 +39,7 @@ export function activate(context: vscode.ExtensionContext) {
 		registerInfiniAIModelsTreeView(provider, context.secrets, output),
 		registerInfiniAIUsageDashboard(context, provider),
 		registerCopilotChatDependencyCheck(context),
+		registerInfiniAILanguageStatus(provider),
 		vscode.workspace.onDidChangeConfiguration((event) => {
 			if (event.affectsConfiguration("infiniai")) {
 				provider.refreshModels();
