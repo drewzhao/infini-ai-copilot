@@ -268,6 +268,21 @@
 						"type": "string"
 					},
 					"description": "%configuration.disableImageInputModels.description%"
+				},
+				"infiniai.disableThinkingForModels": {
+					"type": "array",
+					"default": [
+						"mimo-v2-pro",
+						"mimo-v2.5-pro",
+						"mimo-v2.5",
+						"mimo-v2-omni",
+						"mimo-v2-flash",
+						"deepseek-v4*"
+					],
+					"items": {
+						"type": "string"
+					},
+					"description": "%configuration.disableThinkingForModels.description%"
 				}
 			}
 		}

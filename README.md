@@ -69,6 +69,7 @@ Common settings:
 - `infiniai.modelRoutes`: Optional model routing overrides. Each item supports `pattern`, `transport` (`"openai"`, `"anthropic"`, or `"vertex"`), and optional `baseUrl`.
 - `infiniai.imageInputModels`: Force-enable image input for matching model IDs. Supports `*` wildcards.
 - `infiniai.disableImageInputModels`: Force-disable image input for matching model IDs. Supports `*` wildcards.
+- `infiniai.disableThinkingForModels`: Model ID patterns whose thinking mode is force-disabled. Defaults: `mimo-v2-pro`, `mimo-v2.5-pro`, `mimo-v2.5`, `mimo-v2-omni`, `mimo-v2-flash`, `deepseek-v4*`. See [Thinking mode](#thinking-mode) below.
 - `infiniai.retry`: Retry policy for retryable network and HTTP failures.
 - `infiniai.delay`: Fixed delay between requests, in milliseconds.
 
@@ -86,6 +87,34 @@ Transport behavior:
 - Vertex routes call `:streamGenerateContent` using the Vertex adapter.
 
 Unsupported endpoint families fail with a clear provider error instead of silently falling back.
+
+## Thinking mode
+
+Some InfiniAI models stream a `reasoning_content` chain-of-thought in addition to the regular assistant text. Their APIs (currently Xiaomi MiMo V2 family and DeepSeek V4 family) require that `reasoning_content` be **echoed back verbatim** on subsequent turns whenever the conversation contains tool calls. If it is missing, the upstream returns:
+
+```
+HTTP 400 — reasoning_content is required when the previous assistant message contains tool calls
+```
+
+The stable VS Code language-model API (`vscode.LanguageModelChatMessage`) has no public part type for thinking/reasoning content — `LanguageModelThinkingPart` exists only as a proposed API and is unavailable to extensions published to the stable Marketplace. The extension therefore cannot persist or replay reasoning content across turns.
+
+To avoid the 400 error out of the box, the extension force-disables thinking mode on the affected model families by injecting both vendor flavors into the request body:
+
+```jsonc
+{
+  "enable_thinking": false,
+  "thinking": { "type": "disabled" }
+}
+```
+
+Defaults disabled: `mimo-v2-pro`, `mimo-v2.5-pro`, `mimo-v2.5`, `mimo-v2-omni`, `mimo-v2-flash`, `deepseek-v4*` (any DeepSeek V4 variant).
+
+**Trade-off**: chain-of-thought quality on these specific models. Tool-calling and regular replies still work normally; other models (Kimi K2 Thinking, DeepSeek R1, DeepSeek V3.x, Qwen, GLM, etc.) are not affected and keep their thinking mode.
+
+**Override** via `infiniai.disableThinkingForModels`:
+
+- Add a pattern (e.g. `"my-thinker-*"`) to extend the disable list.
+- Set to `[]` to allow thinking on the default models — only do this if you have an external workaround for round-tripping `reasoning_content` (e.g. an MCP proxy, a custom transport, or VS Code Insiders + `--enable-proposed-api drewzhao.infiniai-copilot`).
 
 ## Commands
 

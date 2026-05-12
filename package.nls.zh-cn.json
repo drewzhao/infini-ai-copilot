@@ -30,5 +30,6 @@
 	"configuration.modelCacheTtlMs.description": "已发现模型的缓存时长。设为 0 则每次请求都重新拉取。",
 	"configuration.modelRoutes.description": "模型传输路由的匹配覆盖规则。第一个匹配的模式生效。",
 	"configuration.imageInputModels.description": "为指定模型 ID 强制启用图片输入。支持 '*' 通配符(例如 'kimi-*'),适用于名称中缺少 '-vision' 等标记的多模态模型。",
-	"configuration.disableImageInputModels.description": "为指定模型 ID 强制禁用图片输入。支持 '*' 通配符。"
+	"configuration.disableImageInputModels.description": "为指定模型 ID 强制禁用图片输入。支持 '*' 通配符。",
+	"configuration.disableThinkingForModels.description": "强制关闭思考模式的模型 ID 模式列表。默认涵盖小米 MiMo V2 系列与 DeepSeek V4 系列：这些模型的 API 要求在后续轮次中回传 reasoning_content,否则会返回 HTTP 400。如需在这些模型上启用思考模式,请清空该列表(仅当你已自行解决 reasoning_content 回传问题时才这样做)。支持 '*' 通配符,匹配不区分大小写。"
 }

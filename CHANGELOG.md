@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `infiniai.disableThinkingForModels` setting (string-array glob, supports `*` wildcards). Defaults to `mimo-v2-pro`, `mimo-v2.5-pro`, `mimo-v2.5`, `mimo-v2-omni`, `mimo-v2-flash`, `deepseek-v4*` (#17).
+- README "Thinking mode" section (English + Chinese) explaining the upstream `reasoning_content` echo-back requirement, why the stable VS Code language-model API cannot satisfy it, the trade-off, and how to override (#17).
+
+### Fixed
+
+- HTTP 400 `reasoning_content is required when the previous assistant message contains tool calls` against Xiaomi MiMo V2 family and DeepSeek V4 family on the second turn of a tool-call loop. The OpenAI-compatible request body now injects both `enable_thinking: false` and `thinking: { type: "disabled" }` for matching models (#17).
+
 ## [0.5.0] - 2026-05-12
 
 ### Added

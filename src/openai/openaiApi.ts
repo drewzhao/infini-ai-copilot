@@ -29,6 +29,11 @@ import {
 import { CommonApi } from "../commonApi";
 import { readSseEvents } from "../sse";
 import { StreamParseError, sanitizeForLog } from "../utils";
+import {
+	applyDisableThinking,
+	getDisableThinkingPatterns,
+	shouldDisableThinking,
+} from "../thinkingMode";
 
 export class OpenaiApi extends CommonApi {
 	constructor() {
@@ -291,6 +296,17 @@ export class OpenaiApi extends CommonApi {
 		// 		}
 		// 	}
 		// }
+
+		// Force-disable thinking mode for models whose `reasoning_content`
+		// cannot be round-tripped through the stable VS Code language-model
+		// API (Xiaomi MiMo V2 family, DeepSeek V4 family, plus any user
+		// additions via `infiniai.disableThinkingForModels`). Without this
+		// the upstream returns HTTP 400 on the second turn of a tool-call
+		// loop. See README "Thinking mode" for details.
+		const modelId = um?.id ?? (typeof orb.model === "string" ? orb.model : "");
+		if (shouldDisableThinking(modelId, getDisableThinkingPatterns())) {
+			applyDisableThinking(orb);
+		}
 
 		return orb;
 	}

@@ -30,5 +30,6 @@
 	"configuration.modelCacheTtlMs.description": "How long to cache discovered models. Set 0 to refresh every request.",
 	"configuration.modelRoutes.description": "Route matching overrides for model transports. The first matching pattern wins.",
 	"configuration.imageInputModels.description": "Force-enable image input for specific model IDs. Supports '*' wildcard patterns (e.g. 'kimi-*'). Useful when a multimodal model doesn't include a name marker like '-vision'.",
-	"configuration.disableImageInputModels.description": "Force-disable image input for specific model IDs. Supports '*' wildcard patterns."
+	"configuration.disableImageInputModels.description": "Force-disable image input for specific model IDs. Supports '*' wildcard patterns.",
+	"configuration.disableThinkingForModels.description": "Model ID patterns whose thinking mode is force-disabled. Defaults cover Xiaomi MiMo V2 family and DeepSeek V4 family, whose APIs require reasoning_content to be echoed back on subsequent turns and would otherwise return HTTP 400. Set to an empty array to allow thinking on these models (only do this if you have a workaround for round-tripping reasoning_content). Supports '*' wildcards; comparisons are case-insensitive."
 }
