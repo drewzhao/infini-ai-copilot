@@ -41,6 +41,8 @@ This backlog enumerates stable VS Code APIs (from `vscode.d.ts`) that could mean
 
 ### 2. LogOutputChannel
 
+> **Status: ✅ Done** — shipped in PR #5 (commit f58cce1). `src/extension.ts` creates the channel via `createOutputChannel("InfiniAI", { log: true })`.
+
 **Problem.** `createOutputChannel("InfiniAI")` produces a plain text channel with no log levels and no timestamps. Users cannot quiet it or raise verbosity.
 
 **API.** `vscode.window.createOutputChannel(name, { log: true }): LogOutputChannel`.
@@ -92,6 +94,8 @@ This backlog enumerates stable VS Code APIs (from `vscode.d.ts`) that could mean
 ---
 
 ### 4. Live reaction to configuration changes
+
+> **Status: ✅ Done** — shipped in PR #5 (commit f58cce1). See `vscode.workspace.onDidChangeConfiguration` wiring in `src/extension.ts`.
 
 **Problem.** Changing `infiniai.plan`, `infiniai.baseUrl`, or `infiniai.coding.baseUrl` requires a window reload before they take effect. This is a frequent source of confusion.
 
@@ -223,6 +227,8 @@ context.subscriptions.push(vscode.window.registerUriHandler({
 ### 8. TreeView sidebar — InfiniAI Models
 
 > **Status: Split.** Part **8a** (Plan / Models / Account nodes) ships now against existing endpoints. Part **8b** (Usage node) is **deferred — blocked on an InfiniAI account-level quota / billing query API**.
+>
+> **Co-existence note.** The Models tree should reserve itself for persistent state and per-item actions; defer richer ad-hoc model queries to `@infiniai /models` (already shipped — see *Shipped beyond the backlog* below) rather than duplicating its output verbatim.
 
 **Problem.** The single status-bar item is the only persistent surface. Users have no central place to see/manage models, plans, or quotas.
 
@@ -358,6 +364,8 @@ if (choice === vscode.l10n.t("Get API Key")) {
 
 ### 13. SecretStorage.onDidChange for cross-window sync
 
+> **Status: ✅ Done** — shipped in PR #5 (commit f58cce1). See `context.secrets.onDidChange` in `src/extension.ts`.
+
 **Problem.** Editing the API key in window A doesn't refresh the model list in window B.
 
 **API.** `context.secrets.onDidChange((e) => …)`.
@@ -376,6 +384,8 @@ context.subscriptions.push(context.secrets.onDidChange(e => {
 ---
 
 ### 14. Detect Copilot Chat dependency state
+
+> **Co-existence note.** The shipped `@infiniai /doctor` command cannot serve as the install prompt — Copilot Chat must already be installed for `/doctor` to be reachable. The proactive activate-time toast is still required, and is more important now that PR #5 dropped the hard `extensionDependencies` on `github.copilot-chat`.
 
 **Problem.** Without `github.copilot-chat` installed/active, our provider registers nothing visible and the user is confused.
 
@@ -538,8 +548,8 @@ Niche but appreciated by Coding-Plan customers tracking spend.
 
 | Sprint | Items | Rationale |
 |---|---|---|
-| **S1** | #2 LogOutputChannel, #4 onDidChangeConfiguration | Tiny code surface, immediate diagnostic + reactivity wins |
-| **S2** | #3 withProgress, #11 action buttons, #13 SecretStorage.onDidChange, #14 dependency detection | Round out daily-use polish |
+| **S1** ✅ | ~~#2 LogOutputChannel, #4 onDidChangeConfiguration~~ | Shipped in PR #5 |
+| **S2** | #3 withProgress, #11 action buttons, ~~#13 SecretStorage.onDidChange~~ ✅, #14 dependency detection | Round out daily-use polish (#13 shipped in PR #5) |
 | **S3** | #5 Localization (zh-cn) | Big win for primary market |
 | **S4** | #8a TreeView (Plan / Models / Account), #17 commands | Establish the InfiniAI sidebar as the central hub |
 | **S5** | #6 AuthenticationProvider | Account-grade key management |
@@ -555,3 +565,24 @@ Niche but appreciated by Coding-Plan customers tracking spend.
 - **No proposed APIs.** Everything above is in stable `vscode.d.ts` for `engines.vscode: ^1.104.0`.
 - **No new runtime dependencies** beyond what's already shipped, unless explicitly justified per item.
 - **No changes to wire protocol** (OpenAI/Anthropic/Vertex shape) as part of these UX items.
+
+---
+
+## Shipped beyond the backlog
+
+Features that landed via PR #5 (commit f58cce1) but were not anticipated by this document:
+
+### `@infiniai` chat participant — `/doctor`, `/models`, `/test`
+
+- **File.** `src/participant.ts` + `chatParticipants` contribution in `package.json`.
+- **Why it stays.** Native to in-chat focus, and `/test` (a one-shot ping that exercises the configured route end-to-end) is **net-new functionality** not covered by any tree, status item, or settings page.
+- **Relationship to backlogged items.**
+  - **#8 (TreeView):** complementary — the tree is the always-visible glanceable surface; the participant is the in-chat surface. `/models` and the tree's Models node should not duplicate output verbatim; defer detailed per-model dumps to `/models`.
+  - **#14 (dependency detection):** does **not** replace the activate-time toast — `/doctor` is unreachable when Copilot Chat is missing.
+  - **#17 (commands):** `infiniai.refreshModels` is still worth shipping for non-chat surfaces (tree title-bar action, command palette); keep it alongside `/models refresh`.
+
+### Provider modernization (cache TTL, in-flight dedupe, last-good fallback, route metadata, typed errors, redacted logging)
+
+- **Files.** `src/provider.ts`, `src/utils.ts`, `src/route.ts`, `src/sse.ts`, `src/retry.ts`.
+- **New config keys.** `infiniai.modelDiscoveryUrl`, `infiniai.modelCacheTtlMs`, `infiniai.modelRoutes`.
+- **Backlog impact.** Removes the need to re-litigate the discovery/cache/transport design in any future item; future tree / dashboard / tool work should consume the existing cache rather than duplicating it.
