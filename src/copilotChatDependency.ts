@@ -41,7 +41,15 @@ export function registerCopilotChatDependencyCheck(context: vscode.ExtensionCont
 			remind
 		);
 		if (choice === install) {
-			await vscode.commands.executeCommand("workbench.extensions.installExtension", COPILOT_CHAT_ID);
+			// `workbench.extensions.installExtension` may not exist on the web; fall
+			// back to opening the Marketplace listing in that case.
+			if (vscode.env.uiKind === vscode.UIKind.Web) {
+				await vscode.env.openExternal(
+					vscode.Uri.parse(`https://marketplace.visualstudio.com/items?itemName=${COPILOT_CHAT_ID}`)
+				);
+			} else {
+				await vscode.commands.executeCommand("workbench.extensions.installExtension", COPILOT_CHAT_ID);
+			}
 		} else {
 			await context.globalState.update(SUPPRESS_KEY, { lastShown: Date.now() } satisfies ChatPromptState);
 		}
