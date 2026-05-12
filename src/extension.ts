@@ -3,6 +3,13 @@ import { InfiniAIChatModelProvider } from "./provider";
 import { initStatusBar } from "./statusBar";
 import { registerInfiniAIChatParticipant } from "./participant";
 import { logInfo } from "./utils";
+import {
+	INFINIAI_AUTH_PROVIDER_ID,
+	INFINIAI_AUTH_PROVIDER_LABEL,
+	InfiniAIAuthenticationProvider,
+	PlanInputProvider,
+} from "./auth/infiniaiAuthProvider";
+import type { InfiniAIPlan } from "./utils";
 
 export function activate(context: vscode.ExtensionContext) {
 	// Build a descriptive User-Agent to help quantify API usage
@@ -37,35 +44,23 @@ export function activate(context: vscode.ExtensionContext) {
 
 	logInfo(output, "InfiniAI Chat Model Provider activated.");
 
-	// Management command to configure API key (with plan picker)
-	context.subscriptions.push(
-		vscode.commands.registerCommand("infiniai.setApikey", async () => {
-			// Ask which plan's API key to configure
-			const planChoice = await vscode.window.showQuickPick(
+	const planInputProvider: PlanInputProvider = {
+		async promptPlan() {
+			const choice = await vscode.window.showQuickPick(
 				[
-					{ label: vscode.l10n.t("Standard Plan"), description: vscode.l10n.t("Pay-per-token billing"), plan: "standard" },
-					{ label: vscode.l10n.t("Coding Plan"), description: vscode.l10n.t("Coding Plan subscription"), plan: "coding" },
+					{ label: vscode.l10n.t("Standard Plan"), description: vscode.l10n.t("Pay-per-token billing"), plan: "standard" as InfiniAIPlan },
+					{ label: vscode.l10n.t("Coding Plan"), description: vscode.l10n.t("Coding Plan subscription"), plan: "coding" as InfiniAIPlan },
 				],
 				{
 					title: vscode.l10n.t("InfiniAI: Select Plan"),
 					placeHolder: vscode.l10n.t("Which plan's API key do you want to configure?"),
 				}
 			);
-			if (!planChoice) {
-				return; // user canceled
-			}
-
-			const secretKey = planChoice.plan === "coding" ? "infiniai.codingApiKey" : "infiniai.apiKey";
-			const planLabel = planChoice.label;
-
-			// Update the plan setting to match the user's choice
-			const config = vscode.workspace.getConfiguration("infiniai");
-			if (config.get<string>("plan") !== planChoice.plan) {
-				await config.update("plan", planChoice.plan, vscode.ConfigurationTarget.Global);
-			}
-
-			const existing = await context.secrets.get(secretKey);
-			const apiKey = await vscode.window.showInputBox({
+			return choice?.plan;
+		},
+		async promptApiKey(plan, existing) {
+			const planLabel = plan === "coding" ? vscode.l10n.t("Coding Plan") : vscode.l10n.t("Standard Plan");
+			const entered = await vscode.window.showInputBox({
 				title: vscode.l10n.t("InfiniAI {0} API Key", planLabel),
 				prompt: existing
 					? vscode.l10n.t("Update your {0} API key", planLabel)
@@ -74,18 +69,56 @@ export function activate(context: vscode.ExtensionContext) {
 				password: true,
 				value: existing ?? "",
 			});
-			if (apiKey === undefined) {
-				return; // user canceled
-			}
-			if (!apiKey.trim()) {
-				await context.secrets.delete(secretKey);
-				provider.refreshModels();
-				vscode.window.showInformationMessage(vscode.l10n.t("InfiniAI {0} API key cleared.", planLabel));
+			return entered?.trim() ? entered.trim() : undefined;
+		},
+	};
+
+	const authProvider = new InfiniAIAuthenticationProvider(context.secrets, planInputProvider);
+	context.subscriptions.push(
+		authProvider,
+		vscode.authentication.registerAuthenticationProvider(
+			INFINIAI_AUTH_PROVIDER_ID,
+			INFINIAI_AUTH_PROVIDER_LABEL,
+			authProvider,
+			{ supportsMultipleAccounts: true }
+		)
+	);
+
+	// Management command to configure API key (with plan picker). Thin wrapper
+	// over the AuthenticationProvider so the Accounts menu and the command
+	// share the same persistence path.
+	context.subscriptions.push(
+		vscode.commands.registerCommand("infiniai.setApikey", async () => {
+			const plan = await planInputProvider.promptPlan(undefined);
+			if (!plan) {
 				return;
 			}
-			await context.secrets.store(secretKey, apiKey.trim());
-			provider.refreshModels();
-			vscode.window.showInformationMessage(vscode.l10n.t("InfiniAI {0} API key saved.", planLabel));
+			const config = vscode.workspace.getConfiguration("infiniai");
+			if (config.get<string>("plan") !== plan) {
+				await config.update("plan", plan, vscode.ConfigurationTarget.Global);
+			}
+			const planLabel = plan === "coding" ? vscode.l10n.t("Coding Plan") : vscode.l10n.t("Standard Plan");
+			try {
+				await vscode.authentication.getSession(INFINIAI_AUTH_PROVIDER_ID, [plan], { createIfNone: true });
+				vscode.window.showInformationMessage(vscode.l10n.t("InfiniAI {0} API key saved.", planLabel));
+			} catch {
+				// User canceled, nothing to do.
+			}
+		}),
+		vscode.commands.registerCommand("infiniai.signOut", async () => {
+			const sessions = await authProvider.getSessions();
+			if (sessions.length === 0) {
+				vscode.window.showInformationMessage(vscode.l10n.t("No InfiniAI accounts are signed in."));
+				return;
+			}
+			const choice = await vscode.window.showQuickPick(
+				sessions.map((s) => ({ label: s.account.label, sessionId: s.id })),
+				{ title: vscode.l10n.t("InfiniAI: Sign Out"), placeHolder: vscode.l10n.t("Choose an account to sign out.") }
+			);
+			if (!choice) {
+				return;
+			}
+			await authProvider.removeSession(choice.sessionId);
 		})
 	);
 }

@@ -39,7 +39,9 @@
 	},
 	"license": "MIT",
 	"activationEvents": [
-		"onCommand:infiniai.setApikey"
+		"onCommand:infiniai.setApikey",
+		"onCommand:infiniai.signOut",
+		"onAuthenticationRequest:infiniai"
 	],
 	"contributes": {
 		"languageModelChatProviders": [
@@ -53,6 +55,10 @@
 			{
 				"command": "infiniai.setApikey",
 				"title": "%command.setApikey.title%"
+			},
+			{
+				"command": "infiniai.signOut",
+				"title": "%command.signOut.title%"
 			}
 		],
 		"chatParticipants": [

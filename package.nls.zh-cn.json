@@ -2,6 +2,7 @@
 	"extension.displayName": "InfiniAI Provider for Copilot",
 	"extension.description": "面向 VS Code 的 InfiniAI 语言模型提供方与诊断参与者",
 	"command.setApikey.title": "InfiniAI: 设置 InfiniAI API 密钥",
+	"command.signOut.title": "InfiniAI: 退出登录",
 	"participant.description": "诊断和测试 InfiniAI 语言模型集成",
 	"participant.command.doctor.description": "检查 InfiniAI 配置和提供方运行状态",
 	"participant.command.models.description": "列出已发现的 InfiniAI 模型及其能力",
