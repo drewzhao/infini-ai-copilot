@@ -10,6 +10,7 @@ import {
 
 import { AnthropicApi } from "./anthropic/anthropicApi";
 import { AnthropicRequestBody } from "./anthropic/anthropicTypes";
+import { surfaceActionableError } from "./errorActions";
 import { OpenaiApi } from "./openai/openaiApi";
 import { prepareTokenCount } from "./provideToken";
 import { resolveModelRoute } from "./route";
@@ -199,6 +200,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			if (!(err instanceof vscode.CancellationError)) {
 				this._lastError = err instanceof Error ? err.message : String(err);
 				logError(this.output, `Chat request failed model=${model.id} error=${sanitizeForLog(this._lastError)}`);
+				void surfaceActionableError(err);
 			}
 			throw err;
 		} finally {
