@@ -2,30 +2,18 @@
 
 This backlog enumerates stable VS Code APIs (from `vscode.d.ts`) that could meaningfully improve the user experience of **InfiniAI Provider for Copilot**. Each item is grouped by impact tier, with design rationale, implementation guidance, suggested file layout, and acceptance criteria.
 
-> All items are buildable today against the existing `engines.vscode: ^1.104.0` and require **no proposed APIs**.
+> Items #2–#6 and #11–#16 shipped in 0.5.0 and have been removed. Items #8a and #9a also shipped in 0.5.0; only their deferred 8b/9b follow-ups remain below.
 
 ---
 
 ## Table of Contents
 
-- [Tier 1 — Highest UX wins](#tier-1--highest-ux-wins)
-  - [2. LogOutputChannel](#2-logoutputchannel)
-  - [3. Progress notifications for long operations](#3-progress-notifications-for-long-operations)
-  - [4. Live reaction to configuration changes](#4-live-reaction-to-configuration-changes)
-  - [5. Localization with vscode.l10n](#5-localization-with-vscodel10n)
 - [Tier 2 — Strong UX upgrades](#tier-2--strong-ux-upgrades)
-  - [6. AuthenticationProvider for API keys](#6-authenticationprovider-for-api-keys)
   - [7. UriHandler for one-click setup](#7-urihandler-for-one-click-setup)
-  - [8. TreeView sidebar — InfiniAI Models](#8-treeview-sidebar--infiniai-models)
-  - [9. WebviewView usage dashboard](#9-webviewview-usage-dashboard)
+  - [8. TreeView sidebar — Usage node (8b deferred)](#8-treeview-sidebar--infiniai-models)
+  - [9. WebviewView usage dashboard (9b deferred)](#9-webviewview-usage-dashboard)
   - [10. Telemetry via env.createTelemetryLogger](#10-telemetry-via-envcreatetelemetrylogger)
 - [Tier 3 — Polish additions](#tier-3--polish-additions)
-  - [11. Action buttons via env.openExternal](#11-action-buttons-via-envopenexternal)
-  - [12. window.createQuickPick builder for richer pickers](#12-windowcreatequickpick-builder-for-richer-pickers)
-  - [13. SecretStorage.onDidChange for cross-window sync](#13-secretstorageondidchange-for-cross-window-sync)
-  - [14. Detect Copilot Chat dependency state](#14-detect-copilot-chat-dependency-state)
-  - [15. LanguageStatusItem for contextual model display](#15-languagestatusitem-for-contextual-model-display)
-  - [16. env.uiKind — graceful web degradation](#16-envuikind--graceful-web-degradation)
   - [17. Additional commands](#17-additional-commands)
 - [Tier 4 — Speculative but powerful](#tier-4--speculative-but-powerful)
   - [18. lm.registerTool — contribute language model tools](#18-lmregistertool--contribute-language-model-tools)
@@ -37,141 +25,7 @@ This backlog enumerates stable VS Code APIs (from `vscode.d.ts`) that could mean
 
 ---
 
-## Tier 1 — Highest UX wins
-
-### 2. LogOutputChannel
-
-> **Status: ✅ Done** — shipped in PR #5 (commit f58cce1). `src/extension.ts` creates the channel via `createOutputChannel("InfiniAI", { log: true })`.
-
-**Problem.** `createOutputChannel("InfiniAI")` produces a plain text channel with no log levels and no timestamps. Users cannot quiet it or raise verbosity.
-
-**API.** `vscode.window.createOutputChannel(name, { log: true }): LogOutputChannel`.
-
-**Design.** Drop-in replacement. Replace `output.appendLine(msg)` with one of `log.trace`, `log.debug`, `log.info`, `log.warn`, `log.error`. The channel respects per-channel log level configurable via "Developer: Set Log Level…".
-
-**Implementation guidance.**
-- The proposed `src/log.ts` helper was **not** created; the channel is built inline in `src/extension.ts` and threaded through as a `vscode.OutputChannel | vscode.LogOutputChannel` union (`InfiniAILogger` in `src/utils.ts`). Either keep the union or extract `src/log.ts` and migrate — not blocking.
-- **Still TODO:** audit existing call sites and replace `logger.appendLine(...)` with severity-tagged `log.trace` / `log.debug` / `log.info` / `log.warn` / `log.error`. Today every call goes through `appendLine`, so the log-level slider has no effect on volume. Suggested mapping: model-fetch start = `info`; per-request payload trace = `trace`; retry warnings = `warn`; HTTP errors = `error`.
-
-**Acceptance criteria.**
-- Channel appears as a "Log" channel (with the log icon) in the Output dropdown.
-- Setting log level to "Off" suppresses all messages without code changes.
-- Stack traces from caught errors appear on a single error entry.
-
----
-
-### 3. Progress notifications for long operations
-
-**Problem.** `fetchModels()`, retries, and slow chat calls happen silently. Users don't know if anything is happening.
-
-**API.** `vscode.window.withProgress({ location: ProgressLocation.Notification, cancellable: true, title }, async (progress, token) => …)`.
-
-**Design.**
-- Wrap `fetchModels` and the model picker refresh with a notification-style progress that surfaces "Fetching InfiniAI models…" and supports cancel.
-- For per-request progress, prefer `ProgressLocation.Window` (compact, non-modal) so it doesn't spam the user during chat streaming.
-- Forward the `CancellationToken` into HTTP layers; cancel in `executeWithRetry`.
-
-**Implementation guidance.**
-- `utils.fetchModels` already accepts a `CancellationToken` and aborts the underlying `fetch` (PR #5). The remaining work is purely UI: wrap calls in `withProgress`.
-- In `provideLanguageModelChatInformation`, wrap the cache-miss fetch in `withProgress`. For `silent: true` (the IDE polling silently), skip the progress UI.
-- Use `progress.report({ message, increment })` between retry attempts inside `executeWithRetry`.
-
-**Acceptance criteria.**
-- Triggering a manual "Refresh Models" shows a cancelable notification.
-- Cancel actually aborts the in-flight HTTP request (not just hides the toast).
-
----
-
-### 4. Live reaction to configuration changes
-
-> **Status: ✅ Done** — shipped in PR #5 (commit f58cce1). See `vscode.workspace.onDidChangeConfiguration` wiring in `src/extension.ts`.
-
-**Problem.** Changing `infiniai.plan`, `infiniai.baseUrl`, or `infiniai.coding.baseUrl` requires a window reload before they take effect. This is a frequent source of confusion.
-
-**API.** `vscode.workspace.onDidChangeConfiguration(e => …)`.
-
-**Design.**
-- Subscribe in `activate`. When `e.affectsConfiguration("infiniai")`:
-  - If plan changed → re-resolve API key, refresh model list.
-  - If `baseUrl` / `anthropic.baseUrl` / `coding.*` changed → invalidate cached models, refresh.
-  - If `imageInputModels` / `disableImageInputModels` changed → re-emit model info (image flag may flip).
-- Debounce (200–500 ms) since users may type into a settings JSON file.
-
-**Implementation guidance.**
-```ts
-let debounce: NodeJS.Timeout | undefined;
-context.subscriptions.push(
-  vscode.workspace.onDidChangeConfiguration(e => {
-    if (!e.affectsConfiguration("infiniai")) return;
-    clearTimeout(debounce);
-    debounce = setTimeout(() => provider.refreshModels(), 300);
-  })
-);
-```
-- The provider exposes `refreshModels()` (not `refresh()`) on `InfiniAIChatModelProvider`. It clears the cached model list and fires `onDidChangeLanguageModelChatInformation`, prompting VS Code to re-poll on demand.
-
-**Acceptance criteria.**
-- Toggling `infiniai.plan` from `standard` to `coding` and back updates the model list within ~1 s without reload.
-- Editing `infiniai.baseUrl` triggers a single refresh, not one-per-keystroke.
-
----
-
-### 5. Localization with vscode.l10n
-
-**Problem.** README is bilingual but the running UI is English-only. The primary user base is Chinese-speaking.
-
-**API.** `vscode.l10n.t(message, …args)` for runtime strings + `package.nls.<locale>.json` for manifest strings.
-
-**Design.**
-- Wrap all user-visible runtime strings in `vscode.l10n.t(...)`.
-- Externalize all `package.json` `description`, `title`, `enumDescriptions` into `%key%` placeholders backed by `package.nls.json` (English fallback) and `package.nls.zh-cn.json` (translations).
-- Add `"l10n": "./l10n"` to `package.json` and ship `l10n/bundle.l10n.zh-cn.json`.
-
-**Implementation guidance.**
-- File layout:
-  ```
-  package.nls.json
-  package.nls.zh-cn.json
-  l10n/
-    bundle.l10n.json          (optional source)
-    bundle.l10n.zh-cn.json    (zh-CN translations)
-  ```
-- Use `npx @vscode/l10n-dev export -o ./l10n ./src` to extract strings.
-- Avoid string concatenation in `t()`; pass interpolation args:
-  ```ts
-  vscode.l10n.t("InfiniAI {0} API key saved.", planLabel)
-  ```
-
-**Acceptance criteria.**
-- Setting VS Code display language to `zh-cn` (`Configure Display Language`) shows Chinese command titles, settings descriptions, and prompts.
-- Falls back to English when no translation exists.
-
----
-
 ## Tier 2 — Strong UX upgrades
-
-### 6. AuthenticationProvider for API keys
-
-**Problem.** API keys are stored under raw `SecretStorage` keys (`infiniai.apiKey`, `infiniai.codingApiKey`). Users have no central place to view, switch, or sign out.
-
-**API.** `vscode.authentication.registerAuthenticationProvider(id, label, provider, { supportsMultipleAccounts })`.
-
-**Design.**
-- Implement `AuthenticationProvider` with two "accounts": `standard` and `coding`.
-- `getSessions(scopes?)` reads from `SecretStorage`; `createSession(scopes)` shows the current API-key input flow; `removeSession(sessionId)` clears the secret.
-- Each session's `accessToken` = the API key; `account.label` = "Standard Plan" / "Coding Plan".
-- Optionally publish the session via `vscode.authentication.getSession("infiniai", ["chat"], { silent: true })` so other extensions could consume the key in a controlled way (decide intentionally — security implications).
-
-**Implementation guidance.**
-- File: `src/auth/infiniaiAuthProvider.ts`.
-- Surface in **Accounts** menu (gear icon, lower-left) automatically.
-- Keep `infiniai.setApikey` as a thin wrapper that internally calls `createSession`.
-
-**Acceptance criteria.**
-- Account icon shows "InfiniAI (Standard Plan)" with a sign-out option.
-- Switching accounts swaps which key the provider uses for subsequent requests.
-
----
 
 ### 7. UriHandler for one-click setup
 
@@ -213,65 +67,31 @@ context.subscriptions.push(vscode.window.registerUriHandler({
 
 ---
 
-### 8. TreeView sidebar — InfiniAI Models
+### 8. TreeView sidebar — Usage node (8b)
 
-> **Status: Split.** Part **8a** (Plan / Models / Account nodes) ships now against existing endpoints. Part **8b** (Usage node) is **deferred — blocked on an InfiniAI account-level quota / billing query API**.
->
-> **Co-existence note.** The Models tree should reserve itself for persistent state and per-item actions; defer richer ad-hoc model queries to `@infiniai /models` (already shipped — see *Shipped beyond the backlog* below) rather than duplicating its output verbatim.
+> **Status: Partially shipped.** Part 8a (Plan / Models / Account nodes) shipped in 0.5.0. Part **8b** (Usage node) is **deferred — blocked on an InfiniAI account-level quota / billing query API**.
 
-**Problem.** The single status-bar item is the only persistent surface. Users have no central place to see/manage models, plans, or quotas.
-
-**API.** Manifest `viewsContainers` + `views`; runtime `window.registerTreeDataProvider` (or `createTreeView` for richer control).
+**Problem.** The Models tree lacks a **Usage** node showing account-level quota and billing data.
 
 **Design.**
-- Activity-bar icon → "InfiniAI" container with one view: **Models**.
-- Top-level nodes:
-  - **8a — Plan** *(ships now)* — "Standard" / "Coding" badge with a switch action.
-  - **8a — Models** *(ships now)* — children = available models, each with `description` (context length), `tooltip` (full info), inline actions: "Pin", "Show details".
-  - **8a — Account** *(ships now)* — current key fingerprint (last 4), "Manage Keys", "Open Dashboard".
-  - **8b — Usage** *(deferred until the InfiniAI quota / billing API is available)* — render a non-clickable "Coming soon" leaf in the meantime so the slot is reserved.
-- Title-bar actions: "Refresh" (`infiniai.refreshModels`), "Settings" (`workbench.action.openSettings infiniai`).
-
-**Implementation guidance.**
-- File: `src/views/modelsView.ts` implementing `TreeDataProvider<InfiniNode>`.
-- **Consume `provider.getModelCache(apiKey, silent, token)` rather than calling `fetchModels` directly** — the provider already owns the TTL cache, in-flight dedupe, and last-good fallback (PR #5). Subscribing to `provider.onDidChangeLanguageModelChatInformation` is the cheapest way to drive `onDidChangeTreeData`.
-- Use `EventEmitter<InfiniNode | undefined>` to fire `onDidChangeTreeData` on plan/key/model changes.
-- Use `ThemeIcon` for icons (`new vscode.ThemeIcon("rocket")` etc.) — works in all themes.
-- Wire context menus via `package.json`'s `menus.view/item/context` against `when: viewItem == infiniai.model`.
+- **8b — Usage** *(deferred until the InfiniAI quota / billing API is available)* — render a non-clickable "Coming soon" leaf until the billing API ships, then populate with quota used / remaining.
 
 **Acceptance criteria.**
-- View persists across reloads; refresh button works.
-- Plan switch changes the underlying model list within 1 s.
+- Usage node populates without requiring a tree-view schema change once the billing API is available.
 
 ---
 
-### 9. WebviewView usage dashboard
+### 9. WebviewView usage dashboard — Account-wide (9b)
 
-> **Status: Split.** Part **9a** (locally-observed token totals from streaming responses, persisted in `globalState`) ships now. Part **9b** (account-wide aggregates, historical billing-accurate charts, cross-device numbers) is **deferred — blocked on an InfiniAI usage / billing query API**.
+> **Status: Partially shipped.** Part 9a (locally-observed token totals, local charts, Reset / Export CSV) shipped in 0.5.0. Part **9b** (account-wide aggregates, historical billing-accurate charts, cross-device numbers) is **deferred — blocked on an InfiniAI usage / billing query API**.
 
-**Problem.** Token counts surface only as a status-bar tooltip. Power users want trends and per-model breakdowns.
-
-**API.** `vscode.window.registerWebviewViewProvider(viewId, provider)` (registered against the same view container as item 8) + `WebviewView.webview.html`.
+**Problem.** The local dashboard cannot show billing-accurate account-wide usage or cross-device totals.
 
 **Design.**
-- Sibling view in the InfiniAI container: **Usage**.
-- Webview renders:
-  - **9a** *(ships now)* — current session token totals (in/out/cached) computed from streaming responses observed in this window.
-  - **9a** *(ships now)* — per-model usage chart (last 24h / 7d) sourced from the local `globalState` rolling window; clearly labeled "Local activity (this device)".
-  - **9a** *(ships now)* — "Reset" button (clears local state) and "Export CSV" of locally-observed records.
-  - **9b** *(deferred)* — account-wide totals, billing units, multi-device aggregation; rendered as a disabled "Coming soon" panel until the InfiniAI usage API ships.
-- Use a tiny vanilla-JS chart (no React) to keep bundle small. CSP must include `default-src 'none'; script-src ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline';`.
-
-**Implementation guidance.**
-- File: `src/views/usageDashboard.ts`.
-- **Reuse the existing per-request usage callback** that already feeds `tokenCountStatusBarItem` (`src/statusBar.ts`, wired in `src/extension.ts`). Subscribe the dashboard to the same hook — don't re-instrument the streaming layer.
-- Persist a rolling window of `{ ts, model, in, out, cached }` records (cap ~10k) in `context.globalState` to survive reloads.
-- Use `webview.postMessage` to push live updates as new responses complete; the webview should not poll.
-- Theme: subscribe to `window.onDidChangeActiveColorTheme` and re-render to track light/dark.
+- **9b** *(deferred)* — account-wide totals, billing units, multi-device aggregation; rendered as a disabled "Coming soon" panel until the InfiniAI usage API ships.
 
 **Acceptance criteria.**
-- Numbers visibly update during a chat without reopening the view.
-- Survives window reload with last-7-day data intact.
+- Account-wide panel populates once the usage API is available; the local-activity panel continues to function independently.
 
 ---
 
@@ -309,116 +129,6 @@ telemetry.logUsage("request.completed", { model: hashModelId(id), retries, total
 ---
 
 ## Tier 3 — Polish additions
-
-### 11. Action buttons via env.openExternal
-
-**Problem.** Error toasts dead-end the user.
-
-**API.** `vscode.window.showErrorMessage(msg, …actions)` + `env.openExternal(Uri)`.
-
-**Design.** Every recoverable error should offer at least one action.
-
-**Implementation guidance.**
-```ts
-const choice = await vscode.window.showErrorMessage(
-  vscode.l10n.t("InfiniAI API key invalid"),
-  vscode.l10n.t("Get API Key"),
-  vscode.l10n.t("Open Settings"),
-);
-if (choice === vscode.l10n.t("Get API Key")) {
-  await vscode.env.openExternal(vscode.Uri.parse("https://infiniai.ai/keys"));
-} else if (choice === vscode.l10n.t("Open Settings")) {
-  await vscode.commands.executeCommand("workbench.action.openSettings", "infiniai");
-}
-```
-- Catalog the recoverable error categories (401, 402 quota, 429 rate limit, 5xx, network, model-not-found) and the action set per category.
-
-**Acceptance criteria.** Each error category has ≥1 action that resolves the underlying issue without manual navigation.
-
----
-
-### 12. window.createQuickPick builder for richer pickers
-
-**Problem.** `showQuickPick` is one-shot; we can't show busy state, separators, or multi-step flows.
-
-**API.** `window.createQuickPick<T extends QuickPickItem>()`.
-
-**Design.** Replace plan picker, model picker, and any future selector. Adds:
-- `busy = true` while validating an entered API key against `/health`.
-- Item separators (`QuickPickItemKind.Separator`) to group "Standard models" vs "Coding-only models".
-- `buttons` (per-item gear icons) → "Set as default", "Configure baseUrl".
-- Back navigation (`onDidTriggerButton` with `QuickInputButtons.Back`) for multi-step flows.
-
-**Implementation guidance.** Keep helpers in `src/ui/quickPick.ts` (`pickPlanQP()`, `pickModelsQP()`).
-
----
-
-### 13. SecretStorage.onDidChange for cross-window sync
-
-> **Status: ✅ Done** — shipped in PR #5 (commit f58cce1). See `context.secrets.onDidChange` in `src/extension.ts`.
-
-**Problem.** Editing the API key in window A doesn't refresh the model list in window B.
-
-**API.** `context.secrets.onDidChange((e) => …)`.
-
-**Design.**
-```ts
-context.subscriptions.push(context.secrets.onDidChange(e => {
-  if (e.key === "infiniai.apiKey" || e.key === "infiniai.codingApiKey") {
-    provider.refreshModels();
-  }
-}));
-```
-
-**Acceptance criteria.** Saving a new key in window A updates window B's status bar within ~1 s.
-
----
-
-### 14. Detect Copilot Chat dependency state
-
-> **Co-existence note.** The shipped `@infiniai /doctor` command cannot serve as the install prompt — Copilot Chat must already be installed for `/doctor` to be reachable. The proactive activate-time toast is still required, and is more important now that PR #5 dropped the hard `extensionDependencies` on `github.copilot-chat`.
-
-**Problem.** Without `github.copilot-chat` installed/active, our provider registers nothing visible and the user is confused.
-
-**API.** `vscode.extensions.getExtension("github.copilot-chat")` + `vscode.extensions.onDidChange`.
-
-**Design.**
-- On activate, check presence and `isActive`.
-- If missing → one-time information message "GitHub Copilot Chat is required to use InfiniAI models" with action "Install Copilot Chat" calling `workbench.extensions.installExtension`.
-- Listen for `onDidChange` to clear the warning once installed.
-
-**Acceptance criteria.** Uninstalling Copilot Chat surfaces a friendly install prompt; reinstalling clears it without reload.
-
----
-
-### 15. LanguageStatusItem for contextual model display
-
-**Problem.** Status-bar item is always present, even in non-code editors.
-
-**API.** `vscode.languages.createLanguageStatusItem(id, selector)`.
-
-**Design.** Show "InfiniAI: <model> · 12K/128K" only when the active editor matches a code document selector. Promote it to `LanguageStatusSeverity.Warning` when usage > 90 %. Keep the existing global status bar for now or migrate fully — see metrics first.
-
-**Implementation guidance.**
-```ts
-const item = vscode.languages.createLanguageStatusItem("infiniai.model",
-  [{ scheme: "file" }]);
-item.name = "InfiniAI";
-item.text = `$(rocket) ${modelName}`;
-item.detail = `${used.toLocaleString()} / ${max.toLocaleString()} tokens`;
-```
-
----
-
-### 16. env.uiKind — graceful web degradation
-
-**Problem.** A future `vscode-web` build would crash if it assumed Node.
-
-**API.** `env.uiKind === UIKind.Web`.
-
-**Design.** Gate Node-only paths (FS, child_process). Currently the extension is HTTP-only, so it should already be web-compatible — verify and add `"browser": "./dist/web/extension.js"` if you ship a web build.
-
----
 
 ### 17. Additional commands
 
@@ -539,13 +249,8 @@ Niche but appreciated by Coding-Plan customers tracking spend.
 
 | Sprint | Items | Rationale |
 |---|---|---|
-| **S1** ✅ | ~~#2 LogOutputChannel, #4 onDidChangeConfiguration~~ | Shipped in PR #5 |
-| **S2** | #3 withProgress, #11 action buttons, ~~#13 SecretStorage.onDidChange~~ ✅, #14 dependency detection | Round out daily-use polish (#13 shipped in PR #5) |
-| **S3** | #5 Localization (zh-cn) | Big win for primary market |
-| **S4** | #8a TreeView (Plan / Models / Account), #17 commands | Establish the InfiniAI sidebar as the central hub |
-| **S5** | #6 AuthenticationProvider | Account-grade key management |
-| **S6** | #9a Local usage dashboard, #18a `infiniai_list_models` tool | Insight from data we already observe locally |
-| **Later** | #12 quick-pick builder, #15 LanguageStatusItem, #16 web kind | Polish |
+| **S1–S6** ✅ | ~~#2 LogOutputChannel, #3 withProgress, #4 onDidChangeConfiguration, #5 Localization, #6 AuthenticationProvider, #8a TreeView, #9a local usage dashboard, #11 error toasts, #12 QuickPick builder, #13 SecretStorage.onDidChange, #14 dependency detection, #15 LanguageStatusItem, #16 env.uiKind~~ | All shipped in 0.5.0 |
+| **Pending** | #17 additional commands, #18a `infiniai_list_models` tool | Not yet implemented; no server-side dependency |
 | **Deferred — server-side dependency** | #7 UriHandler *(needs dashboard "Open in VS Code" button)*, #8b Usage tree node, #9b account-wide dashboard, #10 telemetry, #18b cost / picker tools, #19 MCP provider, #20 usage-report task | Pulled out of the active roadmap until the matching InfiniAI backend / dashboard capability ships |
 | **Nice to have** | #21 Walkthrough | Revisit only if onboarding telemetry shows drop-off |
 
@@ -553,7 +258,6 @@ Niche but appreciated by Coding-Plan customers tracking spend.
 
 ## Cross-cutting non-goals
 
-- **No proposed APIs.** Everything above is in stable `vscode.d.ts` for `engines.vscode: ^1.104.0`.
 - **No new runtime dependencies** beyond what's already shipped, unless explicitly justified per item.
 - **No changes to wire protocol** (OpenAI/Anthropic/Vertex shape) as part of these UX items.
 
