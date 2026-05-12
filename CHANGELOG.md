@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-05-12
+
+### Added
+
+- `withProgress` notification while the provider fetches and caches models on cache-miss, so users see feedback during the first chat after activation (#3).
+- Localized manifest (`package.nls.json`, `package.nls.zh-cn.json`) and runtime strings via `vscode.l10n` with a `l10n/` bundle directory; English fallback + Simplified Chinese translation included (#5).
+- `InfiniAIAuthenticationProvider` registered with `vscode.authentication`, surfacing Standard and Coding plan API keys in the Accounts menu, with sign-in / sign-out wired through a shared persistence path (#6).
+- New `InfiniAI` activity bar container with a Models tree view (`infiniai.modelsView`) showing discovered models, route metadata, and a refresh action (#8a).
+- Local Usage dashboard webview (`infiniai.usageView`) inside the activity bar that visualizes recent chat usage events and supports exporting the data (#9a).
+- Actionable error toasts: chat-response failures are classified (auth / quota / rate-limit / network / model-not-found / server) and surfaced via `vscode.window.showErrorMessage` with one-click recovery buttons — Set/Get API Key, Open Dashboard, Switch Plan, Refresh Models, Open Settings (#11).
+- `src/ui/quickPick.ts` with reusable `pickPlan()` and `pickAccountToSignOut()` helpers built on `window.createQuickPick` (separators, gear buttons, current-plan check icon, focus-out persistence) (#12).
+- Copilot Chat dependency check: a one-time `showInformationMessage` prompts to install `github.copilot-chat` when missing, with a 7-day snooze persisted in `globalState` and re-evaluation on `vscode.extensions.onDidChange` (#14).
+- LanguageStatusItem (`infiniai.model`) showing the most recently used model and `used / max tokens (transport)`; severity escalates to Warning at ≥90% context-window utilization (#15).
+- Declared `extensionKind: ["ui", "workspace"]`, `capabilities.virtualWorkspaces`, and untrusted-workspace support so the extension can surface in remote / virtual / web hosts (#16).
+
+### Changed
+
+- `extension.ts` plan / sign-out flows route through the new QuickPick helpers instead of inline `showQuickPick` calls (#12).
+- `copilotChatDependency` branches on `vscode.env.uiKind`: on `UIKind.Web` the install action opens the Marketplace listing via `env.openExternal` instead of invoking the desktop-only `workbench.extensions.installExtension` command (#16).
+- The chat-response catch path now additionally surfaces a categorized toast while still re-throwing so VS Code's inline chat error rendering is preserved (#11).
+
 ## [0.4.0] - 2026-04-27
 
 ### Added
