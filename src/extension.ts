@@ -12,6 +12,8 @@ import {
 import type { InfiniAIPlan } from "./utils";
 import { registerInfiniAIModelsTreeView } from "./views/modelsView";
 import { registerInfiniAIUsageDashboard } from "./views/usageDashboard";
+import { pickAccountToSignOut, pickPlan } from "./ui/quickPick";
+import { getActivePlan } from "./utils";
 
 export function activate(context: vscode.ExtensionContext) {
 	// Build a descriptive User-Agent to help quantify API usage
@@ -49,18 +51,8 @@ export function activate(context: vscode.ExtensionContext) {
 	logInfo(output, "InfiniAI Chat Model Provider activated.");
 
 	const planInputProvider: PlanInputProvider = {
-		async promptPlan() {
-			const choice = await vscode.window.showQuickPick(
-				[
-					{ label: vscode.l10n.t("Standard Plan"), description: vscode.l10n.t("Pay-per-token billing"), plan: "standard" as InfiniAIPlan },
-					{ label: vscode.l10n.t("Coding Plan"), description: vscode.l10n.t("Coding Plan subscription"), plan: "coding" as InfiniAIPlan },
-				],
-				{
-					title: vscode.l10n.t("InfiniAI: Select Plan"),
-					placeHolder: vscode.l10n.t("Which plan's API key do you want to configure?"),
-				}
-			);
-			return choice?.plan;
+		async promptPlan(currentPlan) {
+			return pickPlan(currentPlan ?? getActivePlan());
 		},
 		async promptApiKey(plan, existing) {
 			const planLabel = plan === "coding" ? vscode.l10n.t("Coding Plan") : vscode.l10n.t("Standard Plan");
@@ -115,14 +107,11 @@ export function activate(context: vscode.ExtensionContext) {
 				vscode.window.showInformationMessage(vscode.l10n.t("No InfiniAI accounts are signed in."));
 				return;
 			}
-			const choice = await vscode.window.showQuickPick(
-				sessions.map((s) => ({ label: s.account.label, sessionId: s.id })),
-				{ title: vscode.l10n.t("InfiniAI: Sign Out"), placeHolder: vscode.l10n.t("Choose an account to sign out.") }
-			);
-			if (!choice) {
+			const sessionId = await pickAccountToSignOut(sessions);
+			if (!sessionId) {
 				return;
 			}
-			await authProvider.removeSession(choice.sessionId);
+			await authProvider.removeSession(sessionId);
 		})
 	);
 }
