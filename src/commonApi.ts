@@ -13,7 +13,16 @@ import type { VertexContent } from "./vertex/vertexTypes";
 import { InfiniAIModelInfo } from "./types";
 import { tryParseJSONObject } from "./utils";
 
+export interface ApiUsage {
+	readonly inputTokens: number;
+	readonly outputTokens: number;
+	readonly cachedTokens?: number;
+}
+
 export abstract class CommonApi {
+	/** Last usage reported by the model on this request, if any. */
+	public lastUsage?: ApiUsage;
+
 	/** Buffer for assembling streamed tool calls by index. */
 	protected _toolCallBuffers: Map<number, { id?: string; name?: string; args: string }> = new Map<
 		number,

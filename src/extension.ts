@@ -11,6 +11,7 @@ import {
 } from "./auth/infiniaiAuthProvider";
 import type { InfiniAIPlan } from "./utils";
 import { registerInfiniAIModelsTreeView } from "./views/modelsView";
+import { registerInfiniAIUsageDashboard } from "./views/usageDashboard";
 
 export function activate(context: vscode.ExtensionContext) {
 	// Build a descriptive User-Agent to help quantify API usage
@@ -32,6 +33,7 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.lm.registerLanguageModelChatProvider("infiniai", provider),
 		registerInfiniAIChatParticipant(provider, output),
 		registerInfiniAIModelsTreeView(provider, context.secrets, output),
+		registerInfiniAIUsageDashboard(context, provider),
 		vscode.workspace.onDidChangeConfiguration((event) => {
 			if (event.affectsConfiguration("infiniai")) {
 				provider.refreshModels();

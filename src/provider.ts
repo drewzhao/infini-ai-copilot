@@ -86,12 +86,24 @@ function lowerIncludes(value: string | undefined, needle: string): boolean {
 	return value?.toLowerCase().includes(needle) ?? false;
 }
 
+export interface ChatUsageEvent {
+	readonly modelId: string;
+	readonly transport: string;
+	readonly inputTokens: number;
+	readonly outputTokens: number;
+	readonly cachedTokens?: number;
+	readonly timestamp: number;
+}
+
 /**
  * VS Code Chat provider backed by InfiniAI Inference Providers.
  */
 export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vscode.Disposable {
 	private readonly _onDidChange = new vscode.EventEmitter<void>();
 	readonly onDidChangeLanguageModelChatInformation = this._onDidChange.event;
+
+	private readonly _onDidConsumeUsage = new vscode.EventEmitter<ChatUsageEvent>();
+	readonly onDidConsumeUsage = this._onDidConsumeUsage.event;
 
 	private _lastRequestTime: number | null = null;
 	private _cache?: ModelCacheEntry;
@@ -109,6 +121,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 
 	dispose(): void {
 		this._onDidChange.dispose();
+		this._onDidConsumeUsage.dispose();
 	}
 
 	refreshModels(): void {
@@ -459,6 +472,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			throw new Error("No response body from InfiniAI API");
 		}
 		await openaiApi.processStreamingResponse(response.body, progress, token);
+		this.fireUsage(model, route, openaiApi.lastUsage);
 	}
 
 	private async runAnthropicRequest(
@@ -493,6 +507,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			throw new Error("No response body from Anthropic API");
 		}
 		await anthropicApi.processStreamingResponse(response.body, progress, token);
+		this.fireUsage(model, route, anthropicApi.lastUsage);
 	}
 
 	private async runVertexRequest(
@@ -524,6 +539,25 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			throw new Error("No response body from Vertex API");
 		}
 		await vertexApi.processStreamingResponse(response.body, progress, token);
+		this.fireUsage(model, route, vertexApi.lastUsage);
+	}
+
+	private fireUsage(
+		model: LanguageModelChatInformation,
+		route: ModelRoute,
+		usage: { inputTokens: number; outputTokens: number; cachedTokens?: number } | undefined
+	): void {
+		if (!usage) {
+			return;
+		}
+		this._onDidConsumeUsage.fire({
+			modelId: model.id,
+			transport: route.transport,
+			inputTokens: usage.inputTokens,
+			outputTokens: usage.outputTokens,
+			cachedTokens: usage.cachedTokens,
+			timestamp: Date.now(),
+		});
 	}
 
 	private requestUrl(route: ModelRoute, modelId: string): string {

@@ -318,6 +318,7 @@ export class OpenaiApi extends CommonApi {
 				}
 				try {
 					const parsed = JSON.parse(data);
+					this.captureUsage(parsed);
 					await this.processDelta(parsed, progress);
 				} catch (err) {
 					throw new StreamParseError(
@@ -329,6 +330,25 @@ export class OpenaiApi extends CommonApi {
 			await this.flushToolCallBuffers(progress, /*throwOnInvalid*/ false);
 			// If there's an active thinking sequence, end it first
 			this.reportEndThinking();
+		}
+	}
+
+	/** Extract OpenAI-style usage from a streamed chunk if present. */
+	private captureUsage(parsed: Record<string, unknown>): void {
+		const usage = parsed.usage as Record<string, unknown> | undefined;
+		if (!usage) {
+			return;
+		}
+		const input = Number(usage.prompt_tokens ?? 0);
+		const output = Number(usage.completion_tokens ?? 0);
+		const details = usage.prompt_tokens_details as Record<string, unknown> | undefined;
+		const cached = details?.cached_tokens !== undefined ? Number(details.cached_tokens) : undefined;
+		if (Number.isFinite(input) || Number.isFinite(output)) {
+			this.lastUsage = {
+				inputTokens: Number.isFinite(input) ? input : 0,
+				outputTokens: Number.isFinite(output) ? output : 0,
+				cachedTokens: cached !== undefined && Number.isFinite(cached) ? cached : undefined,
+			};
 		}
 	}
 

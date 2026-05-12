@@ -42,7 +42,8 @@
 		"onCommand:infiniai.setApikey",
 		"onCommand:infiniai.signOut",
 		"onAuthenticationRequest:infiniai",
-		"onView:infiniai.modelsView"
+		"onView:infiniai.modelsView",
+		"onView:infiniai.usageView"
 	],
 	"contributes": {
 		"languageModelChatProviders": [
@@ -93,6 +94,11 @@
 				{
 					"id": "infiniai.modelsView",
 					"name": "%view.models.name%"
+				},
+				{
+					"id": "infiniai.usageView",
+					"name": "%view.usage.name%",
+					"type": "webview"
 				}
 			]
 		},

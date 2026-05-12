@@ -343,14 +343,24 @@ export class AnthropicApi extends CommonApi {
 		}
 
 		if (chunk.type === "message_start" && chunk.message) {
-			// Extract message metadata (id, model, etc.)
-			// Could store for later use, but not required for basic streaming
+			if (chunk.usage) {
+				this.lastUsage = {
+					inputTokens: chunk.usage.input_tokens ?? 0,
+					outputTokens: chunk.usage.output_tokens ?? 0,
+				};
+			}
 			return;
 		}
 
 		if (chunk.type === "message_delta" && chunk.delta) {
-			// Extract stop_reason and usage information
-			// We're not processing usage per user request, but could log if needed
+			if (chunk.usage) {
+				const prev = this.lastUsage;
+				this.lastUsage = {
+					inputTokens: chunk.usage.input_tokens ?? prev?.inputTokens ?? 0,
+					outputTokens: chunk.usage.output_tokens ?? prev?.outputTokens ?? 0,
+					cachedTokens: prev?.cachedTokens,
+				};
+			}
 			return;
 		}
 
