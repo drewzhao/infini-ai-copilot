@@ -43,10 +43,13 @@ export function activate(context: vscode.ExtensionContext) {
 			// Ask which plan's API key to configure
 			const planChoice = await vscode.window.showQuickPick(
 				[
-					{ label: "Standard Plan", description: "Pay-per-token billing", plan: "standard" },
-					{ label: "Coding Plan", description: "Coding Plan subscription", plan: "coding" },
+					{ label: vscode.l10n.t("Standard Plan"), description: vscode.l10n.t("Pay-per-token billing"), plan: "standard" },
+					{ label: vscode.l10n.t("Coding Plan"), description: vscode.l10n.t("Coding Plan subscription"), plan: "coding" },
 				],
-				{ title: "InfiniAI: Select Plan", placeHolder: "Which plan's API key do you want to configure?" }
+				{
+					title: vscode.l10n.t("InfiniAI: Select Plan"),
+					placeHolder: vscode.l10n.t("Which plan's API key do you want to configure?"),
+				}
 			);
 			if (!planChoice) {
 				return; // user canceled
@@ -63,8 +66,10 @@ export function activate(context: vscode.ExtensionContext) {
 
 			const existing = await context.secrets.get(secretKey);
 			const apiKey = await vscode.window.showInputBox({
-				title: `InfiniAI ${planLabel} API Key`,
-				prompt: existing ? `Update your ${planLabel} API key` : `Enter your ${planLabel} API key`,
+				title: vscode.l10n.t("InfiniAI {0} API Key", planLabel),
+				prompt: existing
+					? vscode.l10n.t("Update your {0} API key", planLabel)
+					: vscode.l10n.t("Enter your {0} API key", planLabel),
 				ignoreFocusOut: true,
 				password: true,
 				value: existing ?? "",
@@ -75,12 +80,12 @@ export function activate(context: vscode.ExtensionContext) {
 			if (!apiKey.trim()) {
 				await context.secrets.delete(secretKey);
 				provider.refreshModels();
-				vscode.window.showInformationMessage(`InfiniAI ${planLabel} API key cleared.`);
+				vscode.window.showInformationMessage(vscode.l10n.t("InfiniAI {0} API key cleared.", planLabel));
 				return;
 			}
 			await context.secrets.store(secretKey, apiKey.trim());
 			provider.refreshModels();
-			vscode.window.showInformationMessage(`InfiniAI ${planLabel} API key saved.`);
+			vscode.window.showInformationMessage(vscode.l10n.t("InfiniAI {0} API key saved.", planLabel));
 		})
 	);
 }

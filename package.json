@@ -1,8 +1,8 @@
 {
 	"name": "infiniai-copilot",
 	"publisher": "drewzhao",
-	"displayName": "InfiniAI Provider for Copilot",
-	"description": "InfiniAI language model provider and diagnostics participant for VS Code",
+	"displayName": "%extension.displayName%",
+	"description": "%extension.description%",
 	"icon": "assets/logo.png",
 	"keywords": [
 		"ai",
@@ -52,7 +52,7 @@
 		"commands": [
 			{
 				"command": "infiniai.setApikey",
-				"title": "InfiniAI: Set InfiniAI API Key"
+				"title": "%command.setApikey.title%"
 			}
 		],
 		"chatParticipants": [
@@ -60,25 +60,25 @@
 				"id": "infiniai",
 				"name": "infiniai",
 				"fullName": "InfiniAI",
-				"description": "Diagnose and test InfiniAI language model integration",
+				"description": "%participant.description%",
 				"commands": [
 					{
 						"name": "doctor",
-						"description": "Check InfiniAI configuration and provider health"
+						"description": "%participant.command.doctor.description%"
 					},
 					{
 						"name": "models",
-						"description": "List discovered InfiniAI models and capabilities"
+						"description": "%participant.command.models.description%"
 					},
 					{
 						"name": "test",
-						"description": "Run a minimal test request against the selected InfiniAI route"
+						"description": "%participant.command.test.description%"
 					}
 				]
 			}
 		],
 		"configuration": {
-			"title": "InfiniAI Provider for VS Code",
+			"title": "%configuration.title%",
 			"properties": {
 				"infiniai.plan": {
 					"type": "string",
@@ -87,30 +87,30 @@
 						"coding"
 					],
 					"enumDescriptions": [
-						"Pay-per-token billing. Uses 'infiniai.baseUrl' and 'infiniai.anthropic.baseUrl' for API requests.",
-						"Coding Plan subscription. Uses 'infiniai.coding.baseUrl' and 'infiniai.coding.anthropic.baseUrl' for API requests, with a separate API key."
+						"%configuration.plan.enum.standard%",
+						"%configuration.plan.enum.coding%"
 					],
-					"description": "Select the InfiniAI billing plan. When set to 'standard', the extension uses 'infiniai.baseUrl' and 'infiniai.anthropic.baseUrl'. When set to 'coding', it uses 'infiniai.coding.baseUrl' and 'infiniai.coding.anthropic.baseUrl' instead, along with a separate API key."
+					"description": "%configuration.plan.description%"
 				},
 				"infiniai.baseUrl": {
 					"type": "string",
 					"default": "https://cloud.infini-ai.com/maas/v1",
-					"description": "Base URL for the OpenAI-compatible API (Standard Plan). The extension appends '/chat/completions' to this value for chat requests (e.g. 'https://cloud.infini-ai.com/maas/v1/chat/completions'). Used when 'infiniai.plan' is set to 'standard'. To override, edit this value in Settings UI or add '\"infiniai.baseUrl\": \"<your-url>\"' to settings.json. Clearing a manually set value (removing it from settings.json or resetting in Settings UI) restores the default."
+					"description": "%configuration.baseUrl.description%"
 				},
 				"infiniai.anthropic.baseUrl": {
 					"type": "string",
 					"default": "https://cloud.infini-ai.com/maas",
-					"description": "Base URL for the Anthropic-compatible API (Standard Plan). The extension appends '/v1/messages' to this value for chat requests (e.g. 'https://cloud.infini-ai.com/maas/v1/messages'). Used when 'infiniai.plan' is set to 'standard'. To override, edit this value in Settings UI or add '\"infiniai.anthropic.baseUrl\": \"<your-url>\"' to settings.json. Clearing a manually set value (removing it from settings.json or resetting in Settings UI) restores the default."
+					"description": "%configuration.anthropic.baseUrl.description%"
 				},
 				"infiniai.coding.baseUrl": {
 					"type": "string",
 					"default": "https://cloud.infini-ai.com/maas/coding/v1",
-					"description": "Base URL for the OpenAI-compatible API (Coding Plan). The extension appends '/chat/completions' to this value for chat requests (e.g. 'https://cloud.infini-ai.com/maas/coding/v1/chat/completions'). Used when 'infiniai.plan' is set to 'coding'. To override, edit this value in Settings UI or add '\"infiniai.coding.baseUrl\": \"<your-url>\"' to settings.json. Clearing a manually set value (removing it from settings.json or resetting in Settings UI) restores the default."
+					"description": "%configuration.coding.baseUrl.description%"
 				},
 				"infiniai.coding.anthropic.baseUrl": {
 					"type": "string",
 					"default": "https://cloud.infini-ai.com/maas/coding",
-					"description": "Base URL for the Anthropic-compatible API (Coding Plan). The extension appends '/v1/messages' to this value for chat requests (e.g. 'https://cloud.infini-ai.com/maas/coding/v1/messages'). Used when 'infiniai.plan' is set to 'coding'. To override, edit this value in Settings UI or add '\"infiniai.coding.anthropic.baseUrl\": \"<your-url>\"' to settings.json. Clearing a manually set value (removing it from settings.json or resetting in Settings UI) restores the default."
+					"description": "%configuration.coding.anthropic.baseUrl.description%"
 				},
 				"infiniai.retry": {
 					"type": "object",
@@ -123,46 +123,46 @@
 						"enabled": {
 							"type": "boolean",
 							"default": true,
-							"description": "Enable retry mechanism for api errors. Default is true."
+							"description": "%configuration.retry.enabled.description%"
 						},
 						"max_attempts": {
 							"type": "number",
 							"default": 3,
 							"minimum": 1,
-							"description": "Maximum total number of attempts, including the first request. Default is 3."
+							"description": "%configuration.retry.maxAttempts.description%"
 						},
 						"interval_ms": {
 							"type": "number",
 							"default": 1000,
 							"minimum": 1,
-							"description": "Interval between retry attempts in milliseconds. Default is 1000 (1 seconds)."
+							"description": "%configuration.retry.intervalMs.description%"
 						},
 						"status_codes": {
 							"type": "array",
 							"items": {
 								"type": "number"
 							},
-							"description": "Additional HTTP status codes to merge with the default retryable list [408, 429, 500, 502, 503, 504]."
+							"description": "%configuration.retry.statusCodes.description%"
 						}
 					},
-					"description": "Retry configuration for retryable network failures and HTTP [408, 429, 500, 502, 503, 504]."
+					"description": "%configuration.retry.description%"
 				},
 				"infiniai.delay": {
 					"type": "number",
 					"default": 0,
 					"minimum": 0,
-					"description": "Fixed delay in milliseconds between consecutive requests. Default is 0 (no delay)."
+					"description": "%configuration.delay.description%"
 				},
 				"infiniai.modelDiscoveryUrl": {
 					"type": "string",
 					"default": "",
-					"description": "Optional absolute URL for model discovery. Empty uses the selected InfiniAI plan default."
+					"description": "%configuration.modelDiscoveryUrl.description%"
 				},
 				"infiniai.modelCacheTtlMs": {
 					"type": "number",
 					"default": 300000,
 					"minimum": 0,
-					"description": "How long to cache discovered models. Set 0 to refresh every request."
+					"description": "%configuration.modelCacheTtlMs.description%"
 				},
 				"infiniai.modelRoutes": {
 					"type": "array",
@@ -190,7 +190,7 @@
 							"transport"
 						]
 					},
-					"description": "Route matching overrides for model transports. The first matching pattern wins."
+					"description": "%configuration.modelRoutes.description%"
 				},
 				"infiniai.imageInputModels": {
 					"type": "array",
@@ -198,7 +198,7 @@
 					"items": {
 						"type": "string"
 					},
-					"description": "Force-enable image input for specific model IDs. Supports '*' wildcard patterns (e.g. 'kimi-*'). Useful when a multimodal model doesn't include a name marker like '-vision'."
+					"description": "%configuration.imageInputModels.description%"
 				},
 				"infiniai.disableImageInputModels": {
 					"type": "array",
@@ -206,12 +206,13 @@
 					"items": {
 						"type": "string"
 					},
-					"description": "Force-disable image input for specific model IDs. Supports '*' wildcard patterns."
+					"description": "%configuration.disableImageInputModels.description%"
 				}
 			}
 		}
 	},
 	"main": "./out/extension.js",
+	"l10n": "./l10n",
 	"scripts": {
 		"vscode:prepublish": "npm run compile",
 		"compile": "tsc -p ./",

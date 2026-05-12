@@ -235,10 +235,13 @@ export async function ensureApiKey(silent: boolean, secrets: vscode.SecretStorag
 			promptPlan: async () => {
 				const choice = await vscode.window.showQuickPick(
 					[
-						{ label: "Standard Plan", description: "Pay-per-token billing", plan: "standard" as const },
-						{ label: "Coding Plan", description: "Coding Plan subscription", plan: "coding" as const },
+						{ label: vscode.l10n.t("Standard Plan"), description: vscode.l10n.t("Pay-per-token billing"), plan: "standard" as const },
+						{ label: vscode.l10n.t("Coding Plan"), description: vscode.l10n.t("Coding Plan subscription"), plan: "coding" as const },
 					],
-					{ title: "InfiniAI: Select Plan", placeHolder: "Which plan's API key do you want to configure?" }
+					{
+						title: vscode.l10n.t("InfiniAI: Select Plan"),
+						placeHolder: vscode.l10n.t("Which plan's API key do you want to configure?"),
+					}
 				);
 				return choice?.plan;
 			},
@@ -255,14 +258,14 @@ export async function ensureApiKey(silent: boolean, secrets: vscode.SecretStorag
 	}
 
 	const secretKey = getApiKeySecretName(plan);
-	const planLabel = plan === "coding" ? "Coding Plan" : "Standard Plan";
+	const planLabel = plan === "coding" ? vscode.l10n.t("Coding Plan") : vscode.l10n.t("Standard Plan");
 
 	let apiKey = await secrets.get(secretKey);
 
 	if (!apiKey && !silent) {
 		const entered = await vscode.window.showInputBox({
-			title: `InfiniAI ${planLabel} API Key`,
-			prompt: `Enter your InfiniAI ${planLabel} API key`,
+			title: vscode.l10n.t("InfiniAI {0} API Key", planLabel),
+			prompt: vscode.l10n.t("Enter your InfiniAI {0} API key", planLabel),
 			ignoreFocusOut: true,
 			password: true,
 		});

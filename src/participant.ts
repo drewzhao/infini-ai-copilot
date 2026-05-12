@@ -4,7 +4,7 @@ import { InfiniAIChatModelProvider } from "./provider";
 import { InfiniAILogger, logError, sanitizeForLog } from "./utils";
 
 function boolText(value: boolean): string {
-	return value ? "yes" : "no";
+	return value ? vscode.l10n.t("yes") : vscode.l10n.t("no");
 }
 
 function formatAge(ageMs: number | undefined): string {
@@ -31,16 +31,18 @@ export function registerInfiniAIChatParticipant(
 				const diagnostic = await provider.getDiagnostics(token);
 				stream.markdown(
 					[
-						"## InfiniAI Doctor",
+						`## ${vscode.l10n.t("InfiniAI Doctor")}`,
 						"",
-						`- VS Code: ${diagnostic.vscodeVersion}`,
-						`- Active plan: ${diagnostic.plan}`,
-						`- Standard key present: ${boolText(diagnostic.hasStandardKey)}`,
-						`- Coding key present: ${boolText(diagnostic.hasCodingKey)}`,
-						`- Discovery endpoint: ${diagnostic.modelDiscoveryUrl}`,
-						`- Cached models: ${diagnostic.modelCount}`,
-						`- Cache age: ${formatAge(diagnostic.cacheAgeMs)}`,
-						diagnostic.lastError ? `- Last error: ${sanitizeForLog(diagnostic.lastError, 240)}` : "- Last error: none",
+						`- ${vscode.l10n.t("VS Code")}: ${diagnostic.vscodeVersion}`,
+						`- ${vscode.l10n.t("Active plan")}: ${diagnostic.plan}`,
+						`- ${vscode.l10n.t("Standard key present")}: ${boolText(diagnostic.hasStandardKey)}`,
+						`- ${vscode.l10n.t("Coding key present")}: ${boolText(diagnostic.hasCodingKey)}`,
+						`- ${vscode.l10n.t("Discovery endpoint")}: ${diagnostic.modelDiscoveryUrl}`,
+						`- ${vscode.l10n.t("Cached models")}: ${diagnostic.modelCount}`,
+						`- ${vscode.l10n.t("Cache age")}: ${formatAge(diagnostic.cacheAgeMs)}`,
+						diagnostic.lastError
+							? `- ${vscode.l10n.t("Last error")}: ${sanitizeForLog(diagnostic.lastError, 240)}`
+							: `- ${vscode.l10n.t("Last error")}: ${vscode.l10n.t("none")}`,
 					].join("\n")
 				);
 				return;
@@ -50,7 +52,9 @@ export function registerInfiniAIChatParticipant(
 				const refresh = /\brefresh\b/i.test(request.prompt);
 				const models = await provider.getModelDescriptions(refresh, token);
 				if (models.length === 0) {
-					stream.markdown("No InfiniAI models are available. Run `InfiniAI: Set InfiniAI Apikey`, then try again.");
+					stream.markdown(
+						vscode.l10n.t("No InfiniAI models are available. Run `InfiniAI: Set InfiniAI Apikey`, then try again.")
+					);
 					return;
 				}
 				const rows = models
@@ -61,12 +65,12 @@ export function registerInfiniAIChatParticipant(
 					);
 				stream.markdown(
 					[
-						"## InfiniAI Models",
+						`## ${vscode.l10n.t("InfiniAI Models")}`,
 						"",
-						"| Model | Route | Tools | Images | Input/Output Tokens |",
+						`| ${vscode.l10n.t("Model")} | ${vscode.l10n.t("Route")} | ${vscode.l10n.t("Tools")} | ${vscode.l10n.t("Images")} | ${vscode.l10n.t("Input/Output Tokens")} |`,
 						"|---|---:|---:|---:|---:|",
 						...rows,
-						models.length > 50 ? `\nShowing 50 of ${models.length} models.` : "",
+						models.length > 50 ? `\n${vscode.l10n.t("Showing 50 of {0} models.", models.length)}` : "",
 					].join("\n")
 				);
 				return;
@@ -74,18 +78,18 @@ export function registerInfiniAIChatParticipant(
 
 			if (request.command === "test") {
 				const result = await provider.testRoute(request.prompt.trim(), token);
-				stream.markdown(`InfiniAI test passed: ${result}`);
+				stream.markdown(vscode.l10n.t("InfiniAI test passed: {0}", result));
 				return;
 			}
 
 			stream.markdown(
 				[
-					"Use one of the InfiniAI diagnostics commands:",
+					vscode.l10n.t("Use one of the InfiniAI diagnostics commands:"),
 					"",
-					"- `/doctor` checks configuration and provider health.",
-					"- `/models` lists discovered models and capabilities.",
-					"- `/models refresh` refreshes model discovery before listing.",
-					"- `/test` runs a minimal connectivity request.",
+					`- \`/doctor\` ${vscode.l10n.t("checks configuration and provider health.")}`,
+					`- \`/models\` ${vscode.l10n.t("lists discovered models and capabilities.")}`,
+					`- \`/models refresh\` ${vscode.l10n.t("refreshes model discovery before listing.")}`,
+					`- \`/test\` ${vscode.l10n.t("runs a minimal connectivity request.")}`,
 				].join("\n")
 			);
 		} catch (err) {
@@ -94,7 +98,7 @@ export function registerInfiniAIChatParticipant(
 			if (err instanceof vscode.CancellationError) {
 				throw err;
 			}
-			stream.markdown(`InfiniAI command failed: ${sanitizeForLog(message, 240)}`);
+			stream.markdown(vscode.l10n.t("InfiniAI command failed: {0}", sanitizeForLog(message, 240)));
 		}
 	});
 	participant.iconPath = new vscode.ThemeIcon("sparkle");

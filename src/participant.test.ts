@@ -17,6 +17,10 @@ function loadParticipant() {
 		ThemeIcon: class {
 			constructor(readonly id: string) {}
 		},
+		l10n: {
+			t: (message: string, ...args: unknown[]) =>
+				args.length === 0 ? message : message.replace(/\{(\d+)\}/g, (_, i) => String(args[Number(i)])),
+		},
 		chat: {
 			createChatParticipant: (id: string, handler: any) => {
 				capturedHandler = handler;

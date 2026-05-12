@@ -348,7 +348,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		return vscode.window.withProgress(
 			{
 				location: vscode.ProgressLocation.Notification,
-				title: "InfiniAI: Fetching available models…",
+				title: vscode.l10n.t("InfiniAI: Fetching available models…"),
 				cancellable: true,
 			},
 			async (_progress, progressToken) => {
