@@ -50,19 +50,8 @@ This backlog enumerates stable VS Code APIs (from `vscode.d.ts`) that could mean
 **Design.** Drop-in replacement. Replace `output.appendLine(msg)` with one of `log.trace`, `log.debug`, `log.info`, `log.warn`, `log.error`. The channel respects per-channel log level configurable via "Developer: Set Log Level…".
 
 **Implementation guidance.**
-- Centralize logging behind a small helper:
-  ```ts
-  // src/log.ts
-  let log: vscode.LogOutputChannel;
-  export function initLog(ctx: vscode.ExtensionContext) {
-    log = vscode.window.createOutputChannel("InfiniAI", { log: true });
-    ctx.subscriptions.push(log);
-    return log;
-  }
-  export function getLog() { return log; }
-  ```
-- Pass `log` (typed `LogOutputChannel`) into `InfiniAIChatModelProvider` instead of the current `OutputChannel`.
-- Audit existing call sites to assign appropriate severities: model-fetch start = `info`; per-request payload trace = `trace`; retry warnings = `warn`; HTTP errors = `error`.
+- The proposed `src/log.ts` helper was **not** created; the channel is built inline in `src/extension.ts` and threaded through as a `vscode.OutputChannel | vscode.LogOutputChannel` union (`InfiniAILogger` in `src/utils.ts`). Either keep the union or extract `src/log.ts` and migrate — not blocking.
+- **Still TODO:** audit existing call sites and replace `logger.appendLine(...)` with severity-tagged `log.trace` / `log.debug` / `log.info` / `log.warn` / `log.error`. Today every call goes through `appendLine`, so the log-level slider has no effect on volume. Suggested mapping: model-fetch start = `info`; per-request payload trace = `trace`; retry warnings = `warn`; HTTP errors = `error`.
 
 **Acceptance criteria.**
 - Channel appears as a "Log" channel (with the log icon) in the Output dropdown.
@@ -83,9 +72,9 @@ This backlog enumerates stable VS Code APIs (from `vscode.d.ts`) that could mean
 - Forward the `CancellationToken` into HTTP layers; cancel in `executeWithRetry`.
 
 **Implementation guidance.**
-- Refactor `utils.fetchModels` to accept an optional `CancellationToken` that aborts the underlying `fetch`.
-- In `provideLanguageModelChatInformation`, wrap fetch in `withProgress`. For `silent: true` (the IDE polling silently), skip the progress UI.
-- Use `progress.report({ message, increment })` between retry attempts.
+- `utils.fetchModels` already accepts a `CancellationToken` and aborts the underlying `fetch` (PR #5). The remaining work is purely UI: wrap calls in `withProgress`.
+- In `provideLanguageModelChatInformation`, wrap the cache-miss fetch in `withProgress`. For `silent: true` (the IDE polling silently), skip the progress UI.
+- Use `progress.report({ message, increment })` between retry attempts inside `executeWithRetry`.
 
 **Acceptance criteria.**
 - Triggering a manual "Refresh Models" shows a cancelable notification.
@@ -115,11 +104,11 @@ context.subscriptions.push(
   vscode.workspace.onDidChangeConfiguration(e => {
     if (!e.affectsConfiguration("infiniai")) return;
     clearTimeout(debounce);
-    debounce = setTimeout(() => provider.refresh(), 300);
+    debounce = setTimeout(() => provider.refreshModels(), 300);
   })
 );
 ```
-- Add `refresh()` to `InfiniAIChatModelProvider`. It should clear `_models`, re-fetch, and notify the IDE — VS Code will call `provideLanguageModelChatInformation` again on demand.
+- The provider exposes `refreshModels()` (not `refresh()`) on `InfiniAIChatModelProvider`. It clears the cached model list and fires `onDidChangeLanguageModelChatInformation`, prompting VS Code to re-poll on demand.
 
 **Acceptance criteria.**
 - Toggling `infiniai.plan` from `standard` to `coding` and back updates the model list within ~1 s without reload.
@@ -245,6 +234,7 @@ context.subscriptions.push(vscode.window.registerUriHandler({
 
 **Implementation guidance.**
 - File: `src/views/modelsView.ts` implementing `TreeDataProvider<InfiniNode>`.
+- **Consume `provider.getModelCache(apiKey, silent, token)` rather than calling `fetchModels` directly** — the provider already owns the TTL cache, in-flight dedupe, and last-good fallback (PR #5). Subscribing to `provider.onDidChangeLanguageModelChatInformation` is the cheapest way to drive `onDidChangeTreeData`.
 - Use `EventEmitter<InfiniNode | undefined>` to fire `onDidChangeTreeData` on plan/key/model changes.
 - Use `ThemeIcon` for icons (`new vscode.ThemeIcon("rocket")` etc.) — works in all themes.
 - Wire context menus via `package.json`'s `menus.view/item/context` against `when: viewItem == infiniai.model`.
@@ -274,6 +264,7 @@ context.subscriptions.push(vscode.window.registerUriHandler({
 
 **Implementation guidance.**
 - File: `src/views/usageDashboard.ts`.
+- **Reuse the existing per-request usage callback** that already feeds `tokenCountStatusBarItem` (`src/statusBar.ts`, wired in `src/extension.ts`). Subscribe the dashboard to the same hook — don't re-instrument the streaming layer.
 - Persist a rolling window of `{ ts, model, in, out, cached }` records (cap ~10k) in `context.globalState` to survive reloads.
 - Use `webview.postMessage` to push live updates as new responses complete; the webview should not poll.
 - Theme: subscribe to `window.onDidChangeActiveColorTheme` and re-render to track light/dark.
@@ -374,7 +365,7 @@ if (choice === vscode.l10n.t("Get API Key")) {
 ```ts
 context.subscriptions.push(context.secrets.onDidChange(e => {
   if (e.key === "infiniai.apiKey" || e.key === "infiniai.codingApiKey") {
-    provider.refresh();
+    provider.refreshModels();
   }
 }));
 ```
@@ -458,7 +449,7 @@ Use `category: "InfiniAI"` for all commands and group them in the palette.
 **API.** `vscode.lm.registerTool<T>(name, tool)` + manifest `contributes.languageModelTools`.
 
 **Design.** Candidate tools:
-- **18a** *(ships now)* — `infiniai_list_models` — returns the latest model catalog with capabilities (sourced from `/v1/models`).
+- **18a** *(ships now)* — `infiniai_list_models` — returns the latest model catalog with capabilities. **Source from `provider.getModelCache(...)`** rather than calling `/v1/models` directly so the tool benefits from the existing TTL cache, in-flight dedupe, and last-good fallback added in PR #5.
 - **18b** *(deferred until a pricing API or published price sheet exists)* — `infiniai_estimate_cost` — input: `{ model, inputTokens, outputTokens }`; output: estimated cost.
 - **18b** *(deferred until a recommender endpoint or curated mapping ships)* — `infiniai_pick_model` — takes a task description, returns a recommended model id.
 
