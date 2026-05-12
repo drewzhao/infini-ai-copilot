@@ -315,7 +315,10 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		}
 
 		this._modelsFetchPromiseKey = key;
-		this._modelsFetchPromise = this.fetchAndNormalizeModels(apiKey, key, token)
+		const fetchPromise = silent
+			? this.fetchAndNormalizeModels(apiKey, key, token)
+			: this.fetchAndNormalizeModelsWithProgress(apiKey, key, token);
+		this._modelsFetchPromise = fetchPromise
 			.then((entry) => {
 				this._cache = entry;
 				this._lastGoodCache = entry;
@@ -335,6 +338,32 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 				this._modelsFetchPromiseKey = undefined;
 			});
 		return this._modelsFetchPromise;
+	}
+
+	private async fetchAndNormalizeModelsWithProgress(
+		apiKey: string,
+		key: string,
+		token: CancellationToken
+	): Promise<ModelCacheEntry> {
+		return vscode.window.withProgress(
+			{
+				location: vscode.ProgressLocation.Notification,
+				title: "InfiniAI: Fetching available models…",
+				cancellable: true,
+			},
+			async (_progress, progressToken) => {
+				const linked = new vscode.CancellationTokenSource();
+				const sub1 = token.onCancellationRequested(() => linked.cancel());
+				const sub2 = progressToken.onCancellationRequested(() => linked.cancel());
+				try {
+					return await this.fetchAndNormalizeModels(apiKey, key, linked.token);
+				} finally {
+					sub1.dispose();
+					sub2.dispose();
+					linked.dispose();
+				}
+			}
+		);
 	}
 
 	private async fetchAndNormalizeModels(
