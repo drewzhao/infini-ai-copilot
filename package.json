@@ -41,7 +41,8 @@
 	"activationEvents": [
 		"onCommand:infiniai.setApikey",
 		"onCommand:infiniai.signOut",
-		"onAuthenticationRequest:infiniai"
+		"onAuthenticationRequest:infiniai",
+		"onView:infiniai.modelsView"
 	],
 	"contributes": {
 		"languageModelChatProviders": [
@@ -59,8 +60,56 @@
 			{
 				"command": "infiniai.signOut",
 				"title": "%command.signOut.title%"
+			},
+			{
+				"command": "infiniai.refreshModels",
+				"title": "%command.refreshModels.title%",
+				"category": "InfiniAI",
+				"icon": "$(refresh)"
+			},
+			{
+				"command": "infiniai.switchPlan",
+				"title": "%command.switchPlan.title%",
+				"category": "InfiniAI"
+			},
+			{
+				"command": "infiniai.openSettings",
+				"title": "%command.openSettings.title%",
+				"category": "InfiniAI",
+				"icon": "$(gear)"
 			}
 		],
+		"viewsContainers": {
+			"activitybar": [
+				{
+					"id": "infiniai",
+					"title": "InfiniAI",
+					"icon": "assets/logo.png"
+				}
+			]
+		},
+		"views": {
+			"infiniai": [
+				{
+					"id": "infiniai.modelsView",
+					"name": "%view.models.name%"
+				}
+			]
+		},
+		"menus": {
+			"view/title": [
+				{
+					"command": "infiniai.refreshModels",
+					"when": "view == infiniai.modelsView",
+					"group": "navigation@1"
+				},
+				{
+					"command": "infiniai.openSettings",
+					"when": "view == infiniai.modelsView",
+					"group": "navigation@2"
+				}
+			]
+		},
 		"chatParticipants": [
 			{
 				"id": "infiniai",
