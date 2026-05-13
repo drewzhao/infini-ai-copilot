@@ -37,5 +37,5 @@
 	"configuration.modelRoutes.description": "模型传输路由的匹配覆盖规则。第一个匹配的模式生效。",
 	"configuration.imageInputModels.description": "为指定模型 ID 强制启用图片输入。支持 '*' 通配符(例如 'kimi-*'),适用于名称中缺少 '-vision' 等标记的多模态模型。",
 	"configuration.disableImageInputModels.description": "为指定模型 ID 强制禁用图片输入。支持 '*' 通配符。",
-	"configuration.disableThinkingForModels.description": "强制关闭思考模式的模型 ID 模式列表。默认涵盖小米 MiMo V2 系列与 DeepSeek V4 系列：这些模型的 API 要求在后续轮次中回传 reasoning_content,否则会返回 HTTP 400。如需在这些模型上启用思考模式,请清空该列表(仅当你已自行解决 reasoning_content 回传问题时才这样做)。支持 '*' 通配符,匹配不区分大小写。"
+	"configuration.disableThinkingForModels.description": "当宿主无法回传 reasoning_content 时,强制关闭思考模式的模型 ID 模式列表。默认涵盖已知 Xiaomi MiMo V2 模型 ID 与 DeepSeek V4 系列：这些模型的 API 要求在后续轮次中回传 reasoning_content,否则会在 VS Code 稳定版上返回 HTTP 400。当宿主支持 LanguageModelThinkingPart 时,扩展会改为回传 reasoning_content,不应用该回退策略。如需在稳定版宿主上启用这些模型的思考模式,请清空该列表并自行承担风险。支持 '*' 通配符,匹配不区分大小写。"
 }

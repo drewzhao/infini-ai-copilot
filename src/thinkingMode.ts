@@ -5,9 +5,9 @@ import * as vscode from "vscode";
  * because their `reasoning_content` cannot be round-tripped through the
  * stable VS Code language-model API.
  *
- * - Xiaomi MiMo V2 family: requires `reasoning_content` to be echoed back
- *   on subsequent turns when the conversation contains tool calls,
- *   otherwise the API returns HTTP 400.
+ * - Known Xiaomi MiMo V2 model IDs: require `reasoning_content` to be
+ *   echoed back on subsequent turns when the conversation contains tool
+ *   calls, otherwise the API returns HTTP 400.
  * - DeepSeek V4 family: same requirement, same 400 error string.
  *
  * Both can be neutralized by never enabling thinking mode in the first

@@ -37,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- HTTP 400 `reasoning_content is required when the previous assistant message contains tool calls` against Xiaomi MiMo V2 family and DeepSeek V4 family on the second turn of a tool-call loop. The OpenAI-compatible request body now injects both `enable_thinking: false` and `thinking: { type: "disabled" }` for matching models (#17).
+- HTTP 400 `reasoning_content is required when the previous assistant message contains tool calls` against known Xiaomi MiMo V2 model IDs and the DeepSeek V4 family on the second turn of a tool-call loop. The OpenAI-compatible request body now injects both `enable_thinking: false` and `thinking: { type: "disabled" }` for matching models (#17).
 
 ## [0.5.0] - 2026-05-12
 

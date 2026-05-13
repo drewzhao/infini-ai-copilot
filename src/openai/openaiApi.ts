@@ -312,7 +312,7 @@ export class OpenaiApi extends CommonApi {
 
 		// Force-disable thinking mode for models whose `reasoning_content`
 		// cannot be round-tripped through the stable VS Code language-model
-		// API (Xiaomi MiMo V2 family, DeepSeek V4 family, plus any user
+		// API (known Xiaomi MiMo V2 model IDs, DeepSeek V4 family, plus any user
 		// additions via `infiniai.disableThinkingForModels`). Without this
 		// the upstream returns HTTP 400 on the second turn of a tool-call
 		// loop. See README "Thinking mode" for details.

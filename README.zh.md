@@ -69,7 +69,7 @@ npm run build
 - `infiniai.modelRoutes`: 可选模型路由覆盖。每项支持 `pattern`、`transport`（`"openai"`、`"anthropic"` 或 `"vertex"`）以及可选 `baseUrl`。
 - `infiniai.imageInputModels`: 为匹配的模型 ID 强制启用图片输入能力。支持 `*` 通配符。
 - `infiniai.disableImageInputModels`: 为匹配的模型 ID 强制禁用图片输入能力。支持 `*` 通配符。
-- `infiniai.disableThinkingForModels`: 强制关闭思考模式的模型 ID 模式列表。默认值: `mimo-v2-pro`、`mimo-v2.5-pro`、`mimo-v2.5`、`mimo-v2-omni`、`mimo-v2-flash`、`deepseek-v4*`。详见下方[思考模式](#思考模式)。
+- `infiniai.disableThinkingForModels`: 当宿主无法回传 `reasoning_content` 时,强制关闭思考模式的模型 ID 模式列表。默认涵盖已知 Xiaomi MiMo V2 模型 ID 与 DeepSeek V4 系列: `mimo-v2-pro`、`mimo-v2.5-pro`、`mimo-v2.5`、`mimo-v2-omni`、`mimo-v2-flash`、`deepseek-v4*`。详见下方[思考模式](#思考模式)。
 - `infiniai.retry`: 可重试网络错误和 HTTP 错误的重试策略。
 - `infiniai.delay`: 请求之间的固定延迟，单位毫秒。
 
@@ -90,7 +90,7 @@ npm run build
 
 ## 思考模式
 
-部分 InfiniAI 模型在常规回复之外还会以 `reasoning_content` 形式流式返回思维链(目前是小米 MiMo V2 系列与 DeepSeek V4 系列)。这些模型的 API 要求,在对话中存在工具调用时,后续轮次必须**原样回传** `reasoning_content`。否则上游会返回:
+部分 InfiniAI 模型在常规回复之外还会以 `reasoning_content` 形式流式返回思维链(目前是已知 Xiaomi MiMo V2 模型 ID 与 DeepSeek V4 系列)。这些模型的 API 要求,在对话中存在工具调用时,后续轮次必须**原样回传** `reasoning_content`。否则上游会返回:
 
 ```
 HTTP 400 — reasoning_content is required when the previous assistant message contains tool calls
@@ -98,7 +98,7 @@ HTTP 400 — reasoning_content is required when the previous assistant message c
 
 VS Code 稳定版语言模型 API (`vscode.LanguageModelChatMessage`) 没有公开的思考/推理内容 part 类型 — `LanguageModelThinkingPart` 仅作为 proposed API 存在。在稳定版上扩展无法跨轮次保存或回放推理内容,会回退到下方的强制关闭策略;在 VS Code Insiders 上扩展会运行时检测该 proposed API 是否可用,若可用则自动端到端回传 `reasoning_content`(详见 [Insiders: 端到端思考模式](#insiders-端到端思考模式))。
 
-为避免开箱即遇到上述 400 错误,扩展会对受影响的模型族强制关闭思考模式,在请求体中同时注入两种厂商写法:
+为避免在 VS Code 稳定版上开箱即遇到上述 400 错误,扩展会对受影响的模型 ID/系列强制关闭思考模式,在请求体中同时注入两种厂商写法:
 
 ```jsonc
 {
@@ -107,14 +107,14 @@ VS Code 稳定版语言模型 API (`vscode.LanguageModelChatMessage`) 没有公�
 }
 ```
 
-默认禁用名单: `mimo-v2-pro`、`mimo-v2.5-pro`、`mimo-v2.5`、`mimo-v2-omni`、`mimo-v2-flash`、`deepseek-v4*` (任意 DeepSeek V4 变体)。
+稳定版宿主上的默认禁用名单: `mimo-v2-pro`、`mimo-v2.5-pro`、`mimo-v2.5`、`mimo-v2-omni`、`mimo-v2-flash` (已知 Xiaomi MiMo V2 模型 ID),以及 `deepseek-v4*` (任意 DeepSeek V4 变体)。
 
 **取舍**: 牺牲这些特定模型的思维链质量。工具调用与普通回复仍正常工作; 其他模型(Kimi K2 Thinking、DeepSeek R1、DeepSeek V3.x、Qwen、GLM 等)不受影响,思考模式照常可用。
 
 通过 `infiniai.disableThinkingForModels` **覆盖**该行为:
 
 - 添加模式(例如 `"my-thinker-*"`)以扩展禁用列表。
-- 设为 `[]` 可在默认模型上恢复思考模式 — 仅当你已自行解决 `reasoning_content` 回传问题时(例如自建 MCP 代理、自定义传输层,或使用 VS Code Insiders + `--enable-proposed-api drewzhao.infiniai-copilot`)才这样做。
+- 设为 `[]` 可在稳定版宿主上为默认模型恢复思考模式 — 仅当你已自行解决 `reasoning_content` 回传问题时(例如自建 MCP 代理或自定义传输层)才这样做。当宿主支持 `LanguageModelThinkingPart` 时,扩展会改为回传 `reasoning_content`,不应用该回退策略。
 
 ### Insiders: 端到端思考模式
 
