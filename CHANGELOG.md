@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.2] - 2026-05-13
 
+### Added
+
+- Extension-owned model visibility controls. The InfiniAI Models view now lets users hide or show individual InfiniAI models, backed by the new `infiniai.hiddenModels` setting. Hidden models are filtered out of VS Code's chat model picker while remaining visible in the InfiniAI Models view for later re-enabling.
+
 ### Fixed
 
 - InfiniAI models now report `isUserSelectable: true` in `provideLanguageModelChatInformation`, ensuring they are included in VS Code's chat model picker by default on hosts that honor this proposed metadata field.

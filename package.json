@@ -69,6 +69,24 @@
 				"icon": "$(refresh)"
 			},
 			{
+				"command": "infiniai.hideModel",
+				"title": "%command.hideModel.title%",
+				"category": "InfiniAI",
+				"icon": "$(eye-closed)"
+			},
+			{
+				"command": "infiniai.showModel",
+				"title": "%command.showModel.title%",
+				"category": "InfiniAI",
+				"icon": "$(eye)"
+			},
+			{
+				"command": "infiniai.showAllModels",
+				"title": "%command.showAllModels.title%",
+				"category": "InfiniAI",
+				"icon": "$(clear-all)"
+			},
+			{
 				"command": "infiniai.switchPlan",
 				"title": "%command.switchPlan.title%",
 				"category": "InfiniAI"
@@ -110,9 +128,26 @@
 					"group": "navigation@1"
 				},
 				{
-					"command": "infiniai.openSettings",
+					"command": "infiniai.showAllModels",
 					"when": "view == infiniai.modelsView",
 					"group": "navigation@2"
+				},
+				{
+					"command": "infiniai.openSettings",
+					"when": "view == infiniai.modelsView",
+					"group": "navigation@3"
+				}
+			],
+			"view/item/context": [
+				{
+					"command": "infiniai.hideModel",
+					"when": "view == infiniai.modelsView && viewItem == infiniai.model.visible",
+					"group": "inline"
+				},
+				{
+					"command": "infiniai.showModel",
+					"when": "view == infiniai.modelsView && viewItem == infiniai.model.hidden",
+					"group": "inline"
 				}
 			]
 		},
@@ -224,6 +259,14 @@
 					"default": 300000,
 					"minimum": 0,
 					"description": "%configuration.modelCacheTtlMs.description%"
+				},
+				"infiniai.hiddenModels": {
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					},
+					"description": "%configuration.hiddenModels.description%"
 				},
 				"infiniai.modelRoutes": {
 					"type": "array",

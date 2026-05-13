@@ -14,6 +14,7 @@ interface ModelsRootNode {
 interface ModelNode {
 	readonly kind: "model";
 	readonly id: string;
+	readonly hidden: boolean;
 	readonly transport: string;
 	readonly toolCalling: boolean;
 	readonly imageInput: boolean;
@@ -64,6 +65,16 @@ function fingerprint(key: string | undefined): string {
 	}
 	const tail = key.length >= 4 ? key.slice(-4) : key;
 	return `\u2026${tail}`;
+}
+
+function getHiddenModelIds(): Set<string> {
+	return new Set(vscode.workspace.getConfiguration("infiniai").get<string[]>("hiddenModels", []));
+}
+
+async function updateHiddenModelIds(hiddenModelIds: readonly string[]): Promise<void> {
+	await vscode.workspace
+		.getConfiguration("infiniai")
+		.update("hiddenModels", [...hiddenModelIds].sort(), vscode.ConfigurationTarget.Global);
 }
 
 export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<InfiniNode>, vscode.Disposable {
@@ -129,17 +140,20 @@ export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<Infin
 			}
 			case "model": {
 				const item = new vscode.TreeItem(node.id, vscode.TreeItemCollapsibleState.None);
-				item.description = `${node.transport} \u00b7 ${node.maxInputTokens.toLocaleString()}/${node.maxOutputTokens.toLocaleString()}`;
+				item.description = node.hidden
+					? `${node.transport} \u00b7 ${node.maxInputTokens.toLocaleString()}/${node.maxOutputTokens.toLocaleString()} \u00b7 ${vscode.l10n.t("Hidden")}`
+					: `${node.transport} \u00b7 ${node.maxInputTokens.toLocaleString()}/${node.maxOutputTokens.toLocaleString()}`;
 				const lines = [
 					vscode.l10n.t("Route: {0}", node.transport),
+					vscode.l10n.t("Picker visibility: {0}", node.hidden ? vscode.l10n.t("hidden") : vscode.l10n.t("visible")),
 					vscode.l10n.t("Tools: {0}", node.toolCalling ? vscode.l10n.t("yes") : vscode.l10n.t("no")),
 					vscode.l10n.t("Images: {0}", node.imageInput ? vscode.l10n.t("yes") : vscode.l10n.t("no")),
 					vscode.l10n.t("Max input tokens: {0}", node.maxInputTokens.toLocaleString()),
 					vscode.l10n.t("Max output tokens: {0}", node.maxOutputTokens.toLocaleString()),
 				];
 				item.tooltip = new vscode.MarkdownString(lines.map((l) => `- ${l}`).join("\n"));
-				item.iconPath = new vscode.ThemeIcon(node.imageInput ? "device-camera" : "symbol-method");
-				item.contextValue = "infiniai.model";
+				item.iconPath = new vscode.ThemeIcon(node.hidden ? "eye-closed" : node.imageInput ? "device-camera" : "symbol-method");
+				item.contextValue = node.hidden ? "infiniai.model.hidden" : "infiniai.model.visible";
 				return item;
 			}
 			case "account-root": {
@@ -208,6 +222,7 @@ export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<Infin
 			const cancel = new vscode.CancellationTokenSource();
 			try {
 				const models = await this.provider.getModelDescriptions(false, cancel.token);
+				const hiddenModelIds = getHiddenModelIds();
 				if (models.length === 0) {
 					return [
 						{
@@ -219,6 +234,7 @@ export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<Infin
 				return models.map<ModelNode>((m) => ({
 					kind: "model",
 					id: m.id,
+					hidden: hiddenModelIds.has(m.id),
 					transport: m.transport,
 					toolCalling: !!m.toolCalling,
 					imageInput: !!m.imageInput,
@@ -285,6 +301,42 @@ export function registerInfiniAIModelsTreeView(
 			provider.refreshModels();
 			treeDataProvider.refresh();
 		}),
+		vscode.commands.registerCommand("infiniai.hideModel", async (node?: InfiniNode) => {
+			const modelId = await resolveModelId(node, provider, false);
+			if (!modelId) {
+				return;
+			}
+			const hiddenModelIds = getHiddenModelIds();
+			hiddenModelIds.add(modelId);
+			await updateHiddenModelIds([...hiddenModelIds]);
+			provider.refreshModels();
+			treeDataProvider.refresh();
+			const action = await vscode.window.showInformationMessage(
+				vscode.l10n.t("{0} is hidden from the chat model picker.", modelId),
+				vscode.l10n.t("Show All")
+			);
+			if (action === vscode.l10n.t("Show All")) {
+				await updateHiddenModelIds([]);
+				provider.refreshModels();
+				treeDataProvider.refresh();
+			}
+		}),
+		vscode.commands.registerCommand("infiniai.showModel", async (node?: InfiniNode) => {
+			const modelId = await resolveModelId(node, provider, true);
+			if (!modelId) {
+				return;
+			}
+			const hiddenModelIds = getHiddenModelIds();
+			hiddenModelIds.delete(modelId);
+			await updateHiddenModelIds([...hiddenModelIds]);
+			provider.refreshModels();
+			treeDataProvider.refresh();
+		}),
+		vscode.commands.registerCommand("infiniai.showAllModels", async () => {
+			await updateHiddenModelIds([]);
+			provider.refreshModels();
+			treeDataProvider.refresh();
+		}),
 		vscode.commands.registerCommand("infiniai.switchPlan", async () => {
 			const current = getActivePlan();
 			const next: InfiniAIPlan = current === "coding" ? "standard" : "coding";
@@ -306,4 +358,41 @@ export function registerInfiniAIModelsTreeView(
 		),
 	];
 	return vscode.Disposable.from(...disposables);
+}
+
+async function resolveModelId(
+	node: InfiniNode | undefined,
+	provider: InfiniAIChatModelProvider,
+	hiddenOnly: boolean
+): Promise<string | undefined> {
+	if (node?.kind === "model") {
+		return node.id;
+	}
+	const cancel = new vscode.CancellationTokenSource();
+	try {
+		const hiddenModelIds = getHiddenModelIds();
+		const models = await provider.getModelDescriptions(false, cancel.token);
+		const picks = models
+			.filter(model => hiddenOnly ? hiddenModelIds.has(model.id) : !hiddenModelIds.has(model.id))
+			.map(model => ({
+				label: model.id,
+				description: model.transport,
+			}));
+		if (picks.length === 0) {
+			void vscode.window.showInformationMessage(
+				hiddenOnly
+					? vscode.l10n.t("No hidden InfiniAI models.")
+					: vscode.l10n.t("No visible InfiniAI models to hide.")
+			);
+			return undefined;
+		}
+		const pick = await vscode.window.showQuickPick(picks, {
+			placeHolder: hiddenOnly
+				? vscode.l10n.t("Select an InfiniAI model to show")
+				: vscode.l10n.t("Select an InfiniAI model to hide"),
+		});
+		return pick?.label;
+	} finally {
+		cancel.dispose();
+	}
 }

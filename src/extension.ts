@@ -9,7 +9,6 @@ import {
 	InfiniAIAuthenticationProvider,
 	PlanInputProvider,
 } from "./auth/infiniaiAuthProvider";
-import type { InfiniAIPlan } from "./utils";
 import { registerInfiniAIModelsTreeView } from "./views/modelsView";
 import { registerInfiniAIUsageDashboard } from "./views/usageDashboard";
 import { pickAccountToSignOut, pickPlan } from "./ui/quickPick";

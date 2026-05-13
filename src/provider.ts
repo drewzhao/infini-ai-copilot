@@ -145,15 +145,23 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 				throw new Error("InfiniAI API key not found");
 			}
 			const entry = await this.getModelCache(apiKey, options.silent, token);
-			return entry.infos;
+			return this.filterHiddenModels(entry.infos);
 		} catch (err) {
 			this._lastError = err instanceof Error ? err.message : String(err);
 			logError(this.output, `Failed to provide model information: ${sanitizeForLog(this._lastError)}`);
 			if (options.silent) {
-				return this._lastGoodCache?.infos ?? [];
+				return this.filterHiddenModels(this._lastGoodCache?.infos ?? []);
 			}
 			throw err;
 		}
+	}
+
+	private filterHiddenModels(infos: LanguageModelChatInformation[]): LanguageModelChatInformation[] {
+		const hiddenModels = new Set(vscode.workspace.getConfiguration("infiniai").get<string[]>("hiddenModels", []));
+		if (hiddenModels.size === 0) {
+			return infos;
+		}
+		return infos.filter(info => !hiddenModels.has(info.id));
 	}
 
 	async provideLanguageModelChatResponse(
