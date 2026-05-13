@@ -421,11 +421,14 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			version: model.created?.toString() || "1.0.0",
 			maxInputTokens: maxInput,
 			maxOutputTokens: maxOutput,
+			// Proposed API field consumed by newer VS Code hosts to include
+			// third-party models in the chat model picker by default.
+			isUserSelectable: true,
 			capabilities: {
 				toolCalling: !model.id.includes("embed") && !model.id.includes("reranker"),
 				imageInput: resolveImageInputCapability(model, { enablePatterns, disablePatterns }),
 			},
-		};
+		} as LanguageModelChatInformation;
 	}
 
 	private toModelInfo(
