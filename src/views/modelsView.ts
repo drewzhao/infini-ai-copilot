@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 
+import { getHiddenModelIds, getVisibleModelIds, isModelHidden, showAllProviderModels, updateHiddenModelIds, updateVisibleModelIds } from "../modelVisibility";
 import { InfiniAIChatModelProvider } from "../provider";
 import { getActivePlan, InfiniAIPlan, logDebug, sanitizeForLog } from "../utils";
 
@@ -65,16 +66,6 @@ function fingerprint(key: string | undefined): string {
 	}
 	const tail = key.length >= 4 ? key.slice(-4) : key;
 	return `\u2026${tail}`;
-}
-
-function getHiddenModelIds(): Set<string> {
-	return new Set(vscode.workspace.getConfiguration("infiniai").get<string[]>("hiddenModels", []));
-}
-
-async function updateHiddenModelIds(hiddenModelIds: readonly string[]): Promise<void> {
-	await vscode.workspace
-		.getConfiguration("infiniai")
-		.update("hiddenModels", [...hiddenModelIds].sort(), vscode.ConfigurationTarget.Global);
 }
 
 export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<InfiniNode>, vscode.Disposable {
@@ -222,7 +213,6 @@ export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<Infin
 			const cancel = new vscode.CancellationTokenSource();
 			try {
 				const models = await this.provider.getModelDescriptions(false, cancel.token);
-				const hiddenModelIds = getHiddenModelIds();
 				if (models.length === 0) {
 					return [
 						{
@@ -234,7 +224,7 @@ export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<Infin
 				return models.map<ModelNode>((m) => ({
 					kind: "model",
 					id: m.id,
-					hidden: hiddenModelIds.has(m.id),
+					hidden: isModelHidden(m.id),
 					transport: m.transport,
 					toolCalling: !!m.toolCalling,
 					imageInput: !!m.imageInput,
@@ -307,8 +297,11 @@ export function registerInfiniAIModelsTreeView(
 				return;
 			}
 			const hiddenModelIds = getHiddenModelIds();
+			const visibleModelIds = getVisibleModelIds();
 			hiddenModelIds.add(modelId);
+			visibleModelIds.delete(modelId);
 			await updateHiddenModelIds([...hiddenModelIds]);
+			await updateVisibleModelIds([...visibleModelIds]);
 			provider.refreshModels();
 			treeDataProvider.refresh();
 			const action = await vscode.window.showInformationMessage(
@@ -316,7 +309,7 @@ export function registerInfiniAIModelsTreeView(
 				vscode.l10n.t("Show All")
 			);
 			if (action === vscode.l10n.t("Show All")) {
-				await updateHiddenModelIds([]);
+				await showAllProviderModels();
 				provider.refreshModels();
 				treeDataProvider.refresh();
 			}
@@ -327,13 +320,16 @@ export function registerInfiniAIModelsTreeView(
 				return;
 			}
 			const hiddenModelIds = getHiddenModelIds();
+			const visibleModelIds = getVisibleModelIds();
 			hiddenModelIds.delete(modelId);
+			visibleModelIds.add(modelId);
 			await updateHiddenModelIds([...hiddenModelIds]);
+			await updateVisibleModelIds([...visibleModelIds]);
 			provider.refreshModels();
 			treeDataProvider.refresh();
 		}),
 		vscode.commands.registerCommand("infiniai.showAllModels", async () => {
-			await updateHiddenModelIds([]);
+			await showAllProviderModels();
 			provider.refreshModels();
 			treeDataProvider.refresh();
 		}),
@@ -370,10 +366,9 @@ async function resolveModelId(
 	}
 	const cancel = new vscode.CancellationTokenSource();
 	try {
-		const hiddenModelIds = getHiddenModelIds();
 		const models = await provider.getModelDescriptions(false, cancel.token);
 		const picks = models
-			.filter(model => hiddenOnly ? hiddenModelIds.has(model.id) : !hiddenModelIds.has(model.id))
+			.filter(model => hiddenOnly ? isModelHidden(model.id) : !isModelHidden(model.id))
 			.map(model => ({
 				label: model.id,
 				description: model.transport,

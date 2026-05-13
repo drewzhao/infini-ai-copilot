@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Extension-owned model visibility controls. The InfiniAI Models view now lets users hide or show individual InfiniAI models, backed by the new `infiniai.hiddenModels` setting. Hidden models are filtered out of VS Code's chat model picker while remaining visible in the InfiniAI Models view for later re-enabling.
+- Provider-level model visibility controls. The InfiniAI Models view now lets users hide or show individual InfiniAI models. Hidden models are filtered out before the extension reports models to VS Code, while remaining visible in the InfiniAI Models view for later re-enabling.
+- `infiniai.hiddenModelPatterns` setting with default provider-level filters for image / video generation model families: `*vidu*`, `*seedream*`, `*seedance*`, `*image*`, `*diffusion*`, `*hailuo*`, and `*kling*`. `infiniai.hiddenModels` stores exact hidden model IDs, and `infiniai.visibleModels` stores exact IDs that should override the hidden pattern list.
 
 ### Fixed
 
@@ -18,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Known upstream behavior (VS Code Insiders)
 
 - VS Code **Insiders 1.120.0** (`0958016b2af9f09bb4257e0df4a95e2f90590f9f`) no longer shows the eye / eye-closed model visibility controls in the Manage Models editor. This is an upstream VS Code change from microsoft/vscode#314598 ("Remove visibility controls for models in the model configuration window"), not an InfiniAI extension regression.
-- **Mitigation in 0.5.2**: setting `isUserSelectable: true` keeps InfiniAI models visible in the model picker by default. It does not restore VS Code's removed per-model show / hide UI; restoring that control would require an upstream VS Code change or a separate InfiniAI-owned hide/filter command.
+- **Mitigation in 0.5.2**: setting `isUserSelectable: true` keeps eligible InfiniAI models visible in the model picker by default, while the provider-level visibility controls above replace the removed VS Code per-model show / hide UI for InfiniAI models.
 
 ## [0.5.1] - 2026-05-13
 

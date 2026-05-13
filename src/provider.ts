@@ -35,6 +35,7 @@ import {
 import { VertexApi } from "./vertex/vertexApi";
 import { VertexRequestBody } from "./vertex/vertexTypes";
 import { resolveImageInputCapability } from "./modelCapabilities";
+import { isModelHidden } from "./modelVisibility";
 import { parseModelRouteConfigs } from "./route";
 
 const DEFAULT_CONTEXT_LENGTH = 128000;
@@ -157,11 +158,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 	}
 
 	private filterHiddenModels(infos: LanguageModelChatInformation[]): LanguageModelChatInformation[] {
-		const hiddenModels = new Set(vscode.workspace.getConfiguration("infiniai").get<string[]>("hiddenModels", []));
-		if (hiddenModels.size === 0) {
-			return infos;
-		}
-		return infos.filter(info => !hiddenModels.has(info.id));
+		return infos.filter(info => !isModelHidden(info.id));
 	}
 
 	async provideLanguageModelChatResponse(

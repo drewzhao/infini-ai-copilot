@@ -42,7 +42,7 @@
 	"Open Dashboard": "打开控制台",
 	"Open the InfiniAI dashboard in a browser.": "在浏览器中打开 InfiniAI 控制台。",
 	"Refresh Models": "刷新模型列表",
-	"{0} is hidden from the chat model picker.": "已从聊天模型选择器中隐藏 {0}。",
+	"{0} is hidden from the chat model picker.": "已在提供方层面从聊天模型选择器中隐藏 {0}。",
 	"Show All": "全部显示",
 	"No hidden InfiniAI models.": "没有已隐藏的 InfiniAI 模型。",
 	"No visible InfiniAI models to hide.": "没有可隐藏的 InfiniAI 模型。",

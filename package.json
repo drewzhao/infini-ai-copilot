@@ -268,6 +268,30 @@
 					},
 					"description": "%configuration.hiddenModels.description%"
 				},
+				"infiniai.hiddenModelPatterns": {
+					"type": "array",
+					"default": [
+						"*vidu*",
+						"*seedream*",
+						"*seedance*",
+						"*image*",
+						"*diffusion*",
+						"*hailuo*",
+						"*kling*"
+					],
+					"items": {
+						"type": "string"
+					},
+					"description": "%configuration.hiddenModelPatterns.description%"
+				},
+				"infiniai.visibleModels": {
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					},
+					"description": "%configuration.visibleModels.description%"
+				},
 				"infiniai.modelRoutes": {
 					"type": "array",
 					"default": [],
