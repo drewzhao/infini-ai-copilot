@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-05-13
+
+### Fixed
+
+- `/test` now probes the first visible chat-capable InfiniAI model instead of the first raw discovered model. This avoids sending chat-completions probes to image/video generation models such as `stable-diffusion-1.5`, which can return HTTP 500 from the upstream API.
+
 ## [0.5.2] - 2026-05-13
 
 ### Added
