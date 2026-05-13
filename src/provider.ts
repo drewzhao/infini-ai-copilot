@@ -280,9 +280,9 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			throw new Error("InfiniAI API key not found");
 		}
 		const entry = await this.getModelCache(apiKey, false, token);
-		const first = entry.infos[0];
+		const first = this.filterHiddenModels(entry.infos).find(info => info.capabilities.toolCalling);
 		if (!first) {
-			throw new Error("No InfiniAI models are available");
+			throw new Error("No visible InfiniAI chat-capable models are available");
 		}
 		const model = entry.models.find((m) => m.id === first.id);
 		const route =
