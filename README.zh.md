@@ -1,6 +1,6 @@
 # InfiniAI Provider for VS Code
 
-InfiniAI Provider for VS Code 将 InfiniAI 注册为稳定的 VS Code 语言模型提供方，并提供 `@infiniai` 诊断参与者。本扩展只使用公开稳定的 VS Code API，不依赖独立的 `github.copilot-chat` 扩展，也不使用 Copilot 私有或 proposed API。
+InfiniAI Provider for VS Code 将 InfiniAI 注册为稳定的 VS Code 语言模型提供方，并提供 `@infiniai` 诊断参与者。核心提供方路径使用稳定的 VS Code API，不依赖独立的 `github.copilot-chat` 扩展，也不使用 Copilot 私有 API。Marketplace 清单不声明 proposed API 依赖;可选的 `LanguageModelThinkingPart` 运行时探测不是 `reasoning_content` 回放正确性的前提。
 
 ## 使用方式
 
@@ -69,8 +69,9 @@ npm run build
 - `infiniai.modelRoutes`: 可选模型路由覆盖。每项支持 `pattern`、`transport`（`"openai"`、`"anthropic"` 或 `"vertex"`）以及可选 `baseUrl`。
 - `infiniai.imageInputModels`: 为匹配的模型 ID 强制启用图片输入能力。支持 `*` 通配符。
 - `infiniai.disableImageInputModels`: 为匹配的模型 ID 强制禁用图片输入能力。支持 `*` 通配符。
-- `infiniai.disableThinkingForModels`: 额外强制关闭思考模式的模型 ID 模式。内置安全默认值始终包含已知 Xiaomi MiMo V2 模型 ID 与 DeepSeek V4 系列: `mimo-v2-pro`、`mimo-v2.5-pro`、`mimo-v2.5`、`mimo-v2-omni`、`mimo-v2-flash`、`deepseek-v4*`。详见下方[思考模式](#思考模式)。
-- `infiniai.enableThinkingRoundTripForModels`: 面向未来已验证 `reasoning_content` 回放路径的高级显式启用列表。该设置在稳定版和 Insiders 都会被接受,但只有当前请求路径具备已验证回放后端时才会生效。
+- `infiniai.disableThinkingForModels`: 安全列表。匹配的模型 ID 会默认关闭思考模式,以避免已知的 `reasoning_content` HTTP 400 错误。内置默认值包含已知 Xiaomi MiMo V2 模型 ID 与 DeepSeek V4 系列: `mimo-v2-pro`、`mimo-v2.5-pro`、`mimo-v2.5`、`mimo-v2-omni`、`mimo-v2-flash`、`deepseek-v4*`。详见下方[思考模式](#思考模式)。
+- `infiniai.enableThinkingRoundTripForModels`: 实验性显式启用列表,会与 `infiniai.disableThinkingForModels` 一起生效。如果同一模型同时匹配两个设置,只有当回放预检证明所需 `reasoning_content` 可用时,本设置才会让思考保持开启;否则扩展会在本地失败以避免 HTTP 400。支持 `*` 通配符。
+- `infiniai.thinkingReplayStore`: 已启用思考模型的回放存储后端。默认 `"localPlaintext"` 以支持重启后继续对话;设为 `"memory"` 则不把回放数据写入磁盘,但不支持重启后继续对话。
 - `infiniai.retry`: 可重试网络错误和 HTTP 错误的重试策略。
 - `infiniai.delay`: 请求之间的固定延迟，单位毫秒。
 
@@ -97,7 +98,7 @@ npm run build
 HTTP 400 — reasoning_content is required when the previous assistant message contains tool calls
 ```
 
-VS Code 稳定版语言模型 API (`vscode.LanguageModelChatMessage`) 没有公开的思考/推理内容 part 类型。VS Code Insiders 可以通过 proposed API 暴露 `LanguageModelThinkingPart`,但仅有这个构造器并不能证明完整的 Copilot Chat 历史路径会在后续轮次中保存并回放 `reasoning_content`。
+VS Code 稳定版语言模型 API (`vscode.LanguageModelChatMessage`) 没有公开的思考/推理内容 part 类型。源码保留了可选的 `LanguageModelThinkingPart` 运行时探测,但 Marketplace 构建不再声明 `enabledApiProposals`;稳定版和 Insiders 上的回放正确性都由扩展自有 replay store 保证。
 
 为避免开箱即遇到上述 400 错误,扩展会对受影响的模型 ID/系列强制关闭思考模式,在请求体中同时注入两种厂商写法:
 
@@ -114,33 +115,18 @@ VS Code 稳定版语言模型 API (`vscode.LanguageModelChatMessage`) 没有公�
 
 通过以下设置调整该保护逻辑:
 
-- 向 `infiniai.disableThinkingForModels` 添加模式(例如 `"my-thinker-*"`)以扩展禁用列表。用户模式是追加项,不会移除内置安全默认值。
-- 只有当某个模型/请求路径具备已验证的 `reasoning_content` 回放后端时,才向 `infiniai.enableThinkingRoundTripForModels` 添加模式。当前实现会在稳定版和 Insiders 接受该设置,但在回放后端可用之前,受影响模型仍会保持禁用思考模式。
+- 向 `infiniai.disableThinkingForModels` 添加模式(例如 `"my-thinker-*"`)以扩展安全列表。用户模式是追加项,不会移除内置安全默认值。普通用户通常应保持该设置不变。
+- 向 `infiniai.enableThinkingRoundTripForModels` 添加模式(例如 `"mimo-v2*"` 或 `"deepseek-v4*"`)可让原本会被安全列表关闭思考的模型尝试思考回放。如果同一模型同时匹配两个设置,只有当回放预检证明所需 `reasoning_content` 可用时,这个 opt-in 才会生效。如果回放数据缺失、过期或不可用,扩展会在本地失败,不会发送可能触发上游 HTTP 400 的不安全请求。
+- 如果希望已启用的思考工具调用对话在 VS Code 重载或重启后仍能继续,保持 `infiniai.thinkingReplayStore` 默认值 `"localPlaintext"`。只有在不希望回放数据写入磁盘、且可以接受不支持重启后继续对话时,才选择 `"memory"`。
+- 运行 `InfiniAI: Clear Thinking Replay Cache` 可清除当前回放缓存。
 
-### Insiders: proposed 思考传输
+### 可选 proposed 思考传输
 
-扩展清单声明了 `enabledApiProposals: ["languageModelThinkingPart"]`。当宿主在运行时实际暴露该 proposed API 时,扩展可以:
+Marketplace 构建不声明 `enabledApiProposals`。对于显式 opt-in 的 MiMo V2 / DeepSeek V4 工具调用对话,稳定版和 Insiders 上的回放正确性都由扩展自有 replay backend 提供。
 
-1. 将推理片段以 `LanguageModelThinkingPart` 的形式流式输出,聊天 UI 即可在多轮中保留它们。
-2. 当宿主在请求历史中提供 thinking part 时,从中重建 `reasoning_content`。
+源码仍保留 `LanguageModelThinkingPart` 运行时探测。如果本地开发宿主、自定义 VS Code 构建或 allowlist 环境实际暴露该构造器,扩展可以把 thinking chunk 作为可选兼容路径输出,也可以保留宿主提供的 thinking part。这个路径不是避免 400 的必要条件,构造器存在也不会被视为对话安全的证明。
 
-对于 MiMo V2 / DeepSeek V4,这类传输能力仍不会被视为自动端到端回放保证。除非未来某个已验证后端将当前请求路径标记为安全,否则强制关闭保护在 Insiders 上也会默认生效。
-
-启用方式: 使用 VS Code Insiders 并为本扩展 publisher 启用 proposed API:
-
-```sh
-code-insiders --enable-proposed-api drewzhao.infiniai-copilot
-```
-
-或在 `argv.json` 中添加 publisher id(命令面板 → "首选项: 配置运行时参数"):
-
-```jsonc
-{
-  "enable-proposed-api": ["drewzhao.infiniai-copilot"]
-}
-```
-
-在稳定版 VS Code (或未加 flag 的 Insiders) 上,该构造器为 `undefined`。在启用 flag 的 Insiders 上,该构造器可能存在,但受影响模型默认仍会应用内置安全禁用列表。
+在普通 Stable 和 Insiders 安装中,该构造器预期为 `undefined`;是否允许思考模式继续开启,仍由内置安全列表和 replay-store preflight 决定。
 
 ## 命令
 
@@ -164,7 +150,7 @@ code-insiders --enable-proposed-api drewzhao.infiniai-copilot
 - `defaultChatParticipant`
 - `languageModelProxy`
 
-唯一声明的 proposed API 是 `languageModelThinkingPart`,并且受运行时检测保护。稳定版 VS Code 不会暴露它,400 缓解逻辑也不依赖它。
+Marketplace 清单不声明任何 `enabledApiProposals`。源码保留了面向开发/自定义宿主的 `LanguageModelThinkingPart` 运行时探测,但 replay 正确性和 HTTP 400 缓解不依赖 proposed API。
 
 ## 调试
 

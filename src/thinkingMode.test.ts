@@ -108,6 +108,27 @@ describe("getThinkingRoundTripPatterns", () => {
 	});
 });
 
+describe("getThinkingReplayStoreMode", () => {
+	it("defaults to localPlaintext", () => {
+		const { getThinkingReplayStoreMode } = loadThinkingMode();
+
+		const mode = withVscodeMock({}, getThinkingReplayStoreMode);
+
+		assert.equal(mode, "localPlaintext");
+	});
+
+	it("accepts only localPlaintext or memory", () => {
+		const { getThinkingReplayStoreMode } = loadThinkingMode();
+
+		assert.equal(withVscodeMock({ thinkingReplayStore: "memory" }, getThinkingReplayStoreMode), "memory");
+		assert.equal(
+			withVscodeMock({ thinkingReplayStore: "localPlaintext" }, getThinkingReplayStoreMode),
+			"localPlaintext"
+		);
+		assert.equal(withVscodeMock({ thinkingReplayStore: "other" }, getThinkingReplayStoreMode), "localPlaintext");
+	});
+});
+
 describe("applyDisableThinking", () => {
 	const { applyDisableThinking } = loadThinkingMode();
 

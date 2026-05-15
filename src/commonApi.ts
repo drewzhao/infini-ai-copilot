@@ -106,6 +106,7 @@ export abstract class CommonApi {
 		const id = buf.id ?? `call_${Math.random().toString(36).slice(2, 10)}`;
 		const parameters = canParse.value;
 		progress.report(new LanguageModelToolCallPart(id, buf.name, parameters));
+		this.onToolCallEmitted(id);
 		this._toolCallBuffers.delete(index);
 		this._completedToolCallIndices.add(index);
 	}
@@ -135,10 +136,13 @@ export abstract class CommonApi {
 			const id = buf.id ?? `call_${Math.random().toString(36).slice(2, 10)}`;
 			const name = buf.name ?? "unknown_tool";
 			progress.report(new LanguageModelToolCallPart(id, name, parsed.value));
+			this.onToolCallEmitted(id);
 			this._toolCallBuffers.delete(idx);
 			this._completedToolCallIndices.add(idx);
 		}
 	}
+
+	protected onToolCallEmitted(_callId: string): void {}
 
 	/**
 	 * Report to VS Code for ending thinking
@@ -172,11 +176,12 @@ export abstract class CommonApi {
 			this._currentThinkingId = this.generateThinkingId();
 		}
 
-		// When the host exposes the proposed `LanguageModelThinkingPart` API
-		// (Insiders + --enable-proposed-api drewzhao.infiniai-copilot, or an
-		// allowlist entry), emit it as a real response part so the chat host
-		// preserves the chain-of-thought across turns. On stable VS Code the
-		// constructor is undefined and we silently drop the chunk.
+		// Optional UI/transport probe: Marketplace builds do not declare the
+		// `languageModelThinkingPart` proposal, but local/custom hosts may still
+		// expose `LanguageModelThinkingPart`. If present, emit thinking chunks as
+		// response parts for experimentation. Correct replay for MiMo V2 /
+		// DeepSeek V4 does not rely on this path; the extension-owned replay store
+		// captures and preflights reasoning_content separately.
 		const Ctor = getThinkingPartCtor();
 		if (Ctor && progress) {
 			progress.report(new Ctor(text, this._currentThinkingId) as unknown as vscode.LanguageModelResponsePart);

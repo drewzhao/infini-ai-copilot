@@ -15,6 +15,8 @@ import { OpenaiApi } from "./openai/openaiApi";
 import type { OpenAIChatMessage } from "./openai/openaiTypes";
 import { prepareTokenCount } from "./provideToken";
 import { hasThinkingPartApi } from "./proposedApi";
+import { applyThinkingReplay, decideThinkingReplayRequest } from "./thinkingReplay";
+import { thinkingReplayStore } from "./thinkingReplayStore";
 import { resolveModelRoute } from "./route";
 import { updateContextStatusBar } from "./statusBar";
 import {
@@ -498,18 +500,43 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		infiniAIModel: InfiniAIModelInfo | undefined,
 		route: ModelRoute
 	): Promise<void> {
-		const openaiApi = new OpenaiApi();
-		const openaiMessages = openaiApi.convertMessages(messages, { includeReasoningInRequest: false });
+		const converter = new OpenaiApi();
+		const openaiMessages = converter.convertMessages(messages, { includeReasoningInRequest: false });
+		const disableThinkingPatterns = getDisableThinkingPatterns();
+		const roundTripPatterns = getThinkingRoundTripPatterns();
+		const userOptedIntoRoundTrip = shouldEnableThinkingRoundTrip(model.id, roundTripPatterns);
+		await thinkingReplayStore.prune();
+		const replayPreflight = applyThinkingReplay({
+			modelId: model.id,
+			messages: openaiMessages,
+			store: thinkingReplayStore,
+		});
+		const replayDecision = decideThinkingReplayRequest({
+			userOptedIntoRoundTrip,
+			preflight: replayPreflight,
+		});
+		if (replayDecision.failLocalReason) {
+			throw new Error(replayDecision.failLocalReason);
+		}
+		const requestMessages = replayDecision.allowThinkingRoundTrip ? replayPreflight.messages : openaiMessages;
+		const pendingThinkingTurn = replayDecision.allowThinkingRoundTrip ? thinkingReplayStore.beginTurn(model.id) : undefined;
+		const openaiApi = new OpenaiApi({
+			thinkingReplayStore: pendingThinkingTurn ? thinkingReplayStore : undefined,
+			pendingThinkingTurn,
+		});
 		let requestBody: Record<string, unknown> = {
 			model: model.id,
-			messages: openaiMessages,
+			messages: requestMessages,
 			stream: true,
 			stream_options: { include_usage: true },
 		};
-		requestBody = openaiApi.prepareRequestBody(requestBody, infiniAIModel, options);
-		const disableThinkingPatterns = getDisableThinkingPatterns();
-		const roundTripPatterns = getThinkingRoundTripPatterns();
-		const thinkingSummary = summarizeThinkingMessages(openaiMessages);
+		requestBody = openaiApi.prepareRequestBody(
+			requestBody,
+			infiniAIModel,
+			options,
+			replayDecision.allowThinkingRoundTrip
+		);
+		const thinkingSummary = summarizeThinkingMessages(requestMessages);
 		const requestInitiator = (options as { requestInitiator?: unknown }).requestInitiator;
 		logDebug(
 			this.output,
@@ -518,7 +545,11 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 				`requestInitiator=${sanitizeForLog(String(requestInitiator ?? ""), 120)} ` +
 				`hasThinkingPartApi=${hasThinkingPartApi()} ` +
 				`forceDisable=${shouldDisableThinking(model.id, disableThinkingPatterns)} ` +
-				`roundTripOptIn=${shouldEnableThinkingRoundTrip(model.id, roundTripPatterns)} ` +
+				`roundTripOptIn=${userOptedIntoRoundTrip} ` +
+				`roundTripAllowed=${replayDecision.allowThinkingRoundTrip} ` +
+				`roundTripReplayed=${replayPreflight.replayedCount} ` +
+				`roundTripMissing=${replayPreflight.missingCallIds.length} ` +
+				`roundTripConflicts=${replayPreflight.conflictingCallIds.length} ` +
 				`thinkingDisabled=${requestBody.enable_thinking === false} ` +
 				`disablePatterns=${sanitizeForLog(disableThinkingPatterns.join(","), 300)} ` +
 				`roundTripPatterns=${sanitizeForLog(roundTripPatterns.join(","), 300)} ` +

@@ -11,6 +11,7 @@
 	"Enter your InfiniAI {0} API key": "输入你的 InfiniAI {0} API 密钥",
 	"InfiniAI {0} API key cleared.": "已清除 InfiniAI {0} API 密钥。",
 	"InfiniAI {0} API key saved.": "已保存 InfiniAI {0} API 密钥。",
+	"InfiniAI thinking replay cache cleared.": "已清除 InfiniAI 思考回放缓存。",
 	"InfiniAI sign-in canceled.": "已取消 InfiniAI 登录。",
 	"InfiniAI ({0}) {1}": "InfiniAI ({0}) {1}",
 	"No InfiniAI accounts are signed in.": "当前没有已登录的 InfiniAI 账号。",

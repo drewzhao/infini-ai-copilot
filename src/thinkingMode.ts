@@ -29,6 +29,10 @@ export const DEFAULT_DISABLE_THINKING_PATTERNS: readonly string[] = [
  */
 export const DEFAULT_ENABLE_THINKING_ROUND_TRIP_PATTERNS: readonly string[] = [];
 
+export type ThinkingReplayStoreMode = "localPlaintext" | "memory";
+
+export const DEFAULT_THINKING_REPLAY_STORE_MODE: ThinkingReplayStoreMode = "localPlaintext";
+
 type InfiniAIConfiguration = {
 	get<T>(key: string, defaultValue: T): T;
 };
@@ -114,6 +118,19 @@ export function getThinkingRoundTripPatterns(): string[] {
  */
 export function shouldEnableThinkingRoundTrip(modelId: string, patterns: readonly string[]): boolean {
 	return shouldDisableThinking(modelId, patterns);
+}
+
+/**
+ * Read the replay backend selection. `localPlaintext` is the normal product
+ * default; `memory` is an explicit opt-in for users who do not want replay
+ * data written to disk and accept losing restart continuity.
+ */
+export function getThinkingReplayStoreMode(): ThinkingReplayStoreMode {
+	const cfg = getInfiniAIConfiguration();
+	const configured = cfg.get<unknown>("thinkingReplayStore", DEFAULT_THINKING_REPLAY_STORE_MODE);
+	return configured === "memory" || configured === "localPlaintext"
+		? configured
+		: DEFAULT_THINKING_REPLAY_STORE_MODE;
 }
 
 /**

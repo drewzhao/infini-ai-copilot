@@ -218,6 +218,8 @@ Recommended semantic contract:
 - The setting is available on stable and Insiders.
 - On Insiders, it allows thinking only when host thinking-part replay is verified for the current path.
 - On stable, it allows thinking only when extension-owned replay is implemented and available for the current request.
+- Once extension-owned replay exists, the replay backend should default to local plaintext persistence for opted-in models.
+- Users who do not want disk persistence should be able to opt into a `memory` replay backend and accept that thinking tool-call conversations may not continue after VS Code reload or restart.
 - If the user opts in but no replay backend is available, the extension should keep thinking disabled and log a diagnostic explaining why.
 
 ## Recommended Fix for Stable VS Code
@@ -388,6 +390,8 @@ interface ReasoningContentStore {
 ```
 
 The store would be populated while parsing streaming chunks that contain `reasoning_content`. Before sending the next request, `applyReplay(...)` would find assistant messages with `tool_calls` and inject the matching saved `reasoning_content`. This is the only way for the opt-in setting to be genuinely effective on stable VS Code.
+
+Latest design decision: because `infiniai.enableThinkingRoundTripForModels` is already explicit opt-in, the replay store should use local plaintext persistence by default for opted-in models, backed by an in-memory request-time index. It should also provide a separate `memory` backend opt-in for users who do not want disk persistence and accept no restart continuity. Both modes should be bounded by TTL, total bytes, and entry count, provide a clear-cache command, and fail locally if a required replay entry is missing.
 
 Until that store exists, stable behavior should be:
 

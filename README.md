@@ -1,6 +1,6 @@
 # InfiniAI Provider for VS Code
 
-InfiniAI Provider for VS Code registers InfiniAI as a stable VS Code language model provider and adds an `@infiniai` diagnostics participant. It uses only public VS Code APIs and does not depend on the standalone `github.copilot-chat` extension or Copilot private/proposed APIs.
+InfiniAI Provider for VS Code registers InfiniAI as a stable VS Code language model provider and adds an `@infiniai` diagnostics participant. The core provider path uses stable VS Code APIs and does not depend on the standalone `github.copilot-chat` extension or Copilot private APIs. The Marketplace manifest declares no proposed API dependency; the optional `LanguageModelThinkingPart` runtime probe is not required for `reasoning_content` replay correctness.
 
 ## Usage
 
@@ -69,8 +69,9 @@ Common settings:
 - `infiniai.modelRoutes`: Optional model routing overrides. Each item supports `pattern`, `transport` (`"openai"`, `"anthropic"`, or `"vertex"`), and optional `baseUrl`.
 - `infiniai.imageInputModels`: Force-enable image input for matching model IDs. Supports `*` wildcards.
 - `infiniai.disableImageInputModels`: Force-disable image input for matching model IDs. Supports `*` wildcards.
-- `infiniai.disableThinkingForModels`: Additional model ID patterns whose thinking mode is force-disabled. The built-in safety defaults always include known Xiaomi MiMo V2 model IDs and the DeepSeek V4 family: `mimo-v2-pro`, `mimo-v2.5-pro`, `mimo-v2.5`, `mimo-v2-omni`, `mimo-v2-flash`, `deepseek-v4*`. See [Thinking mode](#thinking-mode) below.
-- `infiniai.enableThinkingRoundTripForModels`: Advanced opt-in list for future verified `reasoning_content` round-trip paths. The setting is accepted on stable and Insiders, but it is effective only when the active request path has a verified replay backend.
+- `infiniai.disableThinkingForModels`: Safety list. Thinking mode is disabled by default for matching model IDs to avoid known `reasoning_content` HTTP 400 errors. The built-in defaults include known Xiaomi MiMo V2 model IDs and the DeepSeek V4 family: `mimo-v2-pro`, `mimo-v2.5-pro`, `mimo-v2.5`, `mimo-v2-omni`, `mimo-v2-flash`, `deepseek-v4*`. See [Thinking mode](#thinking-mode) below.
+- `infiniai.enableThinkingRoundTripForModels`: Experimental opt-in that works with `infiniai.disableThinkingForModels`. If a model matches both settings, this setting can keep thinking enabled only when replay preflight proves the required `reasoning_content` is available; otherwise the extension fails locally to avoid HTTP 400. Supports `*` wildcards.
+- `infiniai.thinkingReplayStore`: Replay storage backend for opted-in thinking models. Defaults to `"localPlaintext"` for restart continuity; set `"memory"` to avoid writing replay data to disk and accept no restart continuity.
 - `infiniai.retry`: Retry policy for retryable network and HTTP failures.
 - `infiniai.delay`: Fixed delay between requests, in milliseconds.
 
@@ -97,7 +98,7 @@ Some InfiniAI models stream a `reasoning_content` chain-of-thought in addition t
 HTTP 400 — reasoning_content is required when the previous assistant message contains tool calls
 ```
 
-The stable VS Code language-model API (`vscode.LanguageModelChatMessage`) has no public part type for thinking/reasoning content. VS Code Insiders can expose `LanguageModelThinkingPart` as a proposed API, but constructor availability alone does not prove that the whole Copilot Chat history path will preserve and replay `reasoning_content` on later turns.
+The stable VS Code language-model API (`vscode.LanguageModelChatMessage`) has no public part type for thinking/reasoning content. The source keeps an optional runtime detector for `LanguageModelThinkingPart`, but the Marketplace build no longer declares `enabledApiProposals`; replay correctness is handled by the extension-owned replay store on both VS Code Stable and Insiders.
 
 To avoid the 400 error out of the box, the extension force-disables thinking mode on the affected model IDs/families by injecting both vendor flavors into the request body:
 
@@ -114,33 +115,18 @@ Built-in safety defaults: `mimo-v2-pro`, `mimo-v2.5-pro`, `mimo-v2.5`, `mimo-v2-
 
 Configure the guard with these settings:
 
-- Add a pattern to `infiniai.disableThinkingForModels` (e.g. `"my-thinker-*"`) to extend the disable list. User patterns are additive; they do not remove the built-in safety defaults.
-- Add a pattern to `infiniai.enableThinkingRoundTripForModels` only for a model/request path with a verified `reasoning_content` replay backend. The current implementation accepts the setting on stable and Insiders, but keeps affected models disabled until such a backend is available.
+- Add a pattern to `infiniai.disableThinkingForModels` (e.g. `"my-thinker-*"`) to extend the safety list. User patterns are additive; they do not remove the built-in safety defaults. Regular users should usually leave this setting unchanged.
+- Add a pattern to `infiniai.enableThinkingRoundTripForModels` (e.g. `"mimo-v2*"` or `"deepseek-v4*"`) to try thinking replay for a model that would otherwise be disabled by the safety list. If a model matches both settings, this opt-in wins only when replay preflight proves the required `reasoning_content` is available. If replay data is missing, expired, or unavailable, the extension fails locally instead of sending an unsafe request that would return HTTP 400.
+- Keep `infiniai.thinkingReplayStore` at the default `"localPlaintext"` if you want opted-in thinking tool-call conversations to survive VS Code reload or restart while cache entries remain valid. Choose `"memory"` only if you do not want replay data written to disk and can tolerate losing restart continuity.
+- Run `InfiniAI: Clear Thinking Replay Cache` to remove the active replay cache.
 
-### Insiders: proposed thinking transport
+### Optional proposed thinking transport
 
-The extension manifest declares `enabledApiProposals: ["languageModelThinkingPart"]`. When the host actually exposes that proposed API at runtime, the extension can:
+The Marketplace build does not declare `enabledApiProposals`. Replay correctness for opted-in MiMo V2 / DeepSeek V4 tool-call conversations is provided by the extension-owned replay backend on both VS Code Stable and Insiders.
 
-1. Stream reasoning chunks as `LanguageModelThinkingPart` parts so the chat UI preserves them across turns.
-2. Reconstruct `reasoning_content` from incoming thinking parts when the host provides them in request history.
+The source still contains a runtime detector for `LanguageModelThinkingPart`. If a local development host, custom VS Code build, or allowlisted environment exposes the constructor, the extension may emit thinking parts and preserve host-supplied thinking parts as optional compatibility. This path is not required to avoid 400s, and constructor availability is not treated as proof that a conversation is safe.
 
-For MiMo V2 / DeepSeek V4, that transport capability is still not treated as an automatic end-to-end replay guarantee. The force-disable guard remains active by default on Insiders too, unless a future verified backend marks the current request path safe.
-
-To opt in, launch VS Code Insiders with proposed APIs enabled for this publisher:
-
-```sh
-code-insiders --enable-proposed-api drewzhao.infiniai-copilot
-```
-
-Alternatively add the publisher id to `argv.json` (Command Palette → "Preferences: Configure Runtime Arguments"):
-
-```jsonc
-{
-  "enable-proposed-api": ["drewzhao.infiniai-copilot"]
-}
-```
-
-On stable VS Code (or Insiders without the flag) the constructor is `undefined`. On Insiders with the flag, the constructor may exist, but the built-in safety list still applies to affected models by default.
+On normal Stable and Insiders installs the constructor is expected to be `undefined`; the built-in safety list and replay-store preflight still decide whether thinking may remain enabled.
 
 ## Commands
 
@@ -164,7 +150,7 @@ This extension intentionally avoids:
 - `defaultChatParticipant`
 - `languageModelProxy`
 
-The only proposed API declaration is `languageModelThinkingPart`, which is guarded by runtime detection. Stable VS Code does not expose it, and the 400 mitigation does not depend on it.
+The Marketplace manifest declares no `enabledApiProposals`. A guarded runtime detector for `LanguageModelThinkingPart` remains for development/custom hosts, but replay correctness and HTTP 400 mitigation do not depend on proposed APIs.
 
 ## Debugging
 

@@ -41,6 +41,7 @@
 	"activationEvents": [
 		"onCommand:infiniai.setApikey",
 		"onCommand:infiniai.signOut",
+		"onCommand:infiniai.clearThinkingReplayCache",
 		"onAuthenticationRequest:infiniai",
 		"onView:infiniai.modelsView",
 		"onView:infiniai.usageView"
@@ -96,6 +97,11 @@
 				"title": "%command.openSettings.title%",
 				"category": "InfiniAI",
 				"icon": "$(gear)"
+			},
+			{
+				"command": "infiniai.clearThinkingReplayCache",
+				"title": "%command.clearThinkingReplayCache.title%",
+				"category": "InfiniAI"
 			}
 		],
 		"viewsContainers": {
@@ -358,14 +364,24 @@
 						"type": "string"
 					},
 					"description": "%configuration.enableThinkingRoundTripForModels.description%"
+				},
+				"infiniai.thinkingReplayStore": {
+					"type": "string",
+					"default": "localPlaintext",
+					"enum": [
+						"localPlaintext",
+						"memory"
+					],
+					"enumDescriptions": [
+						"%configuration.thinkingReplayStore.enum.localPlaintext%",
+						"%configuration.thinkingReplayStore.enum.memory%"
+					],
+					"description": "%configuration.thinkingReplayStore.description%"
 				}
 			}
 		}
 	},
 	"main": "./out/extension.js",
-	"enabledApiProposals": [
-		"languageModelThinkingPart"
-	],
 	"extensionKind": [
 		"ui",
 		"workspace"

@@ -7,14 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.4] - 2026-05-15
 
+### Added
+
+- Extension-owned `reasoning_content` replay for explicitly opted-in thinking models. Configure `infiniai.enableThinkingRoundTripForModels` with model ID patterns such as `mimo-v2*` or `deepseek-v4*` to let the extension capture and replay structured reasoning for tool-call conversations.
+- `infiniai.thinkingReplayStore` for replay storage selection:
+  - `"localPlaintext"` is the default and stores replay data in a local plaintext extension-storage file so opted-in thinking tool-call conversations can continue after VS Code reload or restart while cache entries remain valid.
+  - `"memory"` keeps replay data process-local and writes no replay cache file, but cannot resume thinking tool-call conversations after VS Code reload or restart.
+- `InfiniAI: Clear Thinking Replay Cache` command for removing the active replay cache.
+
 ### Changed
 
 - `infiniai.disableThinkingForModels` is now additive: built-in safety defaults for known MiMo V2 and DeepSeek V4 thinking models always remain active, while user patterns extend the list.
-- Added `infiniai.enableThinkingRoundTripForModels` as an advanced opt-in setting for future verified `reasoning_content` replay paths. Constructor availability alone no longer bypasses the force-disable guard on VS Code Insiders.
+- `infiniai.enableThinkingRoundTripForModels` is now documented and implemented as an experimental, best-effort, heuristic opt-in layered on top of `infiniai.disableThinkingForModels`. If a model matches both settings, the opt-in keeps thinking enabled only when replay preflight proves the required `reasoning_content` is available; otherwise the extension fails locally instead of sending a request that would trigger HTTP 400.
+- Removed `enabledApiProposals` from the Marketplace manifest. The optional `LanguageModelThinkingPart` runtime detector remains only for development/custom-host compatibility; replay correctness and HTTP 400 mitigation no longer depend on proposed APIs.
 
 ### Fixed
 
-- OpenAI-compatible requests now force-disable thinking for affected models even when `LanguageModelThinkingPart` is exposed, preventing the prior Insiders path from re-enabling thinking before an end-to-end replay backend is verified.
+- Opted-in MiMo V2 and DeepSeek V4 tool-call conversations now replay required `reasoning_content` before the next OpenAI-compatible request. If replay data is missing, expired, conflicting, or unavailable, the extension fails locally instead of sending an unsafe request that would trigger upstream HTTP 400.
+- Affected models still force-disable thinking by default when not explicitly opted in, preserving the safe out-of-the-box behavior on VS Code Stable and Insiders.
 
 ## [0.5.3] - 2026-05-13
 

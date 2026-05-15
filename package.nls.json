@@ -9,6 +9,7 @@
 	"command.showAllModels.title": "Show All InfiniAI Models in Picker",
 	"command.switchPlan.title": "Switch Plan",
 	"command.openSettings.title": "Open InfiniAI Settings",
+	"command.clearThinkingReplayCache.title": "Clear Thinking Replay Cache",
 	"view.models.name": "Models",
 	"view.usage.name": "Usage",
 	"participant.description": "Diagnose and test InfiniAI language model integration",
@@ -37,6 +38,9 @@
 	"configuration.modelRoutes.description": "Route matching overrides for model transports. The first matching pattern wins.",
 	"configuration.imageInputModels.description": "Force-enable image input for specific model IDs. Supports '*' wildcard patterns (e.g. 'kimi-*'). Useful when a multimodal model doesn't include a name marker like '-vision'.",
 	"configuration.disableImageInputModels.description": "Force-disable image input for specific model IDs. Supports '*' wildcard patterns.",
-	"configuration.disableThinkingForModels.description": "Additional model ID patterns whose thinking mode is force-disabled. The built-in safety defaults always include known Xiaomi MiMo V2 model IDs and the DeepSeek V4 family, whose APIs require reasoning_content to be echoed back on subsequent tool-call turns and would otherwise return HTTP 400. Supports '*' wildcards; comparisons are case-insensitive.",
-	"configuration.enableThinkingRoundTripForModels.description": "Advanced opt-in list for models whose thinking-mode reasoning_content may be round-tripped. This setting is accepted on stable and Insiders, but is effective only when the active request path has a verified reasoning_content replay backend."
+	"configuration.disableThinkingForModels.description": "Safety list. Thinking mode is force-disabled for matching model IDs to avoid known reasoning_content HTTP 400 errors. The built-in safety defaults always include known Xiaomi MiMo V2 model IDs and the DeepSeek V4 family. Usually leave this unchanged; add patterns only when another model has the same issue. Supports '*' wildcards; comparisons are case-insensitive.",
+	"configuration.enableThinkingRoundTripForModels.description": "Experimental opt-in that works with infiniai.disableThinkingForModels. The disable list is the safety default: matching models have thinking turned off. If the same model also matches this setting, the extension may keep thinking enabled only when replay preflight can prove the required reasoning_content is available; otherwise it fails locally to avoid HTTP 400. Useful for trying models such as 'mimo-v2*' or 'deepseek-v4*'. Supports '*' wildcards; comparisons are case-insensitive. Replay storage is controlled by infiniai.thinkingReplayStore.",
+	"configuration.thinkingReplayStore.description": "Storage backend for experimental thinking replay after a model matches infiniai.enableThinkingRoundTripForModels. 'localPlaintext' persists replay data in a local plaintext extension-storage file for restart continuity. 'memory' writes no replay data to disk and cannot resume thinking tool-call conversations after VS Code reload or restart.",
+	"configuration.thinkingReplayStore.enum.localPlaintext": "Default. Store replay data in a local plaintext extension-storage file so opted-in thinking tool-call conversations can continue after VS Code reload or restart while cache entries remain valid.",
+	"configuration.thinkingReplayStore.enum.memory": "Keep replay data only in process memory. No replay cache file is written, but thinking tool-call conversations cannot be resumed after VS Code reload or restart."
 }

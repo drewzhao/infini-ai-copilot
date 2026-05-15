@@ -33,15 +33,26 @@ import {
 	applyDisableThinking,
 	getDisableThinkingPatterns,
 	getThinkingRoundTripPatterns,
-	isKnownThinkingRoundTripSafeRequest,
 	shouldEnableThinkingRoundTrip,
 	shouldDisableThinking,
 } from "../thinkingMode";
 import { getThinkingPartCtor } from "../proposedApi";
+import type { PendingThinkingTurn, ThinkingReplayStore } from "../thinkingReplayStore";
+
+export interface OpenaiApiOptions {
+	readonly thinkingReplayStore?: ThinkingReplayStore;
+	readonly pendingThinkingTurn?: PendingThinkingTurn;
+}
 
 export class OpenaiApi extends CommonApi {
-	constructor() {
+	private readonly thinkingReplayStore?: ThinkingReplayStore;
+	private readonly pendingThinkingTurn?: PendingThinkingTurn;
+	private thinkingReplayTerminal = false;
+
+	constructor(options: OpenaiApiOptions = {}) {
 		super();
+		this.thinkingReplayStore = options.thinkingReplayStore;
+		this.pendingThinkingTurn = options.pendingThinkingTurn;
 	}
 
 	/**
@@ -100,9 +111,10 @@ export class OpenaiApi extends CommonApi {
 					assistantMessage.tool_calls = toolCalls;
 				}
 
-				// Round-trip reasoning_content when the host supplied thinking parts
-				// (proposed API path on Insiders + --enable-proposed-api). Required by
-				// MiMo V2 / DeepSeek V4 on subsequent turns of a tool-call loop.
+				// Preserve host-supplied thinking parts if a dev/custom host provides
+				// them. This is optional compatibility only; MiMo V2 / DeepSeek V4
+				// replay correctness is enforced by the extension-owned replay store
+				// before unsafe tool-call follow-up requests are sent.
 				if (thinkingTexts.length > 0) {
 					assistantMessage.reasoning_content = thinkingTexts.join("");
 				}
@@ -201,7 +213,8 @@ export class OpenaiApi extends CommonApi {
 	prepareRequestBody(
 		rb: any,
 		um: InfiniAIModelInfo | undefined,
-		options: ProvideLanguageModelChatResponseOptions
+		options: ProvideLanguageModelChatResponseOptions,
+		replayPreflightSafe = false
 	): any {
 		const orb = rb as Record<string, unknown>;
 		// // temperature
@@ -322,10 +335,7 @@ export class OpenaiApi extends CommonApi {
 		const modelId = um?.id ?? (typeof orb.model === "string" ? orb.model : "");
 		const forceDisableThinking = shouldDisableThinking(modelId, getDisableThinkingPatterns());
 		const userOptedIntoRoundTrip = shouldEnableThinkingRoundTrip(modelId, getThinkingRoundTripPatterns());
-		const allowThinkingRoundTrip =
-			userOptedIntoRoundTrip &&
-			!!getThinkingPartCtor() &&
-			isKnownThinkingRoundTripSafeRequest();
+		const allowThinkingRoundTrip = userOptedIntoRoundTrip && replayPreflightSafe;
 
 		if (forceDisableThinking && !allowThinkingRoundTrip) {
 			applyDisableThinking(orb);
@@ -365,8 +375,12 @@ export class OpenaiApi extends CommonApi {
 					);
 				}
 			}
+		} catch (err) {
+			this.abortReplayTurn();
+			throw err;
 		} finally {
 			await this.flushToolCallBuffers(progress, /*throwOnInvalid*/ false);
+			this.abortReplayTurn();
 			// If there's an active thinking sequence, end it first
 			this.reportEndThinking();
 		}
@@ -438,6 +452,7 @@ export class OpenaiApi extends CommonApi {
 					}
 
 					if (extractedText) {
+						this.captureReplayReasoning(extractedText);
 						this.bufferThinkingContent(extractedText, progress);
 						emitted = true;
 					}
@@ -457,6 +472,7 @@ export class OpenaiApi extends CommonApi {
 					text = maybeThinking;
 				}
 				if (text) {
+					this.captureReplayReasoning(text);
 					this.bufferThinkingContent(text, progress);
 					emitted = true;
 				}
@@ -526,8 +542,43 @@ export class OpenaiApi extends CommonApi {
 		if (finish === "tool_calls" || finish === "stop") {
 			// On both 'tool_calls' and 'stop', emit any buffered calls and throw on invalid JSON
 			await this.flushToolCallBuffers(progress, /*throwOnInvalid*/ true);
+			await this.completeReplayTurn(finish);
 		}
 		return emitted;
+	}
+
+	protected override onToolCallEmitted(callId: string): void {
+		if (!this.thinkingReplayStore || !this.pendingThinkingTurn) {
+			return;
+		}
+		this.thinkingReplayStore.recordToolCall(this.pendingThinkingTurn.turnId, callId);
+	}
+
+	private captureReplayReasoning(text: string): void {
+		if (!this.thinkingReplayStore || !this.pendingThinkingTurn) {
+			return;
+		}
+		this.thinkingReplayStore.appendReasoning(this.pendingThinkingTurn.turnId, text);
+	}
+
+	private async completeReplayTurn(finishReason: "tool_calls" | "stop"): Promise<void> {
+		if (this.thinkingReplayTerminal || !this.thinkingReplayStore || !this.pendingThinkingTurn) {
+			return;
+		}
+		this.thinkingReplayTerminal = true;
+		if (finishReason === "tool_calls") {
+			await this.thinkingReplayStore.commit(this.pendingThinkingTurn.turnId);
+		} else {
+			this.thinkingReplayStore.abort(this.pendingThinkingTurn.turnId);
+		}
+	}
+
+	private abortReplayTurn(): void {
+		if (this.thinkingReplayTerminal || !this.thinkingReplayStore || !this.pendingThinkingTurn) {
+			return;
+		}
+		this.thinkingReplayTerminal = true;
+		this.thinkingReplayStore.abort(this.pendingThinkingTurn.turnId);
 	}
 
 	/**

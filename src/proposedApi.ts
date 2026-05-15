@@ -1,16 +1,15 @@
 import * as vscode from "vscode";
 
 /**
- * Capability detector for the proposed `LanguageModelThinkingPart` API.
+ * Runtime detector for the optional `LanguageModelThinkingPart` constructor.
  *
- * The constructor is exposed on the `vscode` namespace only when:
- *   1. The extension manifest declares `enabledApiProposals: ["languageModelThinkingPart"]`, AND
- *   2. The host permits proposed APIs for this publisher — i.e. VS Code Insiders
- *      with `--enable-proposed-api drewzhao.infiniai-copilot` (or an entry in
- *      `argv.json`), or a Microsoft allowlist entry.
+ * Marketplace builds intentionally do not declare `enabledApiProposals`, so
+ * Stable and normal Insiders installs should return undefined here. The probe is
+ * kept for local development, custom host builds, or allowlisted environments
+ * that expose the constructor anyway.
  *
- * On stable VS Code without the runtime flag, this returns undefined and the
- * extension falls back to force-disabling thinking mode for affected models.
+ * Replay correctness does not depend on this API. MiMo V2 / DeepSeek V4 safety
+ * comes from the extension-owned replay store and fail-local preflight.
  */
 type ThinkingPartCtor = new (
 	value: string | string[],
@@ -35,8 +34,8 @@ function lookup(): ThinkingPartCtor | undefined {
 }
 
 /**
- * Returns the `LanguageModelThinkingPart` constructor when the host has the
- * proposed API enabled for this extension; otherwise undefined.
+ * Returns the `LanguageModelThinkingPart` constructor only when the host exposes
+ * it to this extension; otherwise undefined.
  */
 export function getThinkingPartCtor(): ThinkingPartCtor | undefined {
 	if (_cached === undefined) {

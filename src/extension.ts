@@ -15,8 +15,29 @@ import { pickAccountToSignOut, pickPlan } from "./ui/quickPick";
 import { getActivePlan } from "./utils";
 import { registerCopilotChatDependencyCheck } from "./copilotChatDependency";
 import { registerInfiniAILanguageStatus } from "./views/languageStatusItem";
+import { getThinkingReplayStoreMode } from "./thinkingMode";
+import {
+	LocalPlaintextThinkingReplayStorage,
+	MemoryThinkingReplayStorage,
+	thinkingReplayStore,
+} from "./thinkingReplayStore";
 
-export function activate(context: vscode.ExtensionContext) {
+async function configureThinkingReplayStore(context: vscode.ExtensionContext, output: vscode.LogOutputChannel): Promise<void> {
+	const mode = getThinkingReplayStoreMode();
+	const storageRoot = context.storageUri ?? context.globalStorageUri;
+	const storageFile = vscode.Uri.joinPath(storageRoot, "thinking-replay-v1.json");
+	if (mode === "memory") {
+		await new LocalPlaintextThinkingReplayStorage(storageFile.fsPath).clear();
+		await thinkingReplayStore.initialize(new MemoryThinkingReplayStorage());
+		logInfo(output, "Thinking replay store initialized mode=memory");
+		return;
+	}
+
+	await thinkingReplayStore.initialize(new LocalPlaintextThinkingReplayStorage(storageFile.fsPath));
+	logInfo(output, `Thinking replay store initialized mode=localPlaintext entries=${thinkingReplayStore.stats().entryCount}`);
+}
+
+export async function activate(context: vscode.ExtensionContext) {
 	// Build a descriptive User-Agent to help quantify API usage
 	const ext = vscode.extensions.getExtension("drewzhao.infiniai-copilot");
 	const extVersion = ext?.packageJSON?.version ?? "unknown";
@@ -28,6 +49,7 @@ export function activate(context: vscode.ExtensionContext) {
 	// Create an output channel for logging and add it to subscriptions so it is disposed with the extension
 	const output = vscode.window.createOutputChannel("InfiniAI", { log: true });
 	context.subscriptions.push(output);
+	await configureThinkingReplayStore(context, output);
 
 	const provider = new InfiniAIChatModelProvider(context.secrets, ua, tokenCountStatusBarItem, output);
 	// Register the InfiniAI provider under the vendor id used in package.json
@@ -42,6 +64,16 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.workspace.onDidChangeConfiguration((event) => {
 			if (event.affectsConfiguration("infiniai")) {
 				provider.refreshModels();
+			}
+			if (event.affectsConfiguration("infiniai.thinkingReplayStore")) {
+				void configureThinkingReplayStore(context, output).catch((err) => {
+					logInfo(
+						output,
+						`Thinking replay store reconfiguration failed: ${
+							err instanceof Error ? err.message : String(err)
+						}`
+					);
+				});
 			}
 		}),
 		context.secrets.onDidChange((event) => {
@@ -115,6 +147,10 @@ export function activate(context: vscode.ExtensionContext) {
 				return;
 			}
 			await authProvider.removeSession(sessionId);
+		}),
+		vscode.commands.registerCommand("infiniai.clearThinkingReplayCache", async () => {
+			await thinkingReplayStore.clear();
+			vscode.window.showInformationMessage(vscode.l10n.t("InfiniAI thinking replay cache cleared."));
 		})
 	);
 }
