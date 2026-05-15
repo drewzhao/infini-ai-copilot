@@ -38,11 +38,23 @@ The proposed API surface changed more substantially:
 For `zenmux-copilot` / InfiniAI Copilot:
 
 - The `reasoning_content` HTTP 400 issue is not fixed by VS Code 1.119 or 1.120 API changes. The thinking API is still proposed and unchanged.
-- Stable VS Code 1.120 still cannot provide `LanguageModelThinkingPart` as a public stable API. The extension must keep the stable fallback that disables thinking or implement its own `reasoning_content` store.
-- Insiders/proposed API support can carry `LanguageModelThinkingPart` through the language-model transport, but chat participant history still does not expose thinking parts as regular `ChatResponseTurn` history.
+- Stable VS Code 1.120 still cannot provide `LanguageModelThinkingPart` as a public stable API. The latest `zenmux-copilot` working tree now keeps the request-body force-disable guard on stable by default.
+- Insiders/proposed API support can carry `LanguageModelThinkingPart` through the language-model transport, but chat participant history still does not expose thinking parts as regular `ChatResponseTurn` history. The latest `zenmux-copilot` working tree therefore no longer treats constructor availability as an automatic end-to-end replay guarantee.
 - The extension currently declares only `enabledApiProposals: ["languageModelThinkingPart"]`; it does not declare `chatProvider` or `languageModelPricing`.
-- The extension currently sets `isUserSelectable: true` by casting to `LanguageModelChatInformation`. That field is still proposed `chatProvider` API, not stable public API.
-- The `1.119` and `1.120` pricing proposals are optional opportunities for better model picker cost display, not required fixes.
+- The extension now contributes `infiniai.enableThinkingRoundTripForModels` as an advanced opt-in setting, but the setting is intentionally inert for affected models unless a verified replay backend is added.
+- The extension currently sets `isUserSelectable: true` by casting to `LanguageModelChatInformation`. Keep this as a best-effort host hint, but do not rely on it as the only visibility control.
+- The `1.119` and `1.120` pricing proposals are optional opportunities for better model picker cost display, not required fixes. Only consider them if InfiniAI has reliable model cost metadata.
+
+## API-Change Decision Guardrails
+
+Use these rules when translating this report into `zenmux-copilot` work:
+
+1. Keep `isUserSelectable: true` as a best-effort model-picker hint, but do not rely on it. Provider-owned visibility controls remain the durable UX.
+2. Consider `languageModelPricing` only if InfiniAI discovery or another trusted source provides reliable per-model/per-plan cost metadata. A wrong pricing badge is worse than no badge.
+3. Do not raise `engines.vscode` unless the extension deliberately adds a real newer stable public API dependency.
+4. Do not chase `chatParticipantPrivate`, `chatParticipantAdditions`, or `toolInvocationApproveCombination` for current source. The current extension does not use those APIs.
+5. Align `@types/vscode` carefully. Newer type packages can expose newer stable APIs and make accidental compatibility regressions easier; prefer a deliberate type bump with review, or vendored proposed d.ts files only for explicitly enabled proposals.
+6. Treat the current thinking-mode implementation as the correct release posture: force-disable affected models by default on stable and Insiders; only relax it after a concrete replay backend is implemented and tested.
 
 ## Version Evidence
 
@@ -430,11 +442,21 @@ Implication:
 
 ## Zenmux Copilot Source Impact
 
-Current extension facts:
+Current extension facts in the latest working tree:
 
 ```jsonc
 "engines": {
 	"vscode": "^1.117.0"
+},
+"contributes": {
+	"configuration": {
+		"properties": {
+			"infiniai.enableThinkingRoundTripForModels": {
+				"type": "array",
+				"default": []
+			}
+		}
+	}
 },
 "enabledApiProposals": [
 	"languageModelThinkingPart"
@@ -443,6 +465,20 @@ Current extension facts:
 	"@types/vscode": "^1.116.0"
 }
 ```
+
+Current source search evidence:
+
+```bash
+rg -n "languageModelPricing|priceCategory|pricing|inputCost|outputCost|cacheCost|multiplier|chatParticipantPrivate|chatParticipantAdditions|toolInvocationApproveCombination|approveCombination|ChatResponseInfoPart|traceparent|tracestate|workingDirectory|isExpectedError|isUserSelectable" src package.json --glob '!out/**'
+```
+
+Current output:
+
+```text
+src/provider.ts:466:			isUserSelectable: true,
+```
+
+Interpretation: the current source still does not consume `languageModelPricing`, `chatParticipantPrivate`, `chatParticipantAdditions`, `toolInvocationApproveCombination`, or the post-1.120 local-main churn fields. The only hit from that search is the intentional `isUserSelectable` host hint.
 
 Current provider metadata:
 
@@ -477,16 +513,71 @@ if (thinkingTexts.length > 0) {
 Current thinking fallback:
 
 ```ts
-if (!getThinkingPartCtor() && shouldDisableThinking(modelId, getDisableThinkingPatterns())) {
+const forceDisableThinking = shouldDisableThinking(modelId, getDisableThinkingPatterns());
+const userOptedIntoRoundTrip = shouldEnableThinkingRoundTrip(modelId, getThinkingRoundTripPatterns());
+const allowThinkingRoundTrip =
+	userOptedIntoRoundTrip &&
+	!!getThinkingPartCtor() &&
+	isKnownThinkingRoundTripSafeRequest();
+
+if (forceDisableThinking && !allowThinkingRoundTrip) {
 	applyDisableThinking(orb);
 }
 ```
+
+Current thinking-pattern helpers:
+
+```ts
+export function getEffectiveDisableThinkingPatterns(): string[] {
+	const cfg = getInfiniAIConfiguration();
+	const user = asPatternList(cfg.get<unknown>("disableThinkingForModels", []));
+	return uniquePatterns([...DEFAULT_DISABLE_THINKING_PATTERNS, ...user]);
+}
+
+export function getThinkingRoundTripPatterns(): string[] {
+	const cfg = getInfiniAIConfiguration();
+	const user = asPatternList(cfg.get<unknown>("enableThinkingRoundTripForModels", []));
+	return uniquePatterns([...DEFAULT_ENABLE_THINKING_ROUND_TRIP_PATTERNS, ...user]);
+}
+
+export function isKnownThinkingRoundTripSafeRequest(): boolean {
+	return false;
+}
+```
+
+Current sanitized thinking diagnostics:
+
+```ts
+logDebug(
+	this.output,
+	`Thinking guard model=${sanitizeForLog(model.id, 120)} vscode=${sanitizeForLog(vscode.version, 40)} ` +
+		`app=${sanitizeForLog(vscode.env.appName, 80)} transport=OpenAI ` +
+		`requestInitiator=${sanitizeForLog(String(requestInitiator ?? ""), 120)} ` +
+		`hasThinkingPartApi=${hasThinkingPartApi()} ` +
+		`forceDisable=${shouldDisableThinking(model.id, disableThinkingPatterns)} ` +
+		`roundTripOptIn=${shouldEnableThinkingRoundTrip(model.id, roundTripPatterns)} ` +
+		`thinkingDisabled=${requestBody.enable_thinking === false} ` +
+		`disablePatterns=${sanitizeForLog(disableThinkingPatterns.join(","), 300)} ` +
+		`roundTripPatterns=${sanitizeForLog(roundTripPatterns.join(","), 300)} ` +
+		`assistantToolCalls=${thinkingSummary.assistantToolCallCount} ` +
+		`assistantReasoning=${thinkingSummary.assistantReasoningCount} ` +
+		`assistantToolCallsMissingReasoning=${thinkingSummary.assistantToolCallMissingReasoningCount}`
+);
+```
+
+Latest implementation status:
+
+- Done: the force-disable list now wins on stable and Insiders unless `allowThinkingRoundTrip` becomes true.
+- Done: user `disableThinkingForModels` entries are additive with built-in safety defaults instead of replacing them.
+- Done: `enableThinkingRoundTripForModels` is accepted on stable and Insiders but does not enable thinking without a verified replay backend.
+- Done: request diagnostics now expose the thinking-guard decision and assistant message counts without logging `reasoning_content` itself.
+- Not done by design: no extension-owned `reasoning_content` store exists yet, so affected models remain force-disabled by default.
 
 ### Impact 1: Minimum VS Code Engine Is Still Valid
 
 No public API change in 1.119 or 1.120 requires raising the extension's minimum engine beyond `^1.117.0`.
 
-The extension should only raise the engine if it intentionally depends on a newer stable public API. The relevant chat/model changes in 1.119/1.120 are proposed or documentation-only.
+The extension should only raise the engine if it intentionally depends on a newer stable public API. The relevant chat/model changes in 1.119/1.120 are proposed or documentation-only. Do not raise the engine for `languageModelPricing`, `isUserSelectable`, or `LanguageModelThinkingPart` alone because those are proposed surfaces, not stable public API dependencies.
 
 ### Impact 2: `@types/vscode` Is Older Than the Target Hosts
 
@@ -497,6 +588,7 @@ This is workable because the extension only uses stable language-model provider 
 - If the extension adopts `languageModelPricing`, it needs either updated types or a vendored proposed d.ts.
 - If the extension wants typed access to newer stable public comments/documentation, update `@types/vscode` to match the minimum or target host.
 - Do not update types casually if the goal is keeping older VS Code compatibility; type availability can tempt accidental use of newer APIs.
+- If `@types/vscode` is bumped, treat it as a compatibility-sensitive change: inspect the diff, keep `engines.vscode` unchanged unless a real stable API dependency is introduced, and avoid replacing vendored proposed APIs with ambient typings unless the corresponding proposal is intentionally enabled.
 
 ### Impact 3: Model Visibility Depends on Proposed `chatProvider` Metadata
 
@@ -507,6 +599,8 @@ The extension currently sets it by cast. This can work as host-consumed metadata
 - The model visibility behavior is not caused by a last-two-release removal of that field.
 - If visibility is critical, keep the extension-owned hide/show controls as the durable UX.
 - Treat `isUserSelectable` as a best-effort host hint.
+- Do not remove `isUserSelectable: true`; it is still useful on hosts that honor the proposed metadata.
+- Do not rely on `isUserSelectable: true`; stable-host behavior and future proposed-API churn can still differ.
 
 ### Impact 4: Pricing Metadata Is a Future Enhancement
 
@@ -530,34 +624,36 @@ Recommended conditions before implementing:
 - InfiniAI model discovery returns reliable per-plan/per-model cost metadata.
 - The extension adds tests that unknown/missing cost fields are omitted.
 - The extension documents that pricing display is best-effort on hosts that understand the proposed metadata.
+- The extension intentionally opts into the proposal if it wants typed access, or returns only runtime metadata after testing the host behavior.
 
 Do not use `multiplier`; it was removed from proposed `chatProvider` in 1.119.
+
+Do not invent a static cost table in the extension unless InfiniAI owns and maintains that table. Pricing is user-visible billing information; stale or guessed costs would be a product bug, not a cosmetic issue.
 
 ### Impact 5: `reasoning_content` Fix Must Stay Extension-Side
 
 Because `languageModelThinkingPart` is unchanged and still proposed:
 
-- Stable VS Code path: continue force-disabling thinking for affected models by default.
-- Insiders path: do not treat `getThinkingPartCtor()` as proof of end-to-end replay.
-- Cross-host opt-in such as `infiniai.enableThinkingRoundTripForModels` is reasonable only when backed by either verified host replay or an extension-owned `reasoning_content` store.
+- Stable VS Code path: the latest working tree force-disables thinking for affected models by default.
+- Insiders path: the latest working tree does not treat `getThinkingPartCtor()` as proof of end-to-end replay.
+- Cross-host opt-in `infiniai.enableThinkingRoundTripForModels` now exists, but remains effective only when backed by either verified host replay or an extension-owned `reasoning_content` store.
 
-Recommended request-body condition remains:
+Implemented request-body condition:
 
 ```ts
-const forceDisableThinking = shouldDisableThinking(modelId, getEffectiveDisableThinkingPatterns());
+const forceDisableThinking = shouldDisableThinking(modelId, getDisableThinkingPatterns());
 const userOptedIntoRoundTrip = shouldEnableThinkingRoundTrip(modelId, getThinkingRoundTripPatterns());
-
-const canRoundTripViaHost =
+const allowThinkingRoundTrip =
+	userOptedIntoRoundTrip &&
 	!!getThinkingPartCtor() &&
-	isKnownThinkingRoundTripSafeRequest(options);
+	isKnownThinkingRoundTripSafeRequest();
 
-const canRoundTripViaExtensionStore =
-	this.reasoningContentStore?.canReplayForRequest(requestContext) === true;
-
-if (forceDisableThinking && !(userOptedIntoRoundTrip && (canRoundTripViaHost || canRoundTripViaExtensionStore))) {
+if (forceDisableThinking && !allowThinkingRoundTrip) {
 	applyDisableThinking(orb);
 }
 ```
+
+`getDisableThinkingPatterns()` is now a backward-compatible wrapper over the effective additive default+user list. `isKnownThinkingRoundTripSafeRequest()` currently returns `false`, so the explicit round-trip opt-in is accepted but does not bypass the safety guard yet.
 
 ## Note on Post-1.120 Local `main` Proposed API Churn
 
@@ -595,7 +691,7 @@ Impact on `zenmux-copilot`: none for current source. A direct source search foun
 ]
 ```
 
-So the post-1.120 local-main churn is useful future-watch context, but it does not change the report's stable-release conclusion and does not require a `zenmux-copilot` code change today.
+So the post-1.120 local-main churn is useful future-watch context, but it does not change the report's stable-release conclusion and does not require a `zenmux-copilot` code change today. Do not create tasks for `chatParticipantPrivate`, `chatParticipantAdditions`, or `toolInvocationApproveCombination` unless a future source search shows real usage in `package.json`, `src/`, vendored d.ts files, or runtime tests.
 
 ### Why the False Claim Was Plausible
 
@@ -658,17 +754,17 @@ If either condition is false, record it as future-watch context, not an action i
 
 ## Recommended Actions for Zenmux Copilot
 
-1. Keep `engines.vscode` at `^1.117.0` unless a deliberate new stable API dependency is introduced.
+1. Keep `engines.vscode` at `^1.117.0` unless a deliberate new stable public API dependency is introduced. Do not raise it for proposed-only fields or documentation-only public API changes.
 
-2. Fix the thinking fallback independently of VS Code 1.119/1.120:
+2. Keep the implemented thinking fallback independent of VS Code 1.119/1.120:
 
 ```ts
-if (shouldDisableThinking(modelId, getEffectiveDisableThinkingPatterns()) && !allowThinkingRoundTrip) {
+if (shouldDisableThinking(modelId, getDisableThinkingPatterns()) && !allowThinkingRoundTrip) {
 	applyDisableThinking(orb);
 }
 ```
 
-3. Do not make `LanguageModelThinkingPart` constructor detection the only safety gate. It is still proposed and did not change in these releases.
+3. Do not make `LanguageModelThinkingPart` constructor detection the only safety gate. This has been fixed in the latest working tree and should remain protected by regression tests.
 
 4. Keep `isUserSelectable: true` as a best-effort model picker hint, but do not rely on it as the only visibility control.
 
@@ -677,8 +773,9 @@ if (shouldDisableThinking(modelId, getEffectiveDisableThinkingPatterns()) && !al
 - Add vendored proposed d.ts only if the extension intentionally opts into that proposal.
 - Do not surface pricing unless InfiniAI API returns accurate model costs.
 - Prefer `pricing`, `inputCost`, `outputCost`, `cacheCost`, and `priceCategory`; do not use old `multiplier`.
+- Do not invent or guess model costs in extension code.
 
-6. Use 1.119/1.120 `chatDebug` additions as a design cue for sanitized diagnostics:
+6. Keep the new sanitized thinking-guard diagnostics and extend them only with non-sensitive metadata:
 
 - request id
 - model id
@@ -686,7 +783,17 @@ if (shouldDisableThinking(modelId, getEffectiveDisableThinkingPatterns()) && !al
 - whether thinking was disabled
 - whether assistant tool-call history lacked `reasoning_content`
 
-7. For future Agents-window/tool support, account for 1.120 `workingDirectory`; model-provider-only code does not need it now.
+The latest working tree already logs model id, VS Code version/app name, request initiator, thinking-part availability, force-disable/opt-in decisions, disable/round-trip pattern lists, and assistant history counts. It still does not log `reasoning_content`.
+
+7. Do not chase `chatParticipantPrivate`, `chatParticipantAdditions`, or `toolInvocationApproveCombination` now. Current `zenmux-copilot` source does not use them.
+
+8. For future Agents-window/tool support, account for 1.120 `workingDirectory`; model-provider-only code does not need it now.
+
+9. Consider aligning `@types/vscode` only deliberately:
+
+- Inspect the type diff before bumping.
+- Keep `engines.vscode` unchanged unless the implementation adds a real newer stable API dependency.
+- Prefer vendored proposed d.ts files for intentionally enabled proposals, so proposed APIs do not silently leak into normal stable-code paths.
 
 ## Verification Commands Used
 
@@ -702,10 +809,14 @@ git -C /Users/yinghaozhao/code/github/vscode diff --unified=20 1.119.1 1.120.0 -
 git -C /Users/yinghaozhao/code/github/vscode diff --unified=20 1.118.1 1.119.1 -- src/vscode-dts/vscode.d.ts
 git -C /Users/yinghaozhao/code/github/vscode diff --quiet 1.118.1 1.120.0 -- src/vscode-dts/vscode.proposed.languageModelThinkingPart.d.ts
 rg -n "enabledApiProposals|languageModelThinkingPart|isUserSelectable|pricing|priceCategory|disableThinkingForModels" package.json src README.md CHANGELOG.md
+rg -n "languageModelPricing|priceCategory|pricing|inputCost|outputCost|cacheCost|multiplier|chatParticipantPrivate|chatParticipantAdditions|toolInvocationApproveCombination|approveCombination|ChatResponseInfoPart|traceparent|tracestate|workingDirectory|isExpectedError|isUserSelectable" src package.json --glob '!out/**'
+rg -n "enableThinkingRoundTripForModels|isKnownThinkingRoundTripSafeRequest|Thinking guard|assistantToolCallsMissingReasoning|getEffectiveDisableThinkingPatterns" package.json src README.md README.zh.md CHANGELOG.md --glob '!out/**'
+npm run lint
+npm test
 ```
 
 ## Bottom Line
 
 VS Code 1.119 and 1.120 did not introduce a stable public API that solves InfiniAI's `reasoning_content` replay problem. The relevant thinking API remains proposed and unchanged. The extension should keep the fix in its own request-shaping logic: force-disable thinking for affected models by default, and only allow thinking when a verified replay backend exists.
 
-The main actionable API-change opportunity from these releases is optional pricing metadata for the model picker. It is useful, but separate from the 400 issue.
+The latest `zenmux-copilot` working tree now implements that request-shaping fix and the safe opt-in shape. The main remaining API-change opportunity from these releases is optional pricing metadata for the model picker. It is useful, but separate from the 400 issue and should wait for reliable InfiniAI pricing metadata.
