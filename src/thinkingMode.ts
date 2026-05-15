@@ -1,9 +1,7 @@
-import * as vscode from "vscode";
-
 /**
  * Default model-id patterns whose APIs require disabling thinking mode
- * because their `reasoning_content` cannot be round-tripped through the
- * stable VS Code language-model API.
+ * because their `reasoning_content` cannot yet be round-tripped through all
+ * VS Code/Copilot Chat request paths.
  *
  * - Known Xiaomi MiMo V2 model IDs: require `reasoning_content` to be
  *   echoed back on subsequent turns when the conversation contains tool
@@ -24,6 +22,31 @@ export const DEFAULT_DISABLE_THINKING_PATTERNS: readonly string[] = [
 	"mimo-v2-flash",
 	"deepseek-v4*",
 ];
+
+/**
+ * Deliberately empty: thinking round-trip is an advanced opt-in and still
+ * requires a verified replay backend for the current request path.
+ */
+export const DEFAULT_ENABLE_THINKING_ROUND_TRIP_PATTERNS: readonly string[] = [];
+
+type InfiniAIConfiguration = {
+	get<T>(key: string, defaultValue: T): T;
+};
+
+function getInfiniAIConfiguration(): InfiniAIConfiguration {
+	// Delay the `vscode` require so pure unit tests for pattern matching can run
+	// under Node without the VS Code extension host module.
+	const vscode = require("vscode") as typeof import("vscode");
+	return vscode.workspace.getConfiguration("infiniai");
+}
+
+function uniquePatterns(patterns: readonly string[]): string[] {
+	return [...new Set(patterns)];
+}
+
+function asPatternList(value: unknown): string[] {
+	return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+}
 
 function escapeRegexLiteral(input: string): string {
 	return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -61,13 +84,44 @@ export function shouldDisableThinking(modelId: string, patterns: readonly string
 }
 
 /**
- * Read the effective disable-thinking pattern list from VS Code settings.
- * Falls back to {@link DEFAULT_DISABLE_THINKING_PATTERNS} when the user
- * has not customized `infiniai.disableThinkingForModels`.
+ * Read the effective disable-thinking pattern list from VS Code settings. User
+ * patterns are additions to the built-in safety defaults, not replacements.
+ */
+export function getEffectiveDisableThinkingPatterns(): string[] {
+	const cfg = getInfiniAIConfiguration();
+	const user = asPatternList(cfg.get<unknown>("disableThinkingForModels", []));
+	return uniquePatterns([...DEFAULT_DISABLE_THINKING_PATTERNS, ...user]);
+}
+
+/**
+ * Backward-compatible name for callers that already consume the effective list.
  */
 export function getDisableThinkingPatterns(): string[] {
-	const cfg = vscode.workspace.getConfiguration("infiniai");
-	return cfg.get<string[]>("disableThinkingForModels", [...DEFAULT_DISABLE_THINKING_PATTERNS]);
+	return getEffectiveDisableThinkingPatterns();
+}
+
+/**
+ * Read the explicit opt-in list for future verified thinking round-trip paths.
+ */
+export function getThinkingRoundTripPatterns(): string[] {
+	const cfg = getInfiniAIConfiguration();
+	const user = asPatternList(cfg.get<unknown>("enableThinkingRoundTripForModels", []));
+	return uniquePatterns([...DEFAULT_ENABLE_THINKING_ROUND_TRIP_PATTERNS, ...user]);
+}
+
+/**
+ * Returns true when `modelId` matches the explicit round-trip opt-in list.
+ */
+export function shouldEnableThinkingRoundTrip(modelId: string, patterns: readonly string[]): boolean {
+	return shouldDisableThinking(modelId, patterns);
+}
+
+/**
+ * Conservative predicate for whether this request path can preserve and replay
+ * `reasoning_content` end to end. Constructor availability alone is not enough.
+ */
+export function isKnownThinkingRoundTripSafeRequest(): boolean {
+	return false;
 }
 
 /**

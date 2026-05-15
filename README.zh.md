@@ -69,7 +69,8 @@ npm run build
 - `infiniai.modelRoutes`: 可选模型路由覆盖。每项支持 `pattern`、`transport`（`"openai"`、`"anthropic"` 或 `"vertex"`）以及可选 `baseUrl`。
 - `infiniai.imageInputModels`: 为匹配的模型 ID 强制启用图片输入能力。支持 `*` 通配符。
 - `infiniai.disableImageInputModels`: 为匹配的模型 ID 强制禁用图片输入能力。支持 `*` 通配符。
-- `infiniai.disableThinkingForModels`: 当宿主无法回传 `reasoning_content` 时,强制关闭思考模式的模型 ID 模式列表。默认涵盖已知 Xiaomi MiMo V2 模型 ID 与 DeepSeek V4 系列: `mimo-v2-pro`、`mimo-v2.5-pro`、`mimo-v2.5`、`mimo-v2-omni`、`mimo-v2-flash`、`deepseek-v4*`。详见下方[思考模式](#思考模式)。
+- `infiniai.disableThinkingForModels`: 额外强制关闭思考模式的模型 ID 模式。内置安全默认值始终包含已知 Xiaomi MiMo V2 模型 ID 与 DeepSeek V4 系列: `mimo-v2-pro`、`mimo-v2.5-pro`、`mimo-v2.5`、`mimo-v2-omni`、`mimo-v2-flash`、`deepseek-v4*`。详见下方[思考模式](#思考模式)。
+- `infiniai.enableThinkingRoundTripForModels`: 面向未来已验证 `reasoning_content` 回放路径的高级显式启用列表。该设置在稳定版和 Insiders 都会被接受,但只有当前请求路径具备已验证回放后端时才会生效。
 - `infiniai.retry`: 可重试网络错误和 HTTP 错误的重试策略。
 - `infiniai.delay`: 请求之间的固定延迟，单位毫秒。
 
@@ -96,9 +97,9 @@ npm run build
 HTTP 400 — reasoning_content is required when the previous assistant message contains tool calls
 ```
 
-VS Code 稳定版语言模型 API (`vscode.LanguageModelChatMessage`) 没有公开的思考/推理内容 part 类型 — `LanguageModelThinkingPart` 仅作为 proposed API 存在。在稳定版上扩展无法跨轮次保存或回放推理内容,会回退到下方的强制关闭策略;在 VS Code Insiders 上扩展会运行时检测该 proposed API 是否可用,若可用则自动端到端回传 `reasoning_content`(详见 [Insiders: 端到端思考模式](#insiders-端到端思考模式))。
+VS Code 稳定版语言模型 API (`vscode.LanguageModelChatMessage`) 没有公开的思考/推理内容 part 类型。VS Code Insiders 可以通过 proposed API 暴露 `LanguageModelThinkingPart`,但仅有这个构造器并不能证明完整的 Copilot Chat 历史路径会在后续轮次中保存并回放 `reasoning_content`。
 
-为避免在 VS Code 稳定版上开箱即遇到上述 400 错误,扩展会对受影响的模型 ID/系列强制关闭思考模式,在请求体中同时注入两种厂商写法:
+为避免开箱即遇到上述 400 错误,扩展会对受影响的模型 ID/系列强制关闭思考模式,在请求体中同时注入两种厂商写法:
 
 ```jsonc
 {
@@ -107,22 +108,23 @@ VS Code 稳定版语言模型 API (`vscode.LanguageModelChatMessage`) 没有公�
 }
 ```
 
-稳定版宿主上的默认禁用名单: `mimo-v2-pro`、`mimo-v2.5-pro`、`mimo-v2.5`、`mimo-v2-omni`、`mimo-v2-flash` (已知 Xiaomi MiMo V2 模型 ID),以及 `deepseek-v4*` (任意 DeepSeek V4 变体)。
+内置安全默认名单: `mimo-v2-pro`、`mimo-v2.5-pro`、`mimo-v2.5`、`mimo-v2-omni`、`mimo-v2-flash` (已知 Xiaomi MiMo V2 模型 ID),以及 `deepseek-v4*` (任意 DeepSeek V4 变体)。
 
 **取舍**: 牺牲这些特定模型的思维链质量。工具调用与普通回复仍正常工作; 其他模型(Kimi K2 Thinking、DeepSeek R1、DeepSeek V3.x、Qwen、GLM 等)不受影响,思考模式照常可用。
 
-通过 `infiniai.disableThinkingForModels` **覆盖**该行为:
+通过以下设置调整该保护逻辑:
 
-- 添加模式(例如 `"my-thinker-*"`)以扩展禁用列表。
-- 设为 `[]` 可在稳定版宿主上为默认模型恢复思考模式 — 仅当你已自行解决 `reasoning_content` 回传问题时(例如自建 MCP 代理或自定义传输层)才这样做。当宿主支持 `LanguageModelThinkingPart` 时,扩展会改为回传 `reasoning_content`,不应用该回退策略。
+- 向 `infiniai.disableThinkingForModels` 添加模式(例如 `"my-thinker-*"`)以扩展禁用列表。用户模式是追加项,不会移除内置安全默认值。
+- 只有当某个模型/请求路径具备已验证的 `reasoning_content` 回放后端时,才向 `infiniai.enableThinkingRoundTripForModels` 添加模式。当前实现会在稳定版和 Insiders 接受该设置,但在回放后端可用之前,受影响模型仍会保持禁用思考模式。
 
-### Insiders: 端到端思考模式
+### Insiders: proposed 思考传输
 
-扩展清单声明了 `enabledApiProposals: ["languageModelThinkingPart"]`。当宿主在运行时实际暴露该 proposed API 时,扩展会自动:
+扩展清单声明了 `enabledApiProposals: ["languageModelThinkingPart"]`。当宿主在运行时实际暴露该 proposed API 时,扩展可以:
 
 1. 将推理片段以 `LanguageModelThinkingPart` 的形式流式输出,聊天 UI 即可在多轮中保留它们。
-2. 在后续轮次中将 `reasoning_content` 原样回传给 MiMo V2 / DeepSeek V4,从而避免 HTTP 400。
-3. 跳过强制关闭注入,让模型自由思考。
+2. 当宿主在请求历史中提供 thinking part 时,从中重建 `reasoning_content`。
+
+对于 MiMo V2 / DeepSeek V4,这类传输能力仍不会被视为自动端到端回放保证。除非未来某个已验证后端将当前请求路径标记为安全,否则强制关闭保护在 Insiders 上也会默认生效。
 
 启用方式: 使用 VS Code Insiders 并为本扩展 publisher 启用 proposed API:
 
@@ -138,7 +140,7 @@ code-insiders --enable-proposed-api drewzhao.infiniai-copilot
 }
 ```
 
-无需任何设置开关 — 检测完全自动化。在稳定版 VS Code (或未加 flag 的 Insiders) 上,该构造器为 `undefined`,扩展会透明地回退到上文描述的强制关闭策略。
+在稳定版 VS Code (或未加 flag 的 Insiders) 上,该构造器为 `undefined`。在启用 flag 的 Insiders 上,该构造器可能存在,但受影响模型默认仍会应用内置安全禁用列表。
 
 ## 命令
 
@@ -155,15 +157,14 @@ code-insiders --enable-proposed-api drewzhao.infiniai-copilot
 
 本扩展刻意避免：
 
-- `enabledApiProposals`
-- `src/vscode.proposed.*.d.ts`
 - Copilot 私有命令或扩展 ID
 - `configurationSchema`
 - `modelConfiguration`
 - `chatParticipantAdditions`
 - `defaultChatParticipant`
 - `languageModelProxy`
-- `LanguageModelThinkingPart`
+
+唯一声明的 proposed API 是 `languageModelThinkingPart`,并且受运行时检测保护。稳定版 VS Code 不会暴露它,400 缓解逻辑也不依赖它。
 
 ## 调试
 

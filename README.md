@@ -69,7 +69,8 @@ Common settings:
 - `infiniai.modelRoutes`: Optional model routing overrides. Each item supports `pattern`, `transport` (`"openai"`, `"anthropic"`, or `"vertex"`), and optional `baseUrl`.
 - `infiniai.imageInputModels`: Force-enable image input for matching model IDs. Supports `*` wildcards.
 - `infiniai.disableImageInputModels`: Force-disable image input for matching model IDs. Supports `*` wildcards.
-- `infiniai.disableThinkingForModels`: Model ID patterns whose thinking mode is force-disabled when the host cannot round-trip `reasoning_content`. Defaults cover known Xiaomi MiMo V2 model IDs and the DeepSeek V4 family: `mimo-v2-pro`, `mimo-v2.5-pro`, `mimo-v2.5`, `mimo-v2-omni`, `mimo-v2-flash`, `deepseek-v4*`. See [Thinking mode](#thinking-mode) below.
+- `infiniai.disableThinkingForModels`: Additional model ID patterns whose thinking mode is force-disabled. The built-in safety defaults always include known Xiaomi MiMo V2 model IDs and the DeepSeek V4 family: `mimo-v2-pro`, `mimo-v2.5-pro`, `mimo-v2.5`, `mimo-v2-omni`, `mimo-v2-flash`, `deepseek-v4*`. See [Thinking mode](#thinking-mode) below.
+- `infiniai.enableThinkingRoundTripForModels`: Advanced opt-in list for future verified `reasoning_content` round-trip paths. The setting is accepted on stable and Insiders, but it is effective only when the active request path has a verified replay backend.
 - `infiniai.retry`: Retry policy for retryable network and HTTP failures.
 - `infiniai.delay`: Fixed delay between requests, in milliseconds.
 
@@ -96,9 +97,9 @@ Some InfiniAI models stream a `reasoning_content` chain-of-thought in addition t
 HTTP 400 — reasoning_content is required when the previous assistant message contains tool calls
 ```
 
-The stable VS Code language-model API (`vscode.LanguageModelChatMessage`) has no public part type for thinking/reasoning content — `LanguageModelThinkingPart` is a proposed API. On stable VS Code the extension therefore cannot persist or replay reasoning content across turns and falls back to the workaround below. On VS Code Insiders the extension automatically detects the proposed API at runtime and round-trips `reasoning_content` end-to-end (see [Insiders: end-to-end thinking mode](#insiders-end-to-end-thinking-mode)).
+The stable VS Code language-model API (`vscode.LanguageModelChatMessage`) has no public part type for thinking/reasoning content. VS Code Insiders can expose `LanguageModelThinkingPart` as a proposed API, but constructor availability alone does not prove that the whole Copilot Chat history path will preserve and replay `reasoning_content` on later turns.
 
-To avoid the 400 error out of the box on stable VS Code, the extension force-disables thinking mode on the affected model IDs/families by injecting both vendor flavors into the request body:
+To avoid the 400 error out of the box, the extension force-disables thinking mode on the affected model IDs/families by injecting both vendor flavors into the request body:
 
 ```jsonc
 {
@@ -107,22 +108,23 @@ To avoid the 400 error out of the box on stable VS Code, the extension force-dis
 }
 ```
 
-Defaults disabled on stable hosts: `mimo-v2-pro`, `mimo-v2.5-pro`, `mimo-v2.5`, `mimo-v2-omni`, `mimo-v2-flash` (known Xiaomi MiMo V2 model IDs), and `deepseek-v4*` (any DeepSeek V4 variant).
+Built-in safety defaults: `mimo-v2-pro`, `mimo-v2.5-pro`, `mimo-v2.5`, `mimo-v2-omni`, `mimo-v2-flash` (known Xiaomi MiMo V2 model IDs), and `deepseek-v4*` (any DeepSeek V4 variant).
 
 **Trade-off**: chain-of-thought quality on these specific models. Tool-calling and regular replies still work normally; other models (Kimi K2 Thinking, DeepSeek R1, DeepSeek V3.x, Qwen, GLM, etc.) are not affected and keep their thinking mode.
 
-**Override** via `infiniai.disableThinkingForModels`:
+Configure the guard with these settings:
 
-- Add a pattern (e.g. `"my-thinker-*"`) to extend the disable list.
-- Set to `[]` to allow thinking on stable hosts for the default models — only do this if you have an external workaround for round-tripping `reasoning_content` (e.g. an MCP proxy or a custom transport). On hosts with `LanguageModelThinkingPart`, the extension round-trips `reasoning_content` instead and does not apply this fallback.
+- Add a pattern to `infiniai.disableThinkingForModels` (e.g. `"my-thinker-*"`) to extend the disable list. User patterns are additive; they do not remove the built-in safety defaults.
+- Add a pattern to `infiniai.enableThinkingRoundTripForModels` only for a model/request path with a verified `reasoning_content` replay backend. The current implementation accepts the setting on stable and Insiders, but keeps affected models disabled until such a backend is available.
 
-### Insiders: end-to-end thinking mode
+### Insiders: proposed thinking transport
 
-The extension manifest declares `enabledApiProposals: ["languageModelThinkingPart"]`. When the host actually exposes that proposed API at runtime, the extension automatically:
+The extension manifest declares `enabledApiProposals: ["languageModelThinkingPart"]`. When the host actually exposes that proposed API at runtime, the extension can:
 
-1. Streams reasoning chunks as `LanguageModelThinkingPart` parts so the chat UI preserves them across turns.
-2. Echoes `reasoning_content` back to MiMo V2 / DeepSeek V4 on subsequent turns, avoiding the HTTP 400.
-3. Skips the force-disable injection so the model can think freely.
+1. Stream reasoning chunks as `LanguageModelThinkingPart` parts so the chat UI preserves them across turns.
+2. Reconstruct `reasoning_content` from incoming thinking parts when the host provides them in request history.
+
+For MiMo V2 / DeepSeek V4, that transport capability is still not treated as an automatic end-to-end replay guarantee. The force-disable guard remains active by default on Insiders too, unless a future verified backend marks the current request path safe.
 
 To opt in, launch VS Code Insiders with proposed APIs enabled for this publisher:
 
@@ -138,7 +140,7 @@ Alternatively add the publisher id to `argv.json` (Command Palette → "Preferen
 }
 ```
 
-No setting toggle is needed — detection is automatic. On stable VS Code (or Insiders without the flag) the constructor is `undefined` and the extension transparently falls back to the disable behavior described above.
+On stable VS Code (or Insiders without the flag) the constructor is `undefined`. On Insiders with the flag, the constructor may exist, but the built-in safety list still applies to affected models by default.
 
 ## Commands
 
@@ -155,15 +157,14 @@ Chat participant commands:
 
 This extension intentionally avoids:
 
-- `enabledApiProposals`
-- `src/vscode.proposed.*.d.ts`
 - Copilot private commands or extension IDs
 - `configurationSchema`
 - `modelConfiguration`
 - `chatParticipantAdditions`
 - `defaultChatParticipant`
 - `languageModelProxy`
-- `LanguageModelThinkingPart`
+
+The only proposed API declaration is `languageModelThinkingPart`, which is guarded by runtime detection. Stable VS Code does not expose it, and the 400 mitigation does not depend on it.
 
 ## Debugging
 

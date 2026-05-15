@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- `infiniai.disableThinkingForModels` is now additive: built-in safety defaults for known MiMo V2 and DeepSeek V4 thinking models always remain active, while user patterns extend the list.
+- Added `infiniai.enableThinkingRoundTripForModels` as an advanced opt-in setting for future verified `reasoning_content` replay paths. Constructor availability alone no longer bypasses the force-disable guard on VS Code Insiders.
+
+### Fixed
+
+- OpenAI-compatible requests now force-disable thinking for affected models even when `LanguageModelThinkingPart` is exposed, preventing the prior Insiders path from re-enabling thinking before an end-to-end replay backend is verified.
+
 ## [0.5.3] - 2026-05-13
 
 ### Fixed

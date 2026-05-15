@@ -1,12 +1,40 @@
 import assert from "assert/strict";
 
-import {
-	DEFAULT_DISABLE_THINKING_PATTERNS,
-	applyDisableThinking,
-	shouldDisableThinking,
-} from "./thinkingMode";
+const Module = require("module") as any;
+
+function withVscodeMock<T>(configValues: Record<string, unknown>, fn: () => T): T {
+	const originalLoad = Module._load;
+	const vscodeMock = {
+		workspace: {
+			getConfiguration: () => ({
+				get: (key: string, defaultValue?: unknown) => configValues[key] ?? defaultValue,
+			}),
+		},
+	};
+	Module._load = (request: string, parent: unknown, isMain: boolean) => {
+		if (request === "vscode") {
+			return vscodeMock;
+		}
+		return originalLoad(request, parent, isMain);
+	};
+	try {
+		return fn();
+	} finally {
+		Module._load = originalLoad;
+	}
+}
+
+function loadThinkingMode(configValues: Record<string, unknown> = {}) {
+	delete require.cache[require.resolve("./thinkingMode")];
+	return withVscodeMock(
+		configValues,
+		() => require("./thinkingMode") as typeof import("./thinkingMode")
+	);
+}
 
 describe("shouldDisableThinking", () => {
+	const { DEFAULT_DISABLE_THINKING_PATTERNS, shouldDisableThinking } = loadThinkingMode();
+
 	it("matches MiMo V2 default ids exactly", () => {
 		for (const id of [
 			"mimo-v2-pro",
@@ -53,7 +81,36 @@ describe("shouldDisableThinking", () => {
 	});
 });
 
+describe("getDisableThinkingPatterns", () => {
+	it("unions user-provided patterns with the built-in safety defaults", () => {
+		const { getDisableThinkingPatterns, shouldDisableThinking } = loadThinkingMode({
+			disableThinkingForModels: ["custom-*"],
+		});
+
+		const patterns = withVscodeMock({ disableThinkingForModels: ["custom-*"] }, getDisableThinkingPatterns);
+		assert.equal(shouldDisableThinking("mimo-v2.5-pro", patterns), true);
+		assert.equal(shouldDisableThinking("custom-thinker", patterns), true);
+	});
+});
+
+describe("getThinkingRoundTripPatterns", () => {
+	it("reads explicit round-trip opt-in patterns separately from the disable list", () => {
+		const { getThinkingRoundTripPatterns, shouldEnableThinkingRoundTrip } = loadThinkingMode({
+			enableThinkingRoundTripForModels: ["mimo-v2.5-pro"],
+		});
+
+		const patterns = withVscodeMock(
+			{ enableThinkingRoundTripForModels: ["mimo-v2.5-pro"] },
+			getThinkingRoundTripPatterns
+		);
+		assert.equal(shouldEnableThinkingRoundTrip("mimo-v2.5-pro", patterns), true);
+		assert.equal(shouldEnableThinkingRoundTrip("deepseek-v4", patterns), false);
+	});
+});
+
 describe("applyDisableThinking", () => {
+	const { applyDisableThinking } = loadThinkingMode();
+
 	it("sets both enable_thinking:false and thinking.type:disabled", () => {
 		const rb: Record<string, unknown> = { model: "mimo-v2-pro" };
 		applyDisableThinking(rb);

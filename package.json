@@ -350,6 +350,14 @@
 						"type": "string"
 					},
 					"description": "%configuration.disableThinkingForModels.description%"
+				},
+				"infiniai.enableThinkingRoundTripForModels": {
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					},
+					"description": "%configuration.enableThinkingRoundTripForModels.description%"
 				}
 			}
 		}

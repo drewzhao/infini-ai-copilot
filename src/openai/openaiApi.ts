@@ -32,6 +32,9 @@ import { StreamParseError, sanitizeForLog } from "../utils";
 import {
 	applyDisableThinking,
 	getDisableThinkingPatterns,
+	getThinkingRoundTripPatterns,
+	isKnownThinkingRoundTripSafeRequest,
+	shouldEnableThinkingRoundTrip,
 	shouldDisableThinking,
 } from "../thinkingMode";
 import { getThinkingPartCtor } from "../proposedApi";
@@ -311,17 +314,20 @@ export class OpenaiApi extends CommonApi {
 		// }
 
 		// Force-disable thinking mode for models whose `reasoning_content`
-		// cannot be round-tripped through the stable VS Code language-model
-		// API (known Xiaomi MiMo V2 model IDs, DeepSeek V4 family, plus any user
-		// additions via `infiniai.disableThinkingForModels`). Without this
-		// the upstream returns HTTP 400 on the second turn of a tool-call
-		// loop. See README "Thinking mode" for details.
-		//
-		// When the host exposes `LanguageModelThinkingPart` (Insiders +
-		// --enable-proposed-api drewzhao.infiniai-copilot) we can round-trip
-		// reasoning_content via convertMessages, so we leave thinking enabled.
+		// cannot yet be proven to round-trip through the active VS Code/Copilot
+		// Chat request path (known Xiaomi MiMo V2 model IDs, DeepSeek V4 family,
+		// plus user additions). Constructor availability alone is not a replay
+		// guarantee, so the safety list wins on stable and Insiders unless a
+		// future verified backend explicitly opts this request in.
 		const modelId = um?.id ?? (typeof orb.model === "string" ? orb.model : "");
-		if (!getThinkingPartCtor() && shouldDisableThinking(modelId, getDisableThinkingPatterns())) {
+		const forceDisableThinking = shouldDisableThinking(modelId, getDisableThinkingPatterns());
+		const userOptedIntoRoundTrip = shouldEnableThinkingRoundTrip(modelId, getThinkingRoundTripPatterns());
+		const allowThinkingRoundTrip =
+			userOptedIntoRoundTrip &&
+			!!getThinkingPartCtor() &&
+			isKnownThinkingRoundTripSafeRequest();
+
+		if (forceDisableThinking && !allowThinkingRoundTrip) {
 			applyDisableThinking(orb);
 		}
 

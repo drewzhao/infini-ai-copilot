@@ -26,7 +26,6 @@ function lookup(): ThinkingPartCtor | undefined {
 	// reflect runtime additions made by the host (or stubs in tests).
 	let mod: Record<string, unknown>;
 	try {
-		// eslint-disable-next-line @typescript-eslint/no-var-requires
 		mod = require("vscode") as Record<string, unknown>;
 	} catch {
 		mod = vscode as unknown as Record<string, unknown>;

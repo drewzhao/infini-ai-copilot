@@ -12,9 +12,17 @@ import { AnthropicApi } from "./anthropic/anthropicApi";
 import { AnthropicRequestBody } from "./anthropic/anthropicTypes";
 import { surfaceActionableError } from "./errorActions";
 import { OpenaiApi } from "./openai/openaiApi";
+import type { OpenAIChatMessage } from "./openai/openaiTypes";
 import { prepareTokenCount } from "./provideToken";
+import { hasThinkingPartApi } from "./proposedApi";
 import { resolveModelRoute } from "./route";
 import { updateContextStatusBar } from "./statusBar";
+import {
+	getDisableThinkingPatterns,
+	getThinkingRoundTripPatterns,
+	shouldDisableThinking,
+	shouldEnableThinkingRoundTrip,
+} from "./thinkingMode";
 import { InfiniAIModelInfo, ModelRoute, ModelRouteConfig } from "./types";
 import {
 	cancellableDelay,
@@ -60,6 +68,33 @@ interface DiagnosticSnapshot {
 	cacheAgeMs?: number;
 	modelDiscoveryUrl: string;
 	lastError?: string;
+}
+
+function summarizeThinkingMessages(messages: readonly OpenAIChatMessage[]): {
+	assistantToolCallCount: number;
+	assistantReasoningCount: number;
+	assistantToolCallMissingReasoningCount: number;
+} {
+	let assistantToolCallCount = 0;
+	let assistantReasoningCount = 0;
+	let assistantToolCallMissingReasoningCount = 0;
+	for (const message of messages) {
+		if (message.role !== "assistant") {
+			continue;
+		}
+		const hasToolCalls = Array.isArray(message.tool_calls) && message.tool_calls.length > 0;
+		const hasReasoning = typeof message.reasoning_content === "string" && message.reasoning_content.length > 0;
+		if (hasToolCalls) {
+			assistantToolCallCount++;
+		}
+		if (hasReasoning) {
+			assistantReasoningCount++;
+		}
+		if (hasToolCalls && !hasReasoning) {
+			assistantToolCallMissingReasoningCount++;
+		}
+	}
+	return { assistantToolCallCount, assistantReasoningCount, assistantToolCallMissingReasoningCount };
 }
 
 function hashString(value: string): string {
@@ -472,6 +507,25 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			stream_options: { include_usage: true },
 		};
 		requestBody = openaiApi.prepareRequestBody(requestBody, infiniAIModel, options);
+		const disableThinkingPatterns = getDisableThinkingPatterns();
+		const roundTripPatterns = getThinkingRoundTripPatterns();
+		const thinkingSummary = summarizeThinkingMessages(openaiMessages);
+		const requestInitiator = (options as { requestInitiator?: unknown }).requestInitiator;
+		logDebug(
+			this.output,
+			`Thinking guard model=${sanitizeForLog(model.id, 120)} vscode=${sanitizeForLog(vscode.version, 40)} ` +
+				`app=${sanitizeForLog(vscode.env.appName, 80)} transport=OpenAI ` +
+				`requestInitiator=${sanitizeForLog(String(requestInitiator ?? ""), 120)} ` +
+				`hasThinkingPartApi=${hasThinkingPartApi()} ` +
+				`forceDisable=${shouldDisableThinking(model.id, disableThinkingPatterns)} ` +
+				`roundTripOptIn=${shouldEnableThinkingRoundTrip(model.id, roundTripPatterns)} ` +
+				`thinkingDisabled=${requestBody.enable_thinking === false} ` +
+				`disablePatterns=${sanitizeForLog(disableThinkingPatterns.join(","), 300)} ` +
+				`roundTripPatterns=${sanitizeForLog(roundTripPatterns.join(","), 300)} ` +
+				`assistantToolCalls=${thinkingSummary.assistantToolCallCount} ` +
+				`assistantReasoning=${thinkingSummary.assistantReasoningCount} ` +
+				`assistantToolCallsMissingReasoning=${thinkingSummary.assistantToolCallMissingReasoningCount}`
+		);
 		const response = await this.postJsonWithRetry(
 			this.requestUrl(route, model.id),
 			this.requestHeaders(route, apiKey),
