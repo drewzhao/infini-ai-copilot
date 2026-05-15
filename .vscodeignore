@@ -1,6 +1,10 @@
 .vscode/**
 .vscode-test/**
 src/**
+node_modules/**
+reports/**
+BACKLOG.md
+CONTRIBUTE.md
 .gitignore
 .yarnrc
 .prettierignore
