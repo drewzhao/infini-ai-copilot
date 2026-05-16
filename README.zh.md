@@ -13,12 +13,17 @@ InfiniAI Provider for VS Code 将 InfiniAI 注册为稳定的 VS Code 语言模�
 
 也可以在 Chat 中使用 `@infiniai` 进行诊断：
 
-- `@infiniai /doctor` 检查配置、密钥是否存在、端点设置、缓存状态以及最近一次脱敏后的提供方错误。
-- `@infiniai /models` 列出本地缓存中的模型和路由能力。
+- `@infiniai /doctor` 检查配置、密钥是否存在、端点设置、路由覆盖数量、缓存状态以及最近一次脱敏后的提供方错误。
+- `@infiniai /models` 列出本地缓存中的模型、有效传输协议、路由来源和路由能力。
 - `@infiniai /models refresh` 刷新模型发现结果后再列出模型。
-- `@infiniai /test` 针对当前默认路由执行一个最小的、可取消的健康检查请求。
+- `@infiniai /test` 选择一个可见的 InfiniAI 模型，并针对它的有效路由执行一个最小的、可取消的健康检查请求。
 
 该参与者只用于诊断，不会替代通用聊天助手。
+
+InfiniAI 活动栏还包含：
+
+- **模型** 树视图，用于切换方案、刷新模型、管理模型选择器可见性，以及按模型切换协议。
+- **本地用量** 面板，基于流式响应在本地记录请求用量，支持导出 CSV，并通过 VS Code 原生确认对话框清空记录。
 
 ## 使用前提
 
@@ -38,8 +43,11 @@ npm run lint
 npx prettier --check .
 npm run compile
 npm test
+npm run catalog:normalize
 npm run build
 ```
+
+`npm run catalog:normalize` 会解析静态快照 `reports/list-models.json`，并重新生成 `src/generated/` 下的内置模型元数据。扩展运行时不会读取或拉取这个文件。
 
 本地运行扩展：
 
@@ -66,7 +74,7 @@ npm run build
 - `infiniai.coding.anthropic.baseUrl`: Coding Plan 的 Anthropic 兼容基础 URL。
 - `infiniai.modelDiscoveryUrl`: 可选的模型发现绝对 URL。为空时使用当前 InfiniAI 方案默认值。
 - `infiniai.modelCacheTtlMs`: 模型发现缓存 TTL，单位毫秒。设为 `0` 表示每次请求都刷新。
-- `infiniai.modelRoutes`: 可选模型路由覆盖。每项支持 `pattern`、`transport`（`"openai"`、`"anthropic"` 或 `"vertex"`）以及可选 `baseUrl`。
+- `infiniai.modelRoutes`: 可选模型路由覆盖。每项支持 `pattern`、`transport`（`"openai"`、`"anthropic"` 或 `"vertex"`）以及可选 `baseUrl`。**InfiniAI: Switch Model Protocol** 命令是编辑精确 OpenAI/Anthropic 单模型覆盖的更安全入口。
 - `infiniai.imageInputModels`: 为匹配的模型 ID 强制启用图片输入能力。支持 `*` 通配符。
 - `infiniai.disableImageInputModels`: 为匹配的模型 ID 强制禁用图片输入能力。支持 `*` 通配符。
 - `infiniai.disableThinkingForModels`: 安全列表。匹配的模型 ID 默认关闭思考模式，以避免已知的 `reasoning_content` HTTP 400 错误。内置默认值包含已知 Xiaomi MiMo V2 模型 ID 与 DeepSeek V4 系列：`mimo-v2-pro`、`mimo-v2.5-pro`、`mimo-v2.5`、`mimo-v2-omni`、`mimo-v2-flash`、`deepseek-v4*`。详见下方[为思考模型避免 HTTP 400](#为思考模型避免-http-400)。
@@ -74,6 +82,20 @@ npm run build
 - `infiniai.thinkingReplayStore`: 已启用思考模型的回放存储后端。默认 `"localPlaintext"`，以支持重启后继续对话；设为 `"memory"` 则不把回放数据写入磁盘，但不支持重启后继续对话。
 - `infiniai.retry`: 可重试网络错误和 HTTP 错误的重试策略。
 - `infiniai.delay`: 请求之间的固定延迟，单位毫秒。
+
+## 模型选择器控制项
+
+扩展会在 VS Code 模型选择器中提供稳定安全的模型控制项：
+
+- **Max output tokens** 限制回复最多生成的 token 数。选择模型默认值时不会发送上限。
+- **Reasoning effort** 提供 `Unset`、`Low`、`Medium`、`High`。`Unset` 不发送 `reasoning_effort`；选择具体值时，仅在 OpenAI 兼容路由上发送 `reasoning_effort`。有些模型可能忽略或拒绝该参数。
+- **Thinking mode** 提供 `Empty`、`Disabled`、`Enabled`。`Empty` 不发送 thinking 参数。`Disabled` 发送禁用思考的控制参数。`Enabled` 发送启用思考的控制参数。并非所有模型都接受这些参数。
+
+Anthropic 路由目前只使用最大输出 token 控制项。Vertex 路由会把最大输出 token 映射到 `generationConfig.maxOutputTokens`。
+
+这些控制项使用 VS Code Stable 当前运行时接受的模型配置表面，不需要在扩展清单中声明 proposed API。
+
+## 路由与协议切换
 
 路由优先级：
 
@@ -89,6 +111,16 @@ npm run build
 - Vertex 路由通过 Vertex 适配器调用 `:streamGenerateContent`。
 
 未实现的 endpoint family 会明确失败，不会静默回退。
+
+对于 Claude 兼容的 InfiniAI 模型，可以从命令面板或 InfiniAI 模型树行中运行 **InfiniAI: Switch Model Protocol**。该命令会：
+
+- 只暴露 **OpenAI Chat Completions** 和 **Anthropic Messages** 两种选择。
+- 向全局 `infiniai.modelRoutes` 写入精确 `{ pattern: modelId, transport }` 覆盖。
+- 把精确覆盖放在更宽泛的通配符规则之前，并移除重复的精确规则。
+- 对 UI 创建的精确覆盖移除旧 `baseUrl`，避免协议切换后仍使用不匹配的端点。
+- 当已有精确覆盖时提供 **Reset exact override**。重置只删除该精确项；之后会在确认信息中展示匹配的通配符或目录/默认路由。
+
+模型树 tooltip 会展示有效传输协议、路由来源（`user`、`metadata`、`catalog` 或 `heuristic`）、endpoint kind、模型选择器可见性和核心能力。`@infiniai /models` 包含 route source 列，`@infiniai /doctor` 会报告总路由覆盖数量和精确单模型覆盖数量。
 
 ## 为思考模型避免 HTTP 400
 
@@ -130,14 +162,6 @@ VS Code 稳定版语言模型 API (`vscode.LanguageModelChatMessage`) 没有公�
 
 运行 `InfiniAI: Clear Thinking Replay Cache` 可清除当前回放缓存。清除后，已有工具调用对话可能无法继续使用思考回放；新对话可以重新建立回放数据。
 
-### 不依赖 proposed API 判断回放安全
-
-Marketplace 构建不声明 `enabledApiProposals`。对于显式 opt-in 的 MiMo V2 / DeepSeek V4 工具调用对话，稳定版和 Insiders 上的回放正确性都由扩展自有 replay backend 提供。
-
-源码仍保留 `LanguageModelThinkingPart` 运行时探测，用于本地开发宿主、自定义 VS Code 构建或 allowlist 环境。如果宿主实际暴露该构造器，扩展可以把 thinking chunk 作为可选兼容路径输出，也可以保留宿主提供的 thinking part。
-
-不要把该构造器是否存在当作回放安全的判断依据。在普通 Stable 和 Insiders 安装中，该构造器预期为 `undefined`；是否允许思考模式继续开启，仍由内置安全列表和 replay-store preflight 决定。
-
 ## 命令
 
 - `infiniai.setApikey`: 设置、更新或删除 Standard/Coding 方案的 API Key。
@@ -151,16 +175,28 @@ Marketplace 构建不声明 `enabledApiProposals`。对于显式 opt-in 的 MiMo
 
 ## 稳定 API 策略
 
-本扩展刻意避免：
+Marketplace 清单不声明任何 `enabledApiProposals`，也不包含 proposed API 启动标志。
+
+提供方使用稳定的 VS Code contribution point，同时使用一小组经过审计、当前 VS Code Stable 运行时接受的稳定灰色表面：
+
+- `isUserSelectable` 让符合条件的 InfiniAI 模型默认出现在模型选择器中。
+- `configurationSchema` 提供最大输出 token、reasoning effort 和 thinking mode 等模型选择器控制项。
+- 运行时请求选项 `configuration` / `modelConfiguration` 把用户选择的模型控制项传回 provider。
+
+这些字段集中在 `src/grayLanguageModelMetadata.ts`，并由 `npm run validate:stable-gray` 验证。
+
+本扩展刻意避免硬性 proposed API 表面：
 
 - Copilot 私有命令或扩展 ID
-- `configurationSchema`
-- `modelConfiguration`
 - `chatParticipantAdditions`
 - `defaultChatParticipant`
 - `languageModelProxy`
+- `targetChatSessionType`
+- `requiresAuthorization`
+- `isDefault`
+- `editTools`
 
-Marketplace 清单不声明任何 `enabledApiProposals`。源码保留了面向开发/自定义宿主的 `LanguageModelThinkingPart` 运行时探测，但 replay 正确性和 HTTP 400 缓解不依赖 proposed API。
+源码保留了面向开发/自定义宿主的 `LanguageModelThinkingPart` 运行时探测，但 replay 正确性和 HTTP 400 缓解不依赖 proposed API。
 
 ## 调试
 

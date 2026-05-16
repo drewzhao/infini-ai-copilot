@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.5] - 2026-05-16
+
+### Added
+
+- Stable-safe model picker controls for max output tokens, reasoning effort, and thinking mode. Unset/Empty values send no optional reasoning or thinking parameters; selected reasoning effort is sent on OpenAI-compatible routes only.
+- `InfiniAI: Switch Model Protocol` command and InfiniAI Models tree context action for Claude-compatible models. The UI writes exact per-model `infiniai.modelRoutes` overrides for OpenAI Chat Completions or Anthropic Messages, and can reset the exact override.
+- Generated built-in InfiniAI catalog metadata for richer model families, context windows, route defaults, chat/non-chat filtering, and capability hints. Regenerate it from the static `reports/list-models.json` snapshot with `npm run catalog:normalize`.
+
+### Changed
+
+- The Models tree tooltip now shows effective transport, route source, endpoint kind, picker visibility, and core capabilities.
+- `@infiniai /models` includes the route source column, and `@infiniai /doctor` reports total configured route overrides plus exact per-model route overrides.
+- `@infiniai /test` now chooses only from visible InfiniAI models in the provider cache and no longer requires tool-calling capability for a simple health request.
+- The README files now document the stable-gray API policy used for `isUserSelectable`, `configurationSchema`, and model configuration request options while keeping the Marketplace manifest free of proposed API declarations.
+
+### Fixed
+
+- The Local Usage dashboard reset action now uses a native VS Code confirmation dialog and reliably clears locally recorded usage data after confirmation.
+- Protocol switching deduplicates exact per-model route entries, places exact overrides before broader wildcard matches, and drops stale `baseUrl` values when changing transport through the UI.
+
 ## [0.5.4] - 2026-05-15
 
 ### Added

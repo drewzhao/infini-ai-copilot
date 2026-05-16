@@ -22,6 +22,7 @@ import { applyThinkingReplay, decideThinkingReplayRequest } from "./thinkingRepl
 import { thinkingReplayStore } from "./thinkingReplayStore";
 import { countModelRouteOverrides, resolveModelRoute } from "./route";
 import { updateContextStatusBar } from "./statusBar";
+import { getVisibleInfiniAITestModels } from "./testModelSelection";
 import {
 	getDisableThinkingPatterns,
 	getThinkingRoundTripPatterns,
@@ -62,6 +63,10 @@ interface ModelCacheEntry {
 	routes: Map<string, ModelRoute>;
 	fetchedAt: number;
 	lastError?: string;
+}
+
+interface InfiniAITestModelPick extends vscode.QuickPickItem {
+	readonly info: LanguageModelChatInformation;
 }
 
 interface DiagnosticSnapshot {
@@ -214,7 +219,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 	}
 
 	private filterHiddenModels(infos: LanguageModelChatInformation[]): LanguageModelChatInformation[] {
-		return infos.filter(info => !isModelHidden(info.id));
+		return infos.filter((info) => !isModelHidden(info.id));
 	}
 
 	async provideLanguageModelChatResponse(
@@ -307,10 +312,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		};
 	}
 
-	async getModelDescriptions(
-		refresh: boolean,
-		token: CancellationToken
-	): Promise<InfiniAIModelDescription[]> {
+	async getModelDescriptions(refresh: boolean, token: CancellationToken): Promise<InfiniAIModelDescription[]> {
 		const apiKey = await ensureApiKey(false, this.secrets);
 		if (!apiKey) {
 			return [];
@@ -319,8 +321,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		return entry.infos.map((info) => {
 			const model = entry.models.find((candidate) => candidate.id === info.id);
 			const route =
-				entry.routes.get(info.id) ??
-				resolveModelRoute(this.toModelInfo(info, model), this.getRouteConfigs());
+				entry.routes.get(info.id) ?? resolveModelRoute(this.toModelInfo(info, model), this.getRouteConfigs());
 			const defaultRoute = resolveModelRoute(this.toModelInfo(info, model), []);
 			return {
 				id: info.id,
@@ -344,22 +345,54 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			throw new Error("InfiniAI API key not found");
 		}
 		const entry = await this.getModelCache(apiKey, false, token);
-		const first = this.filterHiddenModels(entry.infos).find(info => info.capabilities.toolCalling);
-		if (!first) {
+		const candidates = getVisibleInfiniAITestModels(entry.infos, entry.models, isModelHidden);
+		if (candidates.length === 0) {
 			throw new Error("No visible InfiniAI chat-capable models are available");
 		}
-		const model = entry.models.find((m) => m.id === first.id);
+		const selected = await this.pickInfiniAITestModel(entry, candidates, token);
+		const model = entry.models.find((m) => m.id === selected.id);
 		const route =
-			entry.routes.get(first.id) ?? resolveModelRoute(this.toModelInfo(first, model), this.getRouteConfigs());
-		const body = this.createTestRequestBody(first.id, prompt || "Reply with OK.", route.transport);
+			entry.routes.get(selected.id) ?? resolveModelRoute(this.toModelInfo(selected, model), this.getRouteConfigs());
+		const body = this.createTestRequestBody(selected.id, prompt || "Reply with OK.", route.transport);
 		const response = await this.postJsonWithRetry(
-			this.requestUrl(route, first.id),
+			this.requestUrl(route, selected.id),
 			this.requestHeaders(route, apiKey),
 			body,
 			token
 		);
 		await response.body?.cancel();
-		return `OK: ${first.id} via ${route.transport} (${response.status})`;
+		return `OK: ${selected.id} via ${route.transport} (${response.status})`;
+	}
+
+	private async pickInfiniAITestModel(
+		entry: ModelCacheEntry,
+		candidates: readonly LanguageModelChatInformation[],
+		token: CancellationToken
+	): Promise<LanguageModelChatInformation> {
+		if (candidates.length === 1) {
+			return candidates[0];
+		}
+		const routeConfigs = this.getRouteConfigs();
+		const picks = candidates.map<InfiniAITestModelPick>((info) => {
+			const model = entry.models.find((candidate) => candidate.id === info.id);
+			const route = entry.routes.get(info.id) ?? resolveModelRoute(this.toModelInfo(info, model), routeConfigs);
+			return {
+				label: info.id,
+				description: route.transport,
+				detail: `${route.source} - ${route.endpointKind} - ${info.maxInputTokens.toLocaleString()}/${info.maxOutputTokens.toLocaleString()}`,
+				info,
+			};
+		});
+		const pick = await vscode.window.showQuickPick(picks, {
+			placeHolder: vscode.l10n.t("Select an InfiniAI model to test"),
+			matchOnDescription: true,
+			matchOnDetail: true,
+			ignoreFocusOut: true,
+		});
+		if (!pick || token.isCancellationRequested) {
+			throw new vscode.CancellationError();
+		}
+		return pick.info;
 	}
 
 	private createTrackingProgress(
@@ -563,11 +596,14 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			throw new Error(replayDecision.failLocalReason);
 		}
 		const requestMessages = replayDecision.allowThinkingRoundTrip ? replayPreflight.messages : openaiMessages;
-		const pendingThinkingTurn = replayDecision.allowThinkingRoundTrip ? thinkingReplayStore.beginTurn(model.id) : undefined;
+		const pendingThinkingTurn = replayDecision.allowThinkingRoundTrip
+			? thinkingReplayStore.beginTurn(model.id)
+			: undefined;
 		const modelConfiguration = resolveInfiniAIModelConfiguration(options);
 		const forceDisableThinking = shouldDisableThinking(model.id, disableThinkingPatterns);
 		const suppressResponseThinking =
-			modelConfiguration.thinkingMode === "disabled" || (forceDisableThinking && !replayDecision.allowThinkingRoundTrip);
+			modelConfiguration.thinkingMode === "disabled" ||
+			(forceDisableThinking && !replayDecision.allowThinkingRoundTrip);
 		const openaiApi = new OpenaiApi({
 			thinkingReplayStore: pendingThinkingTurn ? thinkingReplayStore : undefined,
 			pendingThinkingTurn,
@@ -594,10 +630,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 					: forceDisableThinking
 						? "safetyPattern"
 						: "requestBody";
-			logInfo(
-				this.output,
-				`Thinking disabled for request model=${sanitizeForLog(model.id, 120)} source=${source}`
-			);
+			logInfo(this.output, `Thinking disabled for request model=${sanitizeForLog(model.id, 120)} source=${source}`);
 		}
 		logDebug(
 			this.output,

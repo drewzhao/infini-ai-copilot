@@ -43,6 +43,14 @@ Current VS Code Stable cannot expose `LanguageModelThinkingPart` as a public sta
 
 Therefore, safe thinking support must be owned by the extension request pipeline.
 
+## Proposed API Compatibility Note
+
+The Marketplace build must not declare `enabledApiProposals`. `LanguageModelThinkingPart` may still be detected at runtime in local development hosts, custom VS Code builds, or allowlisted environments, but this detector is only an optional compatibility path for emitting or preserving thinking parts.
+
+Constructor availability is not a replay-safety signal. A request is safe only when the extension-owned replay store can preflight every assistant tool-call turn that requires `reasoning_content`. On replay miss, stale data, conflict, or unavailable storage, the extension must fail locally before sending the upstream request.
+
+On ordinary VS Code Stable and Insiders installs, assume the proposed constructor is unavailable or insufficient. The safety decision remains the built-in disable list plus replay-store preflight.
+
 ## External Review Outcome
 
 Opus 4.7 reviewed the replay options in three rounds. The review supports the implementation direction used by this report:

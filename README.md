@@ -13,12 +13,17 @@ InfiniAI Provider for VS Code registers InfiniAI as a stable VS Code language mo
 
 You can also use `@infiniai` in Chat for diagnostics:
 
-- `@infiniai /doctor` checks configuration, key presence, endpoint settings, cache state, and the last sanitized provider error.
-- `@infiniai /models` lists discovered models and route capabilities from the local cache.
+- `@infiniai /doctor` checks configuration, key presence, endpoint settings, route override counts, cache state, and the last sanitized provider error.
+- `@infiniai /models` lists discovered models, effective transports, route sources, and route capabilities from the local cache.
 - `@infiniai /models refresh` refreshes model discovery before listing models.
-- `@infiniai /test` runs a minimal cancellable health request against the selected/default route.
+- `@infiniai /test` picks a visible InfiniAI model and runs a minimal cancellable health request against its effective route.
 
 The participant is diagnostic only. It is not a replacement chat assistant.
+
+The InfiniAI activity bar also includes:
+
+- A **Models** tree for plan switching, model refresh, picker visibility, and per-model protocol switching.
+- A **Local Usage** dashboard that records streamed request usage locally, exports CSV, and clears records through a native VS Code confirmation dialog.
 
 ## Requirements
 
@@ -38,8 +43,11 @@ npm run lint
 npx prettier --check .
 npm run compile
 npm test
+npm run catalog:normalize
 npm run build
 ```
+
+`npm run catalog:normalize` parses the static snapshot at `reports/list-models.json` and regenerates built-in model metadata under `src/generated/`. The extension does not fetch that file at runtime.
 
 To run the extension locally:
 
@@ -66,7 +74,7 @@ Common settings:
 - `infiniai.coding.anthropic.baseUrl`: Anthropic-compatible Coding Plan base URL.
 - `infiniai.modelDiscoveryUrl`: Optional absolute URL for model discovery. Empty uses the selected InfiniAI plan default.
 - `infiniai.modelCacheTtlMs`: Model discovery cache TTL in milliseconds. Set `0` to refresh every request.
-- `infiniai.modelRoutes`: Optional model routing overrides. Each item supports `pattern`, `transport` (`"openai"`, `"anthropic"`, or `"vertex"`), and optional `baseUrl`.
+- `infiniai.modelRoutes`: Optional model routing overrides. Each item supports `pattern`, `transport` (`"openai"`, `"anthropic"`, or `"vertex"`), and optional `baseUrl`. The **InfiniAI: Switch Model Protocol** command is the safer editor for exact OpenAI/Anthropic per-model overrides.
 - `infiniai.imageInputModels`: Force-enable image input for matching model IDs. Supports `*` wildcards.
 - `infiniai.disableImageInputModels`: Force-disable image input for matching model IDs. Supports `*` wildcards.
 - `infiniai.disableThinkingForModels`: Safety list. Thinking mode is disabled by default for matching model IDs to avoid known `reasoning_content` HTTP 400 errors. The built-in defaults include known Xiaomi MiMo V2 model IDs and the DeepSeek V4 family: `mimo-v2-pro`, `mimo-v2.5-pro`, `mimo-v2.5`, `mimo-v2-omni`, `mimo-v2-flash`, `deepseek-v4*`. See [Thinking mode](#thinking-mode) below.
@@ -74,6 +82,20 @@ Common settings:
 - `infiniai.thinkingReplayStore`: Replay storage backend for opted-in thinking models. Defaults to `"localPlaintext"` for restart continuity; set `"memory"` to avoid writing replay data to disk and accept no restart continuity.
 - `infiniai.retry`: Retry policy for retryable network and HTTP failures.
 - `infiniai.delay`: Fixed delay between requests, in milliseconds.
+
+## Model Picker Controls
+
+The extension exposes stable-safe model controls in VS Code's model picker:
+
+- **Max output tokens** caps the response length. The model default sends no cap.
+- **Reasoning effort** offers `Unset`, `Low`, `Medium`, and `High`. `Unset` sends no `reasoning_effort`; selected values send `reasoning_effort` only on OpenAI-compatible routes. Some models may ignore or reject this parameter.
+- **Thinking mode** offers `Empty`, `Disabled`, and `Enabled`. `Empty` sends no thinking parameter. `Disabled` sends thinking-disable controls. `Enabled` sends thinking-enable controls. Not every model accepts these parameters.
+
+Anthropic routes currently consume only the max-output-token control. Vertex routes map max output tokens into `generationConfig.maxOutputTokens`.
+
+These controls use VS Code Stable's runtime-accepted model configuration surface and do not require the extension manifest to declare proposed APIs.
+
+## Routing And Protocol Switching
 
 Routing precedence:
 
@@ -89,6 +111,16 @@ Transport behavior:
 - Vertex routes call `:streamGenerateContent` using the Vertex adapter.
 
 Unsupported endpoint families fail with a clear provider error instead of silently falling back.
+
+For Claude-compatible InfiniAI models, use **InfiniAI: Switch Model Protocol** from the Command Palette or from a model row in the InfiniAI Models view. The command:
+
+- Offers only **OpenAI Chat Completions** and **Anthropic Messages**.
+- Writes an exact `{ pattern: modelId, transport }` override to global `infiniai.modelRoutes`.
+- Places exact overrides before broader matching wildcards and removes duplicate exact entries.
+- Drops stale `baseUrl` from UI-created exact overrides so a protocol change cannot keep an incompatible endpoint.
+- Offers **Reset exact override** when an exact override exists. Reset removes only that exact entry; any matching wildcard or catalog/default route is then shown in the confirmation.
+
+The Models tree tooltip shows the effective transport, route source (`user`, `metadata`, `catalog`, or `heuristic`), endpoint kind, picker visibility, and core capabilities. `@infiniai /models` includes the route source column, and `@infiniai /doctor` reports both total route overrides and exact per-model route overrides.
 
 ## Thinking mode
 
@@ -120,14 +152,6 @@ Configure the guard with these settings:
 - Keep `infiniai.thinkingReplayStore` at the default `"localPlaintext"` if you want opted-in thinking tool-call conversations to survive VS Code reload or restart while cache entries remain valid. Choose `"memory"` only if you do not want replay data written to disk and can tolerate losing restart continuity.
 - Run `InfiniAI: Clear Thinking Replay Cache` to remove the active replay cache.
 
-### Optional proposed thinking transport
-
-The Marketplace build does not declare `enabledApiProposals`. Replay correctness for opted-in MiMo V2 / DeepSeek V4 tool-call conversations is provided by the extension-owned replay backend on both VS Code Stable and Insiders.
-
-The source still contains a runtime detector for `LanguageModelThinkingPart`. If a local development host, custom VS Code build, or allowlisted environment exposes the constructor, the extension may emit thinking parts and preserve host-supplied thinking parts as optional compatibility. This path is not required to avoid 400s, and constructor availability is not treated as proof that a conversation is safe.
-
-On normal Stable and Insiders installs the constructor is expected to be `undefined`; the built-in safety list and replay-store preflight still decide whether thinking may remain enabled.
-
 ## Commands
 
 - `infiniai.setApikey`: Set, update, or delete the Standard or Coding plan API key.
@@ -141,16 +165,28 @@ Chat participant commands:
 
 ## Stable API Policy
 
-This extension intentionally avoids:
+The Marketplace manifest declares no `enabledApiProposals` and contains no proposed-API launch flags.
+
+The provider uses stable VS Code contribution points plus a small, audited stable-gray surface that is accepted by current VS Code Stable builds:
+
+- `isUserSelectable` keeps eligible InfiniAI models visible in the picker.
+- `configurationSchema` exposes model picker controls for max output tokens, reasoning effort, and thinking mode.
+- Runtime request options `configuration` / `modelConfiguration` carry selected model controls back to the provider.
+
+These fields are centralized in `src/grayLanguageModelMetadata.ts` and covered by `npm run validate:stable-gray`.
+
+This extension intentionally avoids hard proposal-gated surfaces:
 
 - Copilot private commands or extension IDs
-- `configurationSchema`
-- `modelConfiguration`
 - `chatParticipantAdditions`
 - `defaultChatParticipant`
 - `languageModelProxy`
+- `targetChatSessionType`
+- `requiresAuthorization`
+- `isDefault`
+- `editTools`
 
-The Marketplace manifest declares no `enabledApiProposals`. A guarded runtime detector for `LanguageModelThinkingPart` remains for development/custom hosts, but replay correctness and HTTP 400 mitigation do not depend on proposed APIs.
+A guarded runtime detector for `LanguageModelThinkingPart` remains for development/custom hosts, but replay correctness and HTTP 400 mitigation do not depend on proposed APIs.
 
 ## Debugging
 
