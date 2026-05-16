@@ -73,7 +73,7 @@ Classification standard:
 | PR-001 | Stable guardrails and auth manifest fix | Done | Low | None | Remove manifest warning and enforce no proposed API declaration. |
 | PR-002 | Gray metadata helper and model picker UX | Done | Low/Medium | PR-001 | Centralize gray fields and improve picker metadata. |
 | PR-003 | Per-model configuration schema and request mapping | Done | Medium | PR-001, PR-002 preferred | Add user-visible per-model controls and map them safely to upstream requests. |
-| PR-004 | Stable smoke/probe validation harness | Proposed | Medium | PR-001 | Make loophole usability testable in Stable without proposal flags. |
+| PR-004 | Stable smoke/probe validation harness | Done | Medium | PR-001 | Make loophole usability testable in Stable without proposal flags. |
 | PR-005 | Provider-group configuration migration study | Deferred | Medium/High | PR-003, UX decision | Decide whether to replace or supplement `managementCommand`. |
 | PR-006 | Agents-window compatibility strategy | Deferred | High | Upstream API clarity | Avoid fake support; document real options. |
 
@@ -335,7 +335,7 @@ Verification:
 
 ## PR-004: Stable Smoke/Probe Validation Harness
 
-Status: Proposed
+Status: Done
 
 ### Goal
 
@@ -395,6 +395,41 @@ code \
 ```
 
 The command must not include `--enable-proposed-api`.
+
+### Implementation Record
+
+Implemented on 2026-05-16.
+
+Files changed:
+
+- `scripts/validate-stable-gray-surfaces.mjs`
+- `package.json`
+- `reports/infiniai-planned-prs-report.md`
+
+Notes:
+
+- Added `npm run validate:stable-gray`.
+- The validator checks:
+  - `package.json` has no `enabledApiProposals` or `enableProposedApi`.
+  - Runtime source excludes hard-gated metadata fields.
+  - Stable-safe gray metadata writes remain centralized in `src/grayLanguageModelMetadata.ts`.
+  - The installed VS Code Stable bundle contains the expected gray bridge strings.
+  - The local VS Code source tree, when present, still contains the expected bridge and gating patterns.
+- The validator prints an explicit candidate classification:
+  - safe gray surface: `isUserSelectable`, `statusIcon`, `configurationSchema`, `modelConfiguration`
+  - proposal-gated: `capabilities.editTools`, `requiresAuthorization`, `isDefault`
+  - trap / avoid: `targetChatSessionType` for Agents-window compatibility
+  - copied but inert unless wired: unknown model configuration keys
+
+Verification:
+
+- `npm run validate:stable-gray` passed against `/Applications/Visual Studio Code.app` version 1.120.0 and `/Users/zhaoyinghao/code/github/vscode`.
+- `npm test` passed with 82 passing tests.
+- `npm run lint` passed.
+- `rg -n '"enabledApiProposals"|enableProposedApi' package.json src` returned no matches.
+- `rg -n 'targetChatSessionType|requiresAuthorization|isDefault|editTools|"enabledApiProposals"|enableProposedApi' package.json src --glob '!*.test.ts'` returned no matches.
+- Computer Use verified the Extension Development Host still had InfiniAI loaded, models visible, and status bar `Ready`.
+- Latest VS Code session logs under `~/Library/Application Support/Code/logs/20260516T030725` contained no `Undeclared authentication provider`, `CANNOT use API proposal`, `checkProposedApiEnabled`, `enabledApiProposals`, `enableProposedApi`, `targetChatSessionType`, `requiresAuthorization`, or `editTools` matches.
 
 ## PR-005: Provider-Group Configuration Migration Study
 

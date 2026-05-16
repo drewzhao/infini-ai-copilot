@@ -407,6 +407,7 @@
 		"format": "prettier --write .",
 		"watch": "tsc -watch -p ./",
 		"test": "npm run compile && mocha \"out/**/*.test.js\"",
+		"validate:stable-gray": "node scripts/validate-stable-gray-surfaces.mjs",
 		"build": "npx @vscode/vsce package --baseContentUrl https://raw.githubusercontent.com/drewzhao/infini-ai-copilot/refs/heads/infini-ai-copilot/ -o infiniai-copilot-$(node -p \"require('./package.json').version\").vsix"
 	},
 	"devDependencies": {
