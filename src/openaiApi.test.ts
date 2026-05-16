@@ -189,3 +189,90 @@ describe("OpenaiApi thinking replay streaming capture", () => {
 		assert.equal(store.stats().entryCount, 0);
 	});
 });
+
+describe("OpenaiApi streaming response visibility", () => {
+	it("emits final-answer text that follows an XML think block in the same chunk", async () => {
+		const { openai } = loadOpenaiApi();
+		const api = new openai.OpenaiApi();
+		const reported: string[] = [];
+
+		await api.processStreamingResponse(
+			streamFromChunks([
+				'data: {"choices":[{"delta":{"content":"<think>private reasoning</think>Final answer"},"finish_reason":"stop"}]}\n\n',
+				"data: [DONE]\n\n",
+			]),
+			{ report(part: any) { reported.push(part.value); } },
+			token() as any
+		);
+
+		assert.deepEqual(reported, ["Final answer"]);
+	});
+
+	it("keeps split XML think tags hidden while preserving visible text", async () => {
+		const { openai } = loadOpenaiApi();
+		const api = new openai.OpenaiApi();
+		const reported: string[] = [];
+
+		await api.processStreamingResponse(
+			streamFromChunks([
+				'data: {"choices":[{"delta":{"content":"<thi"}}]}\n\n',
+				'data: {"choices":[{"delta":{"content":"nk>private reasoning</thi"}}]}\n\n',
+				'data: {"choices":[{"delta":{"content":"nk>Visible"},"finish_reason":"stop"}]}\n\n',
+				"data: [DONE]\n\n",
+			]),
+			{ report(part: any) { reported.push(part.value); } },
+			token() as any
+		);
+
+		assert.deepEqual(reported, ["Visible"]);
+	});
+
+	it("suppresses VS Code thinking parts when response thinking is disabled", async () => {
+		const { openai, proposedApi } = loadOpenaiApi();
+		class FakeThinkingPart {
+			constructor(
+				readonly value: string,
+				readonly id?: string
+			) {}
+		}
+		proposedApi._setThinkingPartCtorForTest(
+			FakeThinkingPart as unknown as ReturnType<typeof proposedApi.getThinkingPartCtor>
+		);
+		const api = new openai.OpenaiApi({ emitThinkingParts: false });
+		const reported: any[] = [];
+
+		await api.processStreamingResponse(
+			streamFromChunks([
+				'data: {"choices":[{"delta":{"reasoning_content":"private reasoning"}}]}\n\n',
+				'data: {"choices":[{"delta":{"content":"Visible"},"finish_reason":"stop"}]}\n\n',
+				"data: [DONE]\n\n",
+			]),
+			{ report(part: any) { reported.push(part); } },
+			token() as any
+		);
+
+		assert.equal(reported.length, 1);
+		assert.equal(reported[0].value, "Visible");
+		assert.ok(!(reported[0] instanceof FakeThinkingPart));
+	});
+
+	it("emits a safe fallback instead of returning no visible response for reasoning-only streams", async () => {
+		const { openai } = loadOpenaiApi();
+		const api = new openai.OpenaiApi();
+		const reported: string[] = [];
+
+		await api.processStreamingResponse(
+			streamFromChunks([
+				'data: {"choices":[{"delta":{"reasoning_content":"private reasoning"}}]}\n\n',
+				'data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":12}}\n\n',
+				"data: [DONE]\n\n",
+			]),
+			{ report(part: any) { reported.push(part.value); } },
+			token() as any
+		);
+
+		assert.deepEqual(reported, [
+			"The model returned hidden reasoning but no final answer. Please retry with a direct final-answer instruction.",
+		]);
+	});
+});

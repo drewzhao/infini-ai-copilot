@@ -27,7 +27,10 @@ import {
 } from "../utils";
 
 import { CommonApi } from "../commonApi";
-import { applyOpenAIModelConfiguration, resolveInfiniAIModelConfiguration } from "../modelConfiguration";
+import {
+	applyOpenAIModelConfiguration,
+	resolveInfiniAIModelConfiguration,
+} from "../modelConfiguration";
 import { readSseEvents } from "../sse";
 import { StreamParseError, sanitizeForLog } from "../utils";
 import {
@@ -43,17 +46,26 @@ import type { PendingThinkingTurn, ThinkingReplayStore } from "../thinkingReplay
 export interface OpenaiApiOptions {
 	readonly thinkingReplayStore?: ThinkingReplayStore;
 	readonly pendingThinkingTurn?: PendingThinkingTurn;
+	readonly emitThinkingParts?: boolean;
 }
+
+const HIDDEN_THINKING_NO_FINAL_TEXT_FALLBACK =
+	"The model returned hidden reasoning but no final answer. Please retry with a direct final-answer instruction.";
+const EMPTY_NO_FINAL_TEXT_FALLBACK = "The model finished without returning a final answer. Please retry.";
 
 export class OpenaiApi extends CommonApi {
 	private readonly thinkingReplayStore?: ThinkingReplayStore;
 	private readonly pendingThinkingTurn?: PendingThinkingTurn;
+	private readonly emitThinkingParts: boolean;
 	private thinkingReplayTerminal = false;
+	private sawHiddenThinkingContent = false;
+	private hasEmittedVisibleText = false;
 
 	constructor(options: OpenaiApiOptions = {}) {
 		super();
 		this.thinkingReplayStore = options.thinkingReplayStore;
 		this.pendingThinkingTurn = options.pendingThinkingTurn;
+		this.emitThinkingParts = options.emitThinkingParts ?? true;
 	}
 
 	/**
@@ -358,6 +370,7 @@ export class OpenaiApi extends CommonApi {
 		progress: Progress<vscode.LanguageModelResponsePart>,
 		token: CancellationToken
 	): Promise<void> {
+		let completed = false;
 		try {
 			for await (const event of readSseEvents(responseBody, token)) {
 				const data = event.data.trim();
@@ -378,11 +391,16 @@ export class OpenaiApi extends CommonApi {
 					);
 				}
 			}
+			completed = true;
 		} catch (err) {
 			this.abortReplayTurn();
 			throw err;
 		} finally {
 			await this.flushToolCallBuffers(progress, /*throwOnInvalid*/ false);
+			this.flushXmlThinkPending(progress);
+			if (completed) {
+				this.reportNoVisibleResponseFallback(progress);
+			}
 			this.abortReplayTurn();
 			// If there's an active thinking sequence, end it first
 			this.reportEndThinking();
@@ -455,6 +473,7 @@ export class OpenaiApi extends CommonApi {
 					}
 
 					if (extractedText) {
+						this.sawHiddenThinkingContent = true;
 						this.captureReplayReasoning(extractedText);
 						this.bufferThinkingContent(extractedText, progress);
 						emitted = true;
@@ -475,6 +494,7 @@ export class OpenaiApi extends CommonApi {
 					text = maybeThinking;
 				}
 				if (text) {
+					this.sawHiddenThinkingContent = true;
 					this.captureReplayReasoning(text);
 					this.bufferThinkingContent(text, progress);
 					emitted = true;
@@ -487,14 +507,16 @@ export class OpenaiApi extends CommonApi {
 		if (deltaObj?.content) {
 			const content = String(deltaObj.content);
 
-			// Process XML think blocks or text content (mutually exclusive)
 			const xmlRes = this.processXmlThinkBlocks(content);
-			if (!xmlRes.hasThinkContent) {
+			if (xmlRes.sawThinkContent) {
+				this.sawHiddenThinkingContent = true;
+				emitted = true;
+			}
+			if (xmlRes.visibleText) {
 				// If there's an active thinking sequence, end it first
 				this.reportEndThinking();
 
-				// Only process text content if no XML think blocks were consumed
-				const res = this.processTextContent(content, progress);
+				const res = this.processTextContent(xmlRes.visibleText, progress);
 				if (res.emittedText) {
 					this._hasEmittedAssistantText = true;
 				}
@@ -557,6 +579,13 @@ export class OpenaiApi extends CommonApi {
 		this.thinkingReplayStore.recordToolCall(this.pendingThinkingTurn.turnId, callId);
 	}
 
+	protected override bufferThinkingContent(
+		text: string,
+		progress?: Progress<vscode.LanguageModelResponsePart>
+	): void {
+		super.bufferThinkingContent(text, this.emitThinkingParts ? progress : undefined);
+	}
+
 	private captureReplayReasoning(text: string): void {
 		if (!this.thinkingReplayStore || !this.pendingThinkingTurn) {
 			return;
@@ -601,72 +630,106 @@ export class OpenaiApi extends CommonApi {
 			progress.report(new vscode.LanguageModelTextPart(textToEmit));
 			emittedText = true;
 			emittedAny = true;
+			if (textToEmit.trim().length > 0) {
+				this.hasEmittedVisibleText = true;
+			}
 		}
 
 		return { emittedText, emittedAny };
 	}
 
 	/**
-	 * Process streamed text content for XML think blocks and emit thinking parts.
-	 * Returns whether any thinking content was emitted.
+	 * Strip XML think blocks from streamed text content and return text that is
+	 * safe to show as the model's final answer. The parser keeps partial
+	 * `<think>` / `</think>` tags across chunks so split tags are not leaked or
+	 * mistaken for user-visible text.
 	 */
-	private processXmlThinkBlocks(input: string): { hasThinkContent: boolean } {
-		// If we've already attempted detection and found no THINK_START, skip processing
-		if (this._xmlThinkDetectionAttempted && !this._xmlThinkActive) {
-			return { hasThinkContent: false };
-		}
-
+	private processXmlThinkBlocks(input: string): { visibleText: string; sawThinkContent: boolean } {
 		const THINK_START = "<think>";
 		const THINK_END = "</think>";
 
-		let data = input;
-		let hasThinkContent = false;
+		let data = this._xmlThinkPending + input;
+		this._xmlThinkPending = "";
+		let visibleText = "";
+		let sawThinkContent = false;
 
 		while (data.length > 0) {
-			if (!this._xmlThinkActive) {
-				// Look for think start tag
-				const startIdx = data.indexOf(THINK_START);
-				if (startIdx === -1) {
-					// No think start found, mark detection as attempted and skip future processing
-					this._xmlThinkDetectionAttempted = true;
-					data = "";
+			if (this._xmlThinkActive) {
+				const endIdx = data.indexOf(THINK_END);
+				if (endIdx === -1) {
+					const pendingLength = this.partialTagSuffixLength(data, THINK_END);
+					const hidden = pendingLength > 0 ? data.slice(0, -pendingLength) : data;
+					if (hidden.trim()) {
+						sawThinkContent = true;
+					}
+					this._xmlThinkPending = pendingLength > 0 ? data.slice(-pendingLength) : "";
 					break;
 				}
 
-				// Found think start tag
-				this._xmlThinkActive = true;
-				// Generate a new thinking ID for this XML think block
-				this._currentThinkingId = this.generateThinkingId();
-
-				// Skip the start tag and continue processing
-				data = data.slice(startIdx + THINK_START.length);
+				const hidden = data.slice(0, endIdx);
+				if (hidden.trim()) {
+					sawThinkContent = true;
+				}
+				this._xmlThinkActive = false;
+				this._currentThinkingId = null;
+				data = data.slice(endIdx + THINK_END.length);
 				continue;
 			}
 
-			// We are inside a think block, look for end tag
-			const endIdx = data.indexOf(THINK_END);
-			if (endIdx === -1) {
-				// No end tag found, emit current chunk content as thinking part
-				const thinkContent = data.trim();
-				if (thinkContent) {
-					hasThinkContent = true;
+			const startIdx = data.indexOf(THINK_START);
+			if (startIdx === -1) {
+				const pendingLength = this.partialTagSuffixLength(data, THINK_START);
+				if (pendingLength > 0) {
+					visibleText += data.slice(0, -pendingLength);
+					this._xmlThinkPending = data.slice(-pendingLength);
+				} else {
+					visibleText += data;
 				}
-				data = "";
 				break;
 			}
 
-			// Found end tag, emit final thinking part
-			const thinkContent = data.slice(0, endIdx);
-			if (thinkContent) {
-				hasThinkContent = true;
-			}
-
-			// Reset state and continue with remaining data
-			this._xmlThinkActive = false;
-			this._currentThinkingId = null;
-			data = data.slice(endIdx + THINK_END.length);
+			visibleText += data.slice(0, startIdx);
+			this._xmlThinkActive = true;
+			this._currentThinkingId = this.generateThinkingId();
+			sawThinkContent = true;
+			data = data.slice(startIdx + THINK_START.length);
 		}
 
-		return { hasThinkContent };
+		return { visibleText, sawThinkContent };
+	}
+
+	private partialTagSuffixLength(data: string, tag: string): number {
+		const max = Math.min(data.length, tag.length - 1);
+		for (let length = max; length > 0; length--) {
+			if (data.endsWith(tag.slice(0, length))) {
+				return length;
+			}
+		}
+		return 0;
+	}
+
+	private flushXmlThinkPending(progress: Progress<vscode.LanguageModelResponsePart>): void {
+		if (!this._xmlThinkPending) {
+			return;
+		}
+		if (!this._xmlThinkActive) {
+			const pending = this._xmlThinkPending;
+			progress.report(new vscode.LanguageModelTextPart(pending));
+			this._hasEmittedAssistantText = true;
+			if (pending.trim()) {
+				this.hasEmittedVisibleText = true;
+			}
+		}
+		this._xmlThinkPending = "";
+	}
+
+	private reportNoVisibleResponseFallback(progress: Progress<vscode.LanguageModelResponsePart>): void {
+		if (this.hasEmittedVisibleText || this._completedToolCallIndices.size > 0) {
+			return;
+		}
+		const message = this.sawHiddenThinkingContent ? HIDDEN_THINKING_NO_FINAL_TEXT_FALLBACK : EMPTY_NO_FINAL_TEXT_FALLBACK;
+		progress.report(new vscode.LanguageModelTextPart(message));
+		this._hasEmittedAssistantText = true;
+		this.hasEmittedVisibleText = true;
 	}
 }

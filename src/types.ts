@@ -128,7 +128,6 @@ export interface InfiniAIModelInfo {
 	capabilities?: {
 		toolCalling?: boolean | number;
 		imageInput?: boolean;
-		reasoning?: boolean;
 		codeGeneration?: boolean;
 	};
 	extra?: Record<string, unknown>;

@@ -14,7 +14,6 @@ const SCENE_LABELS = new Map([
 	["文本生成", "Text"],
 	["代码生成", "Code"],
 	["工具调用", "Tools"],
-	["深度推理", "Reasoning"],
 	["视觉理解", "Vision"],
 	["文本向量", "Embeddings"],
 	["图像生成", "Image generation"],
@@ -22,6 +21,12 @@ const SCENE_LABELS = new Map([
 	["文生视频", "Text-to-video"],
 	["图生视频", "Image-to-video"],
 	["基于首帧", "First-frame video"],
+]);
+
+const UNTRUSTED_SCENE_TAGS = new Set([
+	// This tag is a broad product/catalog label, not evidence that a model
+	// accepts request controls such as reasoning_effort or enable_thinking.
+	"深度推理",
 ]);
 
 function parseArgs(argv) {
@@ -265,6 +270,7 @@ function normalizeModel(rawModel) {
 	const sizeLabel = firstTag(tags, "size");
 	const gpu = firstTag(tags, "gpu") ?? stringOrUndefined(raw.default_gpu_name);
 	const scenes = tags.get("scene") ?? [];
+	const trustedScenes = scenes.filter((scene) => !UNTRUSTED_SCENE_TAGS.has(scene));
 	const isChatCandidate = catalogType ? CHAT_TYPES.has(catalogType) : false;
 	const isClaudeCompatible = endpointType === "Claude兼容";
 	const manufacturer = stringOrUndefined(raw.manufacturer) ?? providerTag;
@@ -272,7 +278,7 @@ function normalizeModel(rawModel) {
 	const contextLength = numberOrUndefined(raw.context_length);
 	const maxOutput = numberOrUndefined(raw.max_completion_tokens);
 	const maxInput = contextLength ? Math.max(1, contextLength - (maxOutput ?? 0)) : undefined;
-	const labels = sceneLabels(scenes);
+	const labels = sceneLabels(trustedScenes);
 	const billing = raw.call_info && typeof raw.call_info === "object" ? {
 		expenses: stringOrUndefined(raw.call_info.expenses),
 		billing_method: stringOrUndefined(raw.call_info.billing_method),
@@ -290,7 +296,7 @@ function normalizeModel(rawModel) {
 		created: unixSeconds(raw.release_time),
 		manufacturer,
 		catalogType,
-		scenes,
+		scenes: trustedScenes,
 		providerTag,
 		endpointType,
 		sizeLabel,
@@ -321,7 +327,7 @@ function normalizeModel(rawModel) {
 			displayName,
 			manufacturer,
 			catalogType,
-			scenes,
+			scenes: trustedScenes,
 			contextLength,
 			maxOutput,
 			endpointType,
@@ -330,10 +336,9 @@ function normalizeModel(rawModel) {
 			description,
 		}),
 		capabilities: {
-			toolCalling: scenes.includes("工具调用"),
-			imageInput: scenes.includes("视觉理解"),
-			reasoning: scenes.includes("深度推理"),
-			codeGeneration: scenes.includes("代码生成"),
+			toolCalling: trustedScenes.includes("工具调用"),
+			imageInput: trustedScenes.includes("视觉理解"),
+			codeGeneration: trustedScenes.includes("代码生成"),
 		},
 		billing,
 	};
@@ -415,7 +420,6 @@ export type BuiltInEndpointKind = "chat.completions" | "messages" | "generateCon
 export interface BuiltInInfiniAIModelCapabilities {
 \treadonly toolCalling?: boolean;
 \treadonly imageInput?: boolean;
-\treadonly reasoning?: boolean;
 \treadonly codeGeneration?: boolean;
 }
 
@@ -475,7 +479,6 @@ async function main() {
 			nonChat: nonChatModels.length,
 			toolCalling: chatModels.filter((model) => model.capabilities.toolCalling).length,
 			imageInput: chatModels.filter((model) => model.capabilities.imageInput).length,
-			reasoning: chatModels.filter((model) => model.capabilities.reasoning).length,
 			claudeCompatible: chatModels.filter((model) => model.endpointKind === "messages").length,
 		},
 		byCatalogType: countBy(normalized, (model) => model.catalogType),
@@ -492,7 +495,7 @@ async function main() {
 	console.log(`Wrote ${path.relative(process.cwd(), outputPath)}`);
 	console.log(`Wrote ${path.relative(process.cwd(), tsOutputPath)}`);
 	console.log(`Models: ${result.counts.raw} raw, ${result.counts.chat} chat, ${result.counts.nonChat} non-chat`);
-	console.log(`Capabilities: ${result.counts.toolCalling} tools, ${result.counts.imageInput} vision, ${result.counts.reasoning} reasoning`);
+	console.log(`Capabilities: ${result.counts.toolCalling} tools, ${result.counts.imageInput} vision`);
 	console.log(`Routes: ${result.counts.claudeCompatible} Claude-compatible`);
 }
 

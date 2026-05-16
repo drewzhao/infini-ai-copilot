@@ -42,6 +42,7 @@ export abstract class CommonApi {
 	// XML think block parsing state
 	protected _xmlThinkActive = false;
 	protected _xmlThinkDetectionAttempted = false;
+	protected _xmlThinkPending = "";
 
 	// Thinking content state management
 	protected _currentThinkingId: string | null = null;

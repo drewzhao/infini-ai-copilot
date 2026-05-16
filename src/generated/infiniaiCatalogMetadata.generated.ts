@@ -7,7 +7,6 @@ export type BuiltInEndpointKind = "chat.completions" | "messages" | "generateCon
 export interface BuiltInInfiniAIModelCapabilities {
 	readonly toolCalling?: boolean;
 	readonly imageInput?: boolean;
-	readonly reasoning?: boolean;
 	readonly codeGeneration?: boolean;
 }
 
@@ -40,7 +39,6 @@ export const BUILT_IN_INFINIAI_CATALOG_COUNTS = {
 	"nonChat": 9,
 	"toolCalling": 28,
 	"imageInput": 7,
-	"reasoning": 23,
 	"claudeCompatible": 17
 } as const;
 
@@ -56,12 +54,11 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxOutputTokens": 8192,
 		"apiMode": "openai",
 		"endpointKind": "chat.completions",
-		"detail": "百川 · Reasoning · 医疗能力世界第一",
-		"tooltip": "baichuan-m2-32b\nProvider: 百川 · 大语言模型\nCapabilities: Text, Reasoning\nContext: 65,536 tokens\nMax output: 8,192 tokens\nPromotion: 医疗能力世界第一\nBilling: 限免 · 后付费 · 按小时结算",
+		"detail": "百川 · 医疗能力世界第一",
+		"tooltip": "baichuan-m2-32b\nProvider: 百川 · 大语言模型\nCapabilities: Text\nContext: 65,536 tokens\nMax output: 8,192 tokens\nPromotion: 医疗能力世界第一\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": false,
 			"imageInput": false,
-			"reasoning": true,
 			"codeGeneration": false
 		}
 	},
@@ -80,7 +77,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"capabilities": {
 			"toolCalling": false,
 			"imageInput": true,
-			"reasoning": false,
 			"codeGeneration": false
 		}
 	},
@@ -95,12 +91,11 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxOutputTokens": 32768,
 		"apiMode": "openai",
 		"endpointKind": "chat.completions",
-		"detail": "DeepSeek · Reasoning · Tools · 0528升级版",
-		"tooltip": "deepseek-r1\nProvider: DeepSeek · 大语言模型\nCapabilities: Text, Reasoning, Tools\nContext: 131,072 tokens\nMax output: 32,768 tokens\nPromotion: 0528升级版\nDeepSeek-R1是由深度求索最新开源的推理模型，该模型在 RL 之前引入了冷启动数据，解决了通过大规模强化学习（RL）进行训练的DeepSeek-R1-Zero 模型遇到的诸如无休止的重复、可读性差以及语言混杂等挑战，并进一步提升推理性能，在数学、代码和推理任务上的表现与 OpenAI-o1 不相上下。\nBilling: 限免 · 后付费 · 按小时结算",
+		"detail": "DeepSeek · Tools · 0528升级版",
+		"tooltip": "deepseek-r1\nProvider: DeepSeek · 大语言模型\nCapabilities: Text, Tools\nContext: 131,072 tokens\nMax output: 32,768 tokens\nPromotion: 0528升级版\nDeepSeek-R1是由深度求索最新开源的推理模型，该模型在 RL 之前引入了冷启动数据，解决了通过大规模强化学习（RL）进行训练的DeepSeek-R1-Zero 模型遇到的诸如无休止的重复、可读性差以及语言混杂等挑战，并进一步提升推理性能，在数学、代码和推理任务上的表现与 OpenAI-o1 不相上下。\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
-			"reasoning": true,
 			"codeGeneration": false
 		}
 	},
@@ -115,12 +110,11 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxOutputTokens": 8192,
 		"apiMode": "openai",
 		"endpointKind": "chat.completions",
-		"detail": "Deepseek · Reasoning · 最新开源",
-		"tooltip": "deepseek-r1-distill-qwen-32b\nProvider: Deepseek · 大语言模型\nCapabilities: Text, Reasoning\nContext: 32,768 tokens\nMax output: 8,192 tokens\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
+		"detail": "Deepseek · 最新开源",
+		"tooltip": "deepseek-r1-distill-qwen-32b\nProvider: Deepseek · 大语言模型\nCapabilities: Text\nContext: 32,768 tokens\nMax output: 8,192 tokens\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": false,
 			"imageInput": false,
-			"reasoning": true,
 			"codeGeneration": false
 		}
 	},
@@ -140,7 +134,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"capabilities": {
 			"toolCalling": false,
 			"imageInput": false,
-			"reasoning": false,
 			"codeGeneration": false
 		}
 	},
@@ -155,12 +148,11 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxOutputTokens": 32768,
 		"apiMode": "openai",
 		"endpointKind": "chat.completions",
-		"detail": "Deepseek · Code · Reasoning · Tools · deepseek-v3.1-terminus",
-		"tooltip": "deepseek-v3.1\nProvider: Deepseek · 大语言模型\nCapabilities: Text, Code, Reasoning, Tools\nContext: 131,072 tokens\nMax output: 32,768 tokens\nPromotion: deepseek-v3.1-terminus\n===deepseek-v3.1-terminus\nBilling: 限免 · 后付费 · 按小时结算",
+		"detail": "Deepseek · Code · Tools · deepseek-v3.1-terminus",
+		"tooltip": "deepseek-v3.1\nProvider: Deepseek · 大语言模型\nCapabilities: Text, Code, Tools\nContext: 131,072 tokens\nMax output: 32,768 tokens\nPromotion: deepseek-v3.1-terminus\n===deepseek-v3.1-terminus\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
-			"reasoning": true,
 			"codeGeneration": true
 		}
 	},
@@ -175,12 +167,11 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxOutputTokens": 32768,
 		"apiMode": "openai",
 		"endpointKind": "chat.completions",
-		"detail": "Deepseek · Code · Reasoning · Tools",
-		"tooltip": "deepseek-v3.1-terminus\nProvider: Deepseek · 大语言模型\nCapabilities: Text, Code, Reasoning, Tools\nContext: 131,072 tokens\nMax output: 32,768 tokens\nBilling: 限免 · 后付费 · 按小时结算",
+		"detail": "Deepseek · Code · Tools",
+		"tooltip": "deepseek-v3.1-terminus\nProvider: Deepseek · 大语言模型\nCapabilities: Text, Code, Tools\nContext: 131,072 tokens\nMax output: 32,768 tokens\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
-			"reasoning": true,
 			"codeGeneration": true
 		}
 	},
@@ -199,7 +190,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
-			"reasoning": false,
 			"codeGeneration": true
 		}
 	},
@@ -214,12 +204,11 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxOutputTokens": 32768,
 		"apiMode": "openai",
 		"endpointKind": "chat.completions",
-		"detail": "Deepseek · Code · Reasoning · Tools · 性价比之王",
-		"tooltip": "deepseek-v3.2-exp\nProvider: Deepseek · 大语言模型\nCapabilities: Text, Code, Reasoning, Tools\nContext: 131,072 tokens\nMax output: 32,768 tokens\nPromotion: 性价比之王\nBilling: 限免 · 后付费 · 按小时结算",
+		"detail": "Deepseek · Code · Tools · 性价比之王",
+		"tooltip": "deepseek-v3.2-exp\nProvider: Deepseek · 大语言模型\nCapabilities: Text, Code, Tools\nContext: 131,072 tokens\nMax output: 32,768 tokens\nPromotion: 性价比之王\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
-			"reasoning": true,
 			"codeGeneration": true
 		}
 	},
@@ -233,12 +222,11 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxInputTokens": 131072,
 		"apiMode": "anthropic",
 		"endpointKind": "messages",
-		"detail": "DeepSeek · Code · Reasoning · Tools · Claude-compatible · 思考模式",
-		"tooltip": "deepseek-v3.2-thinking\nProvider: DeepSeek · 大语言模型\nCapabilities: Text, Code, Reasoning, Tools\nContext: 131,072 tokens\nEndpoint: Claude兼容\nPromotion: 思考模式\nBilling: 限免 · 后付费 · 按小时结算",
+		"detail": "DeepSeek · Code · Tools · Claude-compatible · 思考模式",
+		"tooltip": "deepseek-v3.2-thinking\nProvider: DeepSeek · 大语言模型\nCapabilities: Text, Code, Tools\nContext: 131,072 tokens\nEndpoint: Claude兼容\nPromotion: 思考模式\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
-			"reasoning": true,
 			"codeGeneration": true
 		}
 	},
@@ -258,7 +246,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"capabilities": {
 			"toolCalling": false,
 			"imageInput": false,
-			"reasoning": false,
 			"codeGeneration": false
 		}
 	},
@@ -278,7 +265,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"capabilities": {
 			"toolCalling": false,
 			"imageInput": false,
-			"reasoning": false,
 			"codeGeneration": false
 		}
 	},
@@ -297,7 +283,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"capabilities": {
 			"toolCalling": false,
 			"imageInput": false,
-			"reasoning": false,
 			"codeGeneration": false
 		}
 	},
@@ -316,7 +301,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"capabilities": {
 			"toolCalling": false,
 			"imageInput": false,
-			"reasoning": false,
 			"codeGeneration": false
 		}
 	},
@@ -335,7 +319,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": true,
-			"reasoning": false,
 			"codeGeneration": false
 		}
 	},
@@ -349,12 +332,11 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxInputTokens": 204800,
 		"apiMode": "anthropic",
 		"endpointKind": "messages",
-		"detail": "智谱 · Code · Reasoning · Tools · Claude-compatible",
-		"tooltip": "glm-4.6\nProvider: 智谱 · 大语言模型\nCapabilities: Text, Code, Reasoning, Tools\nContext: 204,800 tokens\nEndpoint: Claude兼容\nBilling: 限免 · 后付费 · 按小时结算",
+		"detail": "智谱 · Code · Tools · Claude-compatible",
+		"tooltip": "glm-4.6\nProvider: 智谱 · 大语言模型\nCapabilities: Text, Code, Tools\nContext: 204,800 tokens\nEndpoint: Claude兼容\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
-			"reasoning": true,
 			"codeGeneration": true
 		}
 	},
@@ -368,12 +350,11 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxInputTokens": 131072,
 		"apiMode": "openai",
 		"endpointKind": "chat.completions",
-		"detail": "智谱 · Reasoning · Tools · Vision",
-		"tooltip": "glm-4.6v\nProvider: 智谱 · 多模态模型\nCapabilities: Reasoning, Tools, Vision\nContext: 131,072 tokens\nBilling: 限免 · 后付费 · 按小时结算",
+		"detail": "智谱 · Tools · Vision",
+		"tooltip": "glm-4.6v\nProvider: 智谱 · 多模态模型\nCapabilities: Tools, Vision\nContext: 131,072 tokens\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": true,
-			"reasoning": true,
 			"codeGeneration": false
 		}
 	},
@@ -392,7 +373,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
-			"reasoning": false,
 			"codeGeneration": true
 		}
 	},
@@ -407,12 +387,11 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxOutputTokens": 131072,
 		"apiMode": "anthropic",
 		"endpointKind": "messages",
-		"detail": "智谱 · Code · Reasoning · Tools · Claude-compatible",
-		"tooltip": "glm-5\nProvider: 智谱 · 大语言模型\nCapabilities: Text, Code, Reasoning, Tools\nContext: 204,800 tokens\nMax output: 131,072 tokens\nEndpoint: Claude兼容\nBilling: 限免 · 后付费 · 按小时结算",
+		"detail": "智谱 · Code · Tools · Claude-compatible",
+		"tooltip": "glm-5\nProvider: 智谱 · 大语言模型\nCapabilities: Text, Code, Tools\nContext: 204,800 tokens\nMax output: 131,072 tokens\nEndpoint: Claude兼容\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
-			"reasoning": true,
 			"codeGeneration": true
 		}
 	},
@@ -427,12 +406,11 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxOutputTokens": 131072,
 		"apiMode": "anthropic",
 		"endpointKind": "messages",
-		"detail": "智谱 · Code · Reasoning · Tools · Claude-compatible · 最新开源",
-		"tooltip": "glm-5.1\nProvider: 智谱 · 大语言模型\nCapabilities: Text, Code, Reasoning, Tools\nContext: 204,800 tokens\nMax output: 131,072 tokens\nEndpoint: Claude兼容\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
+		"detail": "智谱 · Code · Tools · Claude-compatible · 最新开源",
+		"tooltip": "glm-5.1\nProvider: 智谱 · 大语言模型\nCapabilities: Text, Code, Tools\nContext: 204,800 tokens\nMax output: 131,072 tokens\nEndpoint: Claude兼容\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
-			"reasoning": true,
 			"codeGeneration": true
 		}
 	},
@@ -452,7 +430,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"capabilities": {
 			"toolCalling": false,
 			"imageInput": false,
-			"reasoning": false,
 			"codeGeneration": false
 		}
 	},
@@ -466,12 +443,11 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxInputTokens": 262144,
 		"apiMode": "openai",
 		"endpointKind": "chat.completions",
-		"detail": "月之暗面 · Code · Reasoning · Tools",
-		"tooltip": "kimi-k2-thinking\nProvider: 月之暗面 · 大语言模型\nCapabilities: Text, Code, Reasoning, Tools\nContext: 262,144 tokens\nBilling: 限免 · 后付费 · 按小时结算",
+		"detail": "月之暗面 · Code · Tools",
+		"tooltip": "kimi-k2-thinking\nProvider: 月之暗面 · 大语言模型\nCapabilities: Text, Code, Tools\nContext: 262,144 tokens\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
-			"reasoning": true,
 			"codeGeneration": true
 		}
 	},
@@ -486,12 +462,11 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxOutputTokens": 65536,
 		"apiMode": "anthropic",
 		"endpointKind": "messages",
-		"detail": "月之暗面 · Code · Reasoning · Tools · Vision · Claude-compatible · 最新开源",
-		"tooltip": "kimi-k2.5\nProvider: 月之暗面 · 多模态模型\nCapabilities: Text, Code, Reasoning, Tools, Vision\nContext: 262,144 tokens\nMax output: 65,536 tokens\nEndpoint: Claude兼容\nPromotion: 最新开源\n正式\nBilling: 限免 · 后付费 · 按小时结算",
+		"detail": "月之暗面 · Code · Tools · Vision · Claude-compatible · 最新开源",
+		"tooltip": "kimi-k2.5\nProvider: 月之暗面 · 多模态模型\nCapabilities: Text, Code, Tools, Vision\nContext: 262,144 tokens\nMax output: 65,536 tokens\nEndpoint: Claude兼容\nPromotion: 最新开源\n正式\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": true,
-			"reasoning": true,
 			"codeGeneration": true
 		}
 	},
@@ -506,12 +481,11 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxOutputTokens": 131072,
 		"apiMode": "anthropic",
 		"endpointKind": "messages",
-		"detail": "月之暗面 · Code · Reasoning · Tools · Vision · Claude-compatible · 最新开源",
-		"tooltip": "kimi-k2.6\nProvider: 月之暗面 · 大语言模型\nCapabilities: Text, Code, Reasoning, Tools, Vision\nContext: 262,144 tokens\nMax output: 131,072 tokens\nEndpoint: Claude兼容\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
+		"detail": "月之暗面 · Code · Tools · Vision · Claude-compatible · 最新开源",
+		"tooltip": "kimi-k2.6\nProvider: 月之暗面 · 大语言模型\nCapabilities: Text, Code, Tools, Vision\nContext: 262,144 tokens\nMax output: 131,072 tokens\nEndpoint: Claude兼容\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": true,
-			"reasoning": true,
 			"codeGeneration": true
 		}
 	},
@@ -531,7 +505,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"capabilities": {
 			"toolCalling": false,
 			"imageInput": false,
-			"reasoning": false,
 			"codeGeneration": false
 		}
 	},
@@ -550,7 +523,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"capabilities": {
 			"toolCalling": false,
 			"imageInput": false,
-			"reasoning": false,
 			"codeGeneration": false
 		}
 	},
@@ -569,7 +541,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"capabilities": {
 			"toolCalling": false,
 			"imageInput": false,
-			"reasoning": false,
 			"codeGeneration": false
 		}
 	},
@@ -588,7 +559,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
-			"reasoning": false,
 			"codeGeneration": true
 		}
 	},
@@ -602,12 +572,11 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxInputTokens": 204800,
 		"apiMode": "anthropic",
 		"endpointKind": "messages",
-		"detail": "Minimax · Code · Reasoning · Tools · Claude-compatible · 最新开源",
-		"tooltip": "minimax-m2.5\nProvider: Minimax · 大语言模型\nCapabilities: Text, Code, Reasoning, Tools\nContext: 204,800 tokens\nEndpoint: Claude兼容\nPromotion: 最新开源\nminimax-m2.5 生产用\nBilling: 限免 · 后付费 · 按小时结算",
+		"detail": "Minimax · Code · Tools · Claude-compatible · 最新开源",
+		"tooltip": "minimax-m2.5\nProvider: Minimax · 大语言模型\nCapabilities: Text, Code, Tools\nContext: 204,800 tokens\nEndpoint: Claude兼容\nPromotion: 最新开源\nminimax-m2.5 生产用\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
-			"reasoning": true,
 			"codeGeneration": true
 		}
 	},
@@ -626,7 +595,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"capabilities": {
 			"toolCalling": false,
 			"imageInput": false,
-			"reasoning": false,
 			"codeGeneration": false
 		}
 	},
@@ -641,12 +609,11 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxOutputTokens": 32768,
 		"apiMode": "openai",
 		"endpointKind": "chat.completions",
-		"detail": "DeepSeek · Reasoning · 【包并发】0528升级版",
-		"tooltip": "pro-deepseek-r1\nProvider: DeepSeek · 大语言模型\nCapabilities: Text, Reasoning\nContext: 131,072 tokens\nMax output: 32,768 tokens\nPromotion: 【包并发】0528升级版\n用于专属测试。\nBilling: 限免 · 后付费 · 按小时结算",
+		"detail": "DeepSeek · 【包并发】0528升级版",
+		"tooltip": "pro-deepseek-r1\nProvider: DeepSeek · 大语言模型\nCapabilities: Text\nContext: 131,072 tokens\nMax output: 32,768 tokens\nPromotion: 【包并发】0528升级版\n用于专属测试。\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": false,
 			"imageInput": false,
-			"reasoning": true,
 			"codeGeneration": false
 		}
 	},
@@ -666,7 +633,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"capabilities": {
 			"toolCalling": false,
 			"imageInput": false,
-			"reasoning": false,
 			"codeGeneration": false
 		}
 	},
@@ -681,12 +647,11 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxOutputTokens": 8192,
 		"apiMode": "openai",
 		"endpointKind": "chat.completions",
-		"detail": "通义千问 · Reasoning · Tools · 最新开源",
-		"tooltip": "qwen3-14b\nProvider: 通义千问 · 大语言模型\nCapabilities: Text, Reasoning, Tools\nContext: 131,072 tokens\nMax output: 8,192 tokens\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
+		"detail": "通义千问 · Tools · 最新开源",
+		"tooltip": "qwen3-14b\nProvider: 通义千问 · 大语言模型\nCapabilities: Text, Tools\nContext: 131,072 tokens\nMax output: 8,192 tokens\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
-			"reasoning": true,
 			"codeGeneration": false
 		}
 	},
@@ -701,12 +666,11 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxOutputTokens": 8192,
 		"apiMode": "openai",
 		"endpointKind": "chat.completions",
-		"detail": "通义千问 · Reasoning · Tools",
-		"tooltip": "qwen3-235b-a22b\nProvider: 通义千问 · 大语言模型\nCapabilities: Text, Reasoning, Tools\nContext: 131,072 tokens\nMax output: 8,192 tokens\nBilling: 限免 · 后付费 · 按小时结算",
+		"detail": "通义千问 · Tools",
+		"tooltip": "qwen3-235b-a22b\nProvider: 通义千问 · 大语言模型\nCapabilities: Text, Tools\nContext: 131,072 tokens\nMax output: 8,192 tokens\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
-			"reasoning": true,
 			"codeGeneration": false
 		}
 	},
@@ -726,7 +690,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
-			"reasoning": false,
 			"codeGeneration": false
 		}
 	},
@@ -741,12 +704,11 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxOutputTokens": 8192,
 		"apiMode": "openai",
 		"endpointKind": "chat.completions",
-		"detail": "通义千问 · Reasoning · Tools · 最新开源",
-		"tooltip": "qwen3-30b-a3b\nProvider: 通义千问 · 大语言模型\nCapabilities: Text, Reasoning, Tools\nContext: 131,072 tokens\nMax output: 8,192 tokens\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
+		"detail": "通义千问 · Tools · 最新开源",
+		"tooltip": "qwen3-30b-a3b\nProvider: 通义千问 · 大语言模型\nCapabilities: Text, Tools\nContext: 131,072 tokens\nMax output: 8,192 tokens\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
-			"reasoning": true,
 			"codeGeneration": false
 		}
 	},
@@ -761,12 +723,11 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxOutputTokens": 8192,
 		"apiMode": "openai",
 		"endpointKind": "chat.completions",
-		"detail": "通义千问 · Reasoning · Tools · 最新开源",
-		"tooltip": "qwen3-32b\nProvider: 通义千问 · 大语言模型\nCapabilities: Text, Reasoning, Tools\nContext: 131,072 tokens\nMax output: 8,192 tokens\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
+		"detail": "通义千问 · Tools · 最新开源",
+		"tooltip": "qwen3-32b\nProvider: 通义千问 · 大语言模型\nCapabilities: Text, Tools\nContext: 131,072 tokens\nMax output: 8,192 tokens\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
-			"reasoning": true,
 			"codeGeneration": false
 		}
 	},
@@ -781,12 +742,11 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxOutputTokens": 8192,
 		"apiMode": "openai",
 		"endpointKind": "chat.completions",
-		"detail": "通义千问 · Reasoning · Tools · 最新开源",
-		"tooltip": "qwen3-8b\nProvider: 通义千问 · 大语言模型\nCapabilities: Text, Reasoning, Tools\nContext: 131,072 tokens\nMax output: 8,192 tokens\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
+		"detail": "通义千问 · Tools · 最新开源",
+		"tooltip": "qwen3-8b\nProvider: 通义千问 · 大语言模型\nCapabilities: Text, Tools\nContext: 131,072 tokens\nMax output: 8,192 tokens\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
-			"reasoning": true,
 			"codeGeneration": false
 		}
 	},
@@ -806,7 +766,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
-			"reasoning": false,
 			"codeGeneration": true
 		}
 	},
@@ -826,7 +785,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
-			"reasoning": false,
 			"codeGeneration": false
 		}
 	},
@@ -841,12 +799,11 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxOutputTokens": 32768,
 		"apiMode": "openai",
 		"endpointKind": "chat.completions",
-		"detail": "通义千问 · Reasoning · Tools",
-		"tooltip": "qwen3-next-80b-a3b-thinking\nProvider: 通义千问 · 大语言模型\nCapabilities: Text, Reasoning, Tools\nContext: 131,072 tokens\nMax output: 32,768 tokens\nBilling: 限免 · 后付费 · 按小时结算",
+		"detail": "通义千问 · Tools",
+		"tooltip": "qwen3-next-80b-a3b-thinking\nProvider: 通义千问 · 大语言模型\nCapabilities: Text, Tools\nContext: 131,072 tokens\nMax output: 32,768 tokens\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
-			"reasoning": true,
 			"codeGeneration": false
 		}
 	},
@@ -866,7 +823,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": true,
-			"reasoning": false,
 			"codeGeneration": false
 		}
 	},
@@ -881,12 +837,11 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxOutputTokens": 32768,
 		"apiMode": "openai",
 		"endpointKind": "chat.completions",
-		"detail": "通义千问 · Reasoning · Tools · Vision · 最新开源",
-		"tooltip": "qwen3-vl-235b-a22b-thinking\nProvider: 通义千问 · 多模态模型\nCapabilities: Reasoning, Tools, Vision\nContext: 131,072 tokens\nMax output: 32,768 tokens\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
+		"detail": "通义千问 · Tools · Vision · 最新开源",
+		"tooltip": "qwen3-vl-235b-a22b-thinking\nProvider: 通义千问 · 多模态模型\nCapabilities: Tools, Vision\nContext: 131,072 tokens\nMax output: 32,768 tokens\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": true,
-			"reasoning": true,
 			"codeGeneration": false
 		}
 	}

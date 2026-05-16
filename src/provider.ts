@@ -13,7 +13,7 @@ import { AnthropicRequestBody } from "./anthropic/anthropicTypes";
 import { enrichModelWithBuiltInMetadata, inferModelFamily, isBuiltInNonChatModel } from "./catalogMetadata";
 import { surfaceActionableError } from "./errorActions";
 import { makeUserSelectableLanguageModelInfo } from "./grayLanguageModelMetadata";
-import { buildInfiniAIModelConfigurationSchema } from "./modelConfiguration";
+import { buildInfiniAIModelConfigurationSchema, resolveInfiniAIModelConfiguration } from "./modelConfiguration";
 import { OpenaiApi } from "./openai/openaiApi";
 import type { OpenAIChatMessage } from "./openai/openaiTypes";
 import { prepareTokenCount } from "./provideToken";
@@ -540,9 +540,14 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		}
 		const requestMessages = replayDecision.allowThinkingRoundTrip ? replayPreflight.messages : openaiMessages;
 		const pendingThinkingTurn = replayDecision.allowThinkingRoundTrip ? thinkingReplayStore.beginTurn(model.id) : undefined;
+		const modelConfiguration = resolveInfiniAIModelConfiguration(options);
+		const forceDisableThinking = shouldDisableThinking(model.id, disableThinkingPatterns);
+		const suppressResponseThinking =
+			modelConfiguration.thinkingMode === "disabled" || (forceDisableThinking && !replayDecision.allowThinkingRoundTrip);
 		const openaiApi = new OpenaiApi({
 			thinkingReplayStore: pendingThinkingTurn ? thinkingReplayStore : undefined,
 			pendingThinkingTurn,
+			emitThinkingParts: !suppressResponseThinking,
 		});
 		let requestBody: Record<string, unknown> = {
 			model: model.id,
@@ -558,13 +563,25 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		);
 		const thinkingSummary = summarizeThinkingMessages(requestMessages);
 		const requestInitiator = (options as { requestInitiator?: unknown }).requestInitiator;
+		if (requestBody.enable_thinking === false) {
+			const source =
+				modelConfiguration.thinkingMode === "disabled"
+					? "modelConfiguration"
+					: forceDisableThinking
+						? "safetyPattern"
+						: "requestBody";
+			logInfo(
+				this.output,
+				`Thinking disabled for request model=${sanitizeForLog(model.id, 120)} source=${source}`
+			);
+		}
 		logDebug(
 			this.output,
 			`Thinking guard model=${sanitizeForLog(model.id, 120)} vscode=${sanitizeForLog(vscode.version, 40)} ` +
 				`app=${sanitizeForLog(vscode.env.appName, 80)} transport=OpenAI ` +
 				`requestInitiator=${sanitizeForLog(String(requestInitiator ?? ""), 120)} ` +
 				`hasThinkingPartApi=${hasThinkingPartApi()} ` +
-				`forceDisable=${shouldDisableThinking(model.id, disableThinkingPatterns)} ` +
+				`forceDisable=${forceDisableThinking} ` +
 				`roundTripOptIn=${userOptedIntoRoundTrip} ` +
 				`roundTripAllowed=${replayDecision.allowThinkingRoundTrip} ` +
 				`roundTripReplayed=${replayPreflight.replayedCount} ` +

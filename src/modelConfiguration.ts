@@ -6,7 +6,7 @@ import type { InfiniAIModelInfo } from "./types";
 type ModelConfigurationRecord = Record<string, unknown>;
 
 export type ReasoningEffort = "low" | "medium" | "high";
-export type ThinkingMode = "disabled";
+export type ThinkingMode = "enabled" | "disabled";
 
 export interface InfiniAIModelConfiguration {
 	readonly maxOutputTokens?: number;
@@ -40,7 +40,7 @@ function normalizeReasoningEffort(value: unknown): ReasoningEffort | undefined {
 }
 
 function normalizeThinkingMode(value: unknown): ThinkingMode | undefined {
-	return value === "disabled" ? value : undefined;
+	return value === "enabled" || value === "disabled" ? value : undefined;
 }
 
 function normalizeMaxOutputTokens(value: unknown): number | undefined {
@@ -93,7 +93,7 @@ export function resolveInfiniAIModelConfiguration(
 }
 
 export function buildInfiniAIModelConfigurationSchema(
-	model: InfiniAIModelInfo,
+	_model: InfiniAIModelInfo,
 	maxOutputTokens: number
 ): InfiniAIModelConfigurationSchema {
 	const outputChoices = getMaxOutputTokenChoices(maxOutputTokens);
@@ -111,26 +111,36 @@ export function buildInfiniAIModelConfigurationSchema(
 			maximum: Math.max(1, Math.floor(maxOutputTokens)),
 		},
 	};
+	properties.reasoningEffort = {
+		type: "string",
+		title: "Reasoning effort",
+		description:
+			"Selected values send reasoning_effort on OpenAI-compatible routes; some models may ignore or reject it. Unset sends nothing.",
+		enum: ["unset", "low", "medium", "high"],
+		enumItemLabels: ["Unset", "Low", "Medium", "High"],
+		enumDescriptions: [
+			"Do not send reasoning_effort. Safest default when model support is unknown.",
+			"Send reasoning_effort=low. The selected model may ignore or reject it.",
+			"Send reasoning_effort=medium. The selected model may ignore or reject it.",
+			"Send reasoning_effort=high. The selected model may ignore or reject it.",
+		],
+		default: "unset",
+		group: "navigation",
+	};
 
-	if (model.capabilities?.reasoning === true) {
-		properties.reasoningEffort = {
-			type: "string",
-			title: "Reasoning effort",
-			description: "Controls the reasoning effort parameter for OpenAI-compatible reasoning models.",
-			enum: ["default", "low", "medium", "high"],
-			enumItemLabels: ["Model default", "Low", "Medium", "High"],
-			default: "default",
-			group: "navigation",
-		};
-		properties.thinkingMode = {
-			type: "string",
-			title: "Thinking mode",
-			description: "Can explicitly disable provider thinking fields for models that need it.",
-			enum: ["default", "disabled"],
-			enumItemLabels: ["Model default", "Disabled"],
-			default: "default",
-		};
-	}
+	properties.thinkingMode = {
+		type: "string",
+		title: "Thinking mode",
+		description: "Empty sends no thinking parameter. Selected values send thinking controls and may not be accepted by every model.",
+		enum: ["unset", "disabled", "enabled"],
+		enumItemLabels: ["Empty", "Disabled", "Enabled"],
+		enumDescriptions: [
+			"Do not send a thinking parameter.",
+			"Send thinking-disable parameters.",
+			"Send thinking-enable parameters.",
+		],
+		default: "unset",
+	};
 
 	return { properties };
 }
@@ -147,6 +157,9 @@ export function applyOpenAIModelConfiguration(
 	}
 	if (configuration.thinkingMode === "disabled") {
 		applyDisableThinking(body);
+	} else if (configuration.thinkingMode === "enabled") {
+		body.enable_thinking = true;
+		body.thinking = { type: "enabled" };
 	}
 }
 
