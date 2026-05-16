@@ -39,6 +39,8 @@ export function registerInfiniAIChatParticipant(
 						`- ${vscode.l10n.t("Coding key present")}: ${boolText(diagnostic.hasCodingKey)}`,
 						`- ${vscode.l10n.t("Discovery endpoint")}: ${diagnostic.modelDiscoveryUrl}`,
 						`- ${vscode.l10n.t("Cached models")}: ${diagnostic.modelCount}`,
+						`- ${vscode.l10n.t("Route overrides")}: ${diagnostic.routeConfigCount}`,
+						`- ${vscode.l10n.t("Exact model route overrides")}: ${diagnostic.exactModelRouteOverrideCount}`,
 						`- ${vscode.l10n.t("Cache age")}: ${formatAge(diagnostic.cacheAgeMs)}`,
 						diagnostic.lastError
 							? `- ${vscode.l10n.t("Last error")}: ${sanitizeForLog(diagnostic.lastError, 240)}`
@@ -61,14 +63,14 @@ export function registerInfiniAIChatParticipant(
 					.slice(0, 50)
 					.map(
 						(model) =>
-							`| \`${model.id}\` | ${model.transport} | ${boolText(!!model.toolCalling)} | ${boolText(!!model.imageInput)} | ${model.maxInputTokens}/${model.maxOutputTokens} |`
+							`| \`${model.id}\` | ${model.transport} | ${model.routeSource} | ${boolText(!!model.toolCalling)} | ${boolText(!!model.imageInput)} | ${model.maxInputTokens}/${model.maxOutputTokens} |`
 					);
 				stream.markdown(
 					[
 						`## ${vscode.l10n.t("InfiniAI Models")}`,
 						"",
-						`| ${vscode.l10n.t("Model")} | ${vscode.l10n.t("Route")} | ${vscode.l10n.t("Tools")} | ${vscode.l10n.t("Images")} | ${vscode.l10n.t("Input/Output Tokens")} |`,
-						"|---|---:|---:|---:|---:|",
+						`| ${vscode.l10n.t("Model")} | ${vscode.l10n.t("Route")} | ${vscode.l10n.t("Source")} | ${vscode.l10n.t("Tools")} | ${vscode.l10n.t("Images")} | ${vscode.l10n.t("Input/Output Tokens")} |`,
+						"|---|---:|---:|---:|---:|---:|",
 						...rows,
 						models.length > 50 ? `\n${vscode.l10n.t("Showing 50 of {0} models.", models.length)}` : "",
 					].join("\n")

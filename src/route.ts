@@ -3,6 +3,8 @@ import * as vscode from "vscode";
 import { getActivePlan } from "./utils";
 import type { InfiniAIModelInfo, ModelEndpointKind, ModelRoute, ModelRouteConfig, ModelTransport } from "./types";
 
+export type ProtocolSwitchTransport = Extract<ModelTransport, "openai" | "anthropic">;
+
 function escapeRegexLiteral(input: string): string {
 	return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -42,7 +44,95 @@ export function parseModelRouteConfigs(value: unknown): ModelRouteConfig[] {
 	return routes;
 }
 
-function endpointKindForTransport(transport: ModelTransport): ModelEndpointKind {
+function rawPattern(item: unknown): string | undefined {
+	if (!item || typeof item !== "object") {
+		return undefined;
+	}
+	const pattern = (item as Record<string, unknown>).pattern;
+	return typeof pattern === "string" ? pattern.trim() : undefined;
+}
+
+export function getExactModelRouteOverride(value: unknown, modelId: string): ModelRouteConfig | undefined {
+	return parseModelRouteConfigs(value).find(route => route.pattern === modelId && !route.pattern.includes("*"));
+}
+
+export function countModelRouteOverrides(value: unknown): {
+	routeConfigCount: number;
+	exactModelRouteOverrideCount: number;
+} {
+	const routes = parseModelRouteConfigs(value);
+	return {
+		routeConfigCount: routes.length,
+		exactModelRouteOverrideCount: routes.filter(route => route.pattern !== "*" && !route.pattern.includes("*")).length,
+	};
+}
+
+function isExactModelPattern(item: unknown, modelId: string): boolean {
+	return rawPattern(item) === modelId;
+}
+
+function insertionIndexForExactOverride(items: readonly unknown[], modelId: string): number {
+	let firstExact = -1;
+	let firstBroaderMatch = -1;
+	for (let i = 0; i < items.length; i++) {
+		const pattern = rawPattern(items[i]);
+		if (!pattern) {
+			continue;
+		}
+		if (pattern === modelId) {
+			if (firstExact < 0) {
+				firstExact = i;
+			}
+			continue;
+		}
+		if (firstBroaderMatch < 0 && matchesRoutePattern(modelId, pattern)) {
+			firstBroaderMatch = i;
+		}
+	}
+	if (firstBroaderMatch >= 0) {
+		return firstBroaderMatch;
+	}
+	return firstExact >= 0 ? firstExact : items.length;
+}
+
+export function setExactModelRouteOverride(
+	value: unknown,
+	modelId: string,
+	transport: ProtocolSwitchTransport
+): unknown[] {
+	const items = Array.isArray(value) ? value : [];
+	const existing = getExactModelRouteOverride(value, modelId);
+	const next: ModelRouteConfig = { pattern: modelId, transport };
+	if (existing?.transport === transport && existing.baseUrl) {
+		next.baseUrl = existing.baseUrl;
+	}
+	const insertAt = insertionIndexForExactOverride(items, modelId);
+	const result: unknown[] = [];
+	let inserted = false;
+	for (let i = 0; i < items.length; i++) {
+		if (!inserted && i === insertAt) {
+			result.push(next);
+			inserted = true;
+		}
+		if (isExactModelPattern(items[i], modelId)) {
+			continue;
+		}
+		result.push(items[i]);
+	}
+	if (!inserted) {
+		result.push(next);
+	}
+	return result;
+}
+
+export function resetExactModelRouteOverride(value: unknown, modelId: string): unknown[] {
+	if (!Array.isArray(value)) {
+		return [];
+	}
+	return value.filter(item => !isExactModelPattern(item, modelId));
+}
+
+export function endpointKindForTransport(transport: ModelTransport): ModelEndpointKind {
 	switch (transport) {
 		case "anthropic":
 			return "messages";

@@ -74,6 +74,8 @@ describe("chat participant", () => {
 					hasStandardKey: true,
 					hasCodingKey: false,
 					modelCount: 2,
+					routeConfigCount: 3,
+					exactModelRouteOverrideCount: 2,
 					cacheAgeMs: 1500,
 					modelDiscoveryUrl: "https://cloud.infini-ai.com/maas/v1/models",
 					lastError: "authorization: Bearer secret-token",
@@ -89,6 +91,8 @@ describe("chat participant", () => {
 		assert.equal(participant.iconPath.id, "sparkle");
 		assert.match(out.chunks[0], /InfiniAI Doctor/);
 		assert.match(out.chunks[0], /Standard key present: yes/);
+		assert.match(out.chunks[0], /Route overrides: 3/);
+		assert.match(out.chunks[0], /Exact model route overrides: 2/);
 		assert.match(out.chunks[0], /\[REDACTED\]/);
 		assert.doesNotMatch(out.chunks[0], /secret-token/);
 	});
@@ -104,6 +108,7 @@ describe("chat participant", () => {
 						{
 							id: "model-a",
 							transport: "anthropic",
+							routeSource: "metadata",
 							toolCalling: true,
 							imageInput: false,
 							maxInputTokens: 1000,
@@ -122,6 +127,7 @@ describe("chat participant", () => {
 		assert.match(out.chunks[0], /InfiniAI Models/);
 		assert.match(out.chunks[0], /model-a/);
 		assert.match(out.chunks[0], /anthropic/);
+		assert.match(out.chunks[0], /metadata/);
 	});
 
 	it("shows command help by default", async () => {

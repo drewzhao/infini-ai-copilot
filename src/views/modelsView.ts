@@ -1,7 +1,17 @@
 import * as vscode from "vscode";
 
 import { getHiddenModelIds, getVisibleModelIds, isModelHidden, showAllProviderModels, updateHiddenModelIds, updateVisibleModelIds } from "../modelVisibility";
-import { InfiniAIChatModelProvider } from "../provider";
+import { InfiniAIChatModelProvider, type InfiniAIModelDescription } from "../provider";
+import {
+	endpointKindForTransport,
+	getExactModelRouteOverride,
+	matchesRoutePattern,
+	parseModelRouteConfigs,
+	resetExactModelRouteOverride,
+	setExactModelRouteOverride,
+	type ProtocolSwitchTransport,
+} from "../route";
+import type { ModelEndpointKind, ModelRoute } from "../types";
 import { getActivePlan, InfiniAIPlan, logDebug, sanitizeForLog } from "../utils";
 
 interface PlanNode {
@@ -17,6 +27,8 @@ interface ModelNode {
 	readonly id: string;
 	readonly hidden: boolean;
 	readonly transport: string;
+	readonly endpointKind: ModelEndpointKind;
+	readonly routeSource: ModelRoute["source"];
 	readonly toolCalling: boolean;
 	readonly imageInput: boolean;
 	readonly maxInputTokens: number;
@@ -66,6 +78,51 @@ function fingerprint(key: string | undefined): string {
 	}
 	const tail = key.length >= 4 ? key.slice(-4) : key;
 	return `\u2026${tail}`;
+}
+
+function formatTransport(transport: string): string {
+	switch (transport) {
+		case "anthropic":
+			return vscode.l10n.t("Anthropic Messages");
+		case "openai":
+			return vscode.l10n.t("OpenAI Chat Completions");
+		case "vertex":
+			return vscode.l10n.t("Vertex GenerateContent");
+		default:
+			return transport;
+	}
+}
+
+function formatEndpointKind(endpointKind: ModelEndpointKind): string {
+	return endpointKind;
+}
+
+function formatRouteSource(source: ModelRoute["source"]): string {
+	return source;
+}
+
+function isProtocolSwitchCandidate(model: InfiniAIModelDescription, rawRoutes: unknown): boolean {
+	const exact = getExactModelRouteOverride(rawRoutes, model.id);
+	return model.defaultTransport === "anthropic" || exact?.transport === "openai" || exact?.transport === "anthropic";
+}
+
+function effectiveRouteAfterChange(
+	model: InfiniAIModelDescription,
+	rawRoutes: unknown
+): { transport: string; source: ModelRoute["source"]; endpointKind: ModelEndpointKind } {
+	const matched = parseModelRouteConfigs(rawRoutes).find(route => matchesRoutePattern(model.id, route.pattern));
+	if (matched) {
+		return {
+			transport: matched.transport,
+			source: "user",
+			endpointKind: endpointKindForTransport(matched.transport),
+		};
+	}
+	return {
+		transport: model.defaultTransport,
+		source: model.defaultRouteSource,
+		endpointKind: model.defaultEndpointKind,
+	};
 }
 
 export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<InfiniNode>, vscode.Disposable {
@@ -135,7 +192,9 @@ export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<Infin
 					? `${node.transport} \u00b7 ${node.maxInputTokens.toLocaleString()}/${node.maxOutputTokens.toLocaleString()} \u00b7 ${vscode.l10n.t("Hidden")}`
 					: `${node.transport} \u00b7 ${node.maxInputTokens.toLocaleString()}/${node.maxOutputTokens.toLocaleString()}`;
 				const lines = [
-					vscode.l10n.t("Route: {0}", node.transport),
+					vscode.l10n.t("Route: {0}", formatTransport(node.transport)),
+					vscode.l10n.t("Route source: {0}", formatRouteSource(node.routeSource)),
+					vscode.l10n.t("Endpoint: {0}", formatEndpointKind(node.endpointKind)),
 					vscode.l10n.t("Picker visibility: {0}", node.hidden ? vscode.l10n.t("hidden") : vscode.l10n.t("visible")),
 					vscode.l10n.t("Tools: {0}", node.toolCalling ? vscode.l10n.t("yes") : vscode.l10n.t("no")),
 					vscode.l10n.t("Images: {0}", node.imageInput ? vscode.l10n.t("yes") : vscode.l10n.t("no")),
@@ -226,6 +285,8 @@ export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<Infin
 					id: m.id,
 					hidden: isModelHidden(m.id),
 					transport: m.transport,
+					endpointKind: m.endpointKind,
+					routeSource: m.routeSource,
 					toolCalling: !!m.toolCalling,
 					imageInput: !!m.imageInput,
 					maxInputTokens: m.maxInputTokens,
@@ -333,6 +394,13 @@ export function registerInfiniAIModelsTreeView(
 			provider.refreshModels();
 			treeDataProvider.refresh();
 		}),
+		vscode.commands.registerCommand("infiniai.switchModelProtocol", async (node?: InfiniNode) => {
+			const model = await resolveProtocolModel(node, provider);
+			if (!model) {
+				return;
+			}
+			await switchModelProtocol(model, provider, treeDataProvider);
+		}),
 		vscode.commands.registerCommand("infiniai.switchPlan", async () => {
 			const current = getActivePlan();
 			const next: InfiniAIPlan = current === "coding" ? "standard" : "coding";
@@ -354,6 +422,119 @@ export function registerInfiniAIModelsTreeView(
 		),
 	];
 	return vscode.Disposable.from(...disposables);
+}
+
+interface ProtocolModelPick extends vscode.QuickPickItem {
+	readonly model: InfiniAIModelDescription;
+}
+
+interface ProtocolActionPick extends vscode.QuickPickItem {
+	readonly transport?: ProtocolSwitchTransport;
+	readonly reset?: boolean;
+}
+
+async function resolveProtocolModel(
+	node: InfiniNode | undefined,
+	provider: InfiniAIChatModelProvider
+): Promise<InfiniAIModelDescription | undefined> {
+	const cancel = new vscode.CancellationTokenSource();
+	try {
+		const models = await provider.getModelDescriptions(false, cancel.token);
+		const rawRoutes = vscode.workspace.getConfiguration("infiniai").get<unknown>("modelRoutes", []);
+		if (node?.kind === "model") {
+			const model = models.find(candidate => candidate.id === node.id);
+			if (!model) {
+				void vscode.window.showInformationMessage(vscode.l10n.t("InfiniAI model {0} is not available.", node.id));
+				return undefined;
+			}
+			if (!isProtocolSwitchCandidate(model, rawRoutes)) {
+				void vscode.window.showInformationMessage(
+					vscode.l10n.t("{0} does not look like a Claude-compatible InfiniAI model.", model.id)
+				);
+				return undefined;
+			}
+			return model;
+		}
+
+		const picks = models
+			.filter(model => isProtocolSwitchCandidate(model, rawRoutes))
+			.map<ProtocolModelPick>(model => ({
+				label: model.id,
+				description: formatTransport(model.transport),
+				detail: vscode.l10n.t("Effective route: {0} ({1})", model.transport, model.routeSource),
+				model,
+			}));
+		if (picks.length === 0) {
+			void vscode.window.showInformationMessage(vscode.l10n.t("No Claude-compatible InfiniAI models are available."));
+			return undefined;
+		}
+		const pick = await vscode.window.showQuickPick(picks, {
+			placeHolder: vscode.l10n.t("Select an InfiniAI model to switch protocol"),
+			matchOnDescription: true,
+			matchOnDetail: true,
+		});
+		return pick?.model;
+	} finally {
+		cancel.dispose();
+	}
+}
+
+async function switchModelProtocol(
+	model: InfiniAIModelDescription,
+	provider: InfiniAIChatModelProvider,
+	treeDataProvider: InfiniAIModelsTreeProvider
+): Promise<void> {
+	const config = vscode.workspace.getConfiguration("infiniai");
+	const rawRoutes = config.get<unknown>("modelRoutes", []);
+	const exact = getExactModelRouteOverride(rawRoutes, model.id);
+	const picks: ProtocolActionPick[] = [
+		{
+			label: `${model.transport === "openai" ? "$(check) " : ""}${formatTransport("openai")}`,
+			description: exact?.transport === "openai" ? vscode.l10n.t("Exact override") : undefined,
+			transport: "openai",
+		},
+		{
+			label: `${model.transport === "anthropic" ? "$(check) " : ""}${formatTransport("anthropic")}`,
+			description: exact?.transport === "anthropic" ? vscode.l10n.t("Exact override") : undefined,
+			transport: "anthropic",
+		},
+	];
+	if (exact) {
+		picks.push(
+			{ label: vscode.l10n.t("Reset"), kind: vscode.QuickPickItemKind.Separator },
+			{
+				label: vscode.l10n.t("Reset exact override"),
+				description: vscode.l10n.t("Use matching wildcard or catalog default"),
+				reset: true,
+			}
+		);
+	}
+
+	const pick = await vscode.window.showQuickPick(picks, {
+		placeHolder: vscode.l10n.t("Select protocol for {0}", model.id),
+		matchOnDescription: true,
+	});
+	if (!pick) {
+		return;
+	}
+
+	const nextRoutes = pick.reset
+		? resetExactModelRouteOverride(rawRoutes, model.id)
+		: setExactModelRouteOverride(rawRoutes, model.id, pick.transport ?? "anthropic");
+	await config.update("modelRoutes", nextRoutes, vscode.ConfigurationTarget.Global);
+	provider.refreshModels();
+	treeDataProvider.refresh();
+
+	const effective = effectiveRouteAfterChange(model, nextRoutes);
+	const source = effective.source === "user" && pick.reset ? vscode.l10n.t("matching override") : effective.source;
+	void vscode.window.showInformationMessage(
+		vscode.l10n.t(
+			"{0} now uses {1} ({2}).",
+			model.id,
+			formatTransport(effective.transport),
+			source
+		)
+	);
 }
 
 async function resolveModelId(

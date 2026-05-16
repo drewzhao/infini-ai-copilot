@@ -7,6 +7,7 @@
 	"command.hideModel.title": "从选择器隐藏 InfiniAI 模型",
 	"command.showModel.title": "在选择器中显示 InfiniAI 模型",
 	"command.showAllModels.title": "在选择器中显示所有 InfiniAI 模型",
+	"command.switchModelProtocol.title": "切换模型协议",
 	"command.switchPlan.title": "切换计划",
 	"command.openSettings.title": "打开 InfiniAI 设置",
 	"command.clearThinkingReplayCache.title": "清除思考回放缓存",

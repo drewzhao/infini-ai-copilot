@@ -20,7 +20,7 @@ import { prepareTokenCount } from "./provideToken";
 import { hasThinkingPartApi } from "./proposedApi";
 import { applyThinkingReplay, decideThinkingReplayRequest } from "./thinkingReplay";
 import { thinkingReplayStore } from "./thinkingReplayStore";
-import { resolveModelRoute } from "./route";
+import { countModelRouteOverrides, resolveModelRoute } from "./route";
 import { updateContextStatusBar } from "./statusBar";
 import {
 	getDisableThinkingPatterns,
@@ -70,9 +70,25 @@ interface DiagnosticSnapshot {
 	hasStandardKey: boolean;
 	hasCodingKey: boolean;
 	modelCount: number;
+	routeConfigCount: number;
+	exactModelRouteOverrideCount: number;
 	cacheAgeMs?: number;
 	modelDiscoveryUrl: string;
 	lastError?: string;
+}
+
+export interface InfiniAIModelDescription {
+	id: string;
+	transport: ModelRoute["transport"];
+	endpointKind: ModelRoute["endpointKind"];
+	routeSource: ModelRoute["source"];
+	defaultTransport: ModelRoute["transport"];
+	defaultEndpointKind: ModelRoute["endpointKind"];
+	defaultRouteSource: ModelRoute["source"];
+	toolCalling: boolean | number | undefined;
+	imageInput: boolean | undefined;
+	maxInputTokens: number;
+	maxOutputTokens: number;
 }
 
 function summarizeThinkingMessages(messages: readonly OpenAIChatMessage[]): {
@@ -266,6 +282,9 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		const standardKey = await this.secrets.get("infiniai.apiKey");
 		const codingKey = await this.secrets.get("infiniai.codingApiKey");
 		const discoveryUrl = this.getModelDiscoveryUrl();
+		const routeCounts = countModelRouteOverrides(
+			vscode.workspace.getConfiguration("infiniai").get<unknown>("modelRoutes", [])
+		);
 		let modelCount = this._lastGoodCache?.infos.length ?? 0;
 		if (!modelCount && !token.isCancellationRequested) {
 			const apiKey = plan === "coding" ? codingKey : standardKey;
@@ -280,6 +299,8 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			hasStandardKey: !!standardKey,
 			hasCodingKey: !!codingKey,
 			modelCount,
+			routeConfigCount: routeCounts.routeConfigCount,
+			exactModelRouteOverrideCount: routeCounts.exactModelRouteOverrideCount,
 			cacheAgeMs: this._lastGoodCache ? Date.now() - this._lastGoodCache.fetchedAt : undefined,
 			modelDiscoveryUrl: discoveryUrl,
 			lastError: this._lastError,
@@ -289,29 +310,32 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 	async getModelDescriptions(
 		refresh: boolean,
 		token: CancellationToken
-	): Promise<
-		Array<{
-			id: string;
-			transport: string;
-			toolCalling: boolean | number | undefined;
-			imageInput: boolean | undefined;
-			maxInputTokens: number;
-			maxOutputTokens: number;
-		}>
-	> {
+	): Promise<InfiniAIModelDescription[]> {
 		const apiKey = await ensureApiKey(false, this.secrets);
 		if (!apiKey) {
 			return [];
 		}
 		const entry = await this.getModelCache(apiKey, false, token, refresh);
-		return entry.infos.map((info) => ({
-			id: info.id,
-			transport: entry.routes.get(info.id)?.transport ?? "openai",
-			toolCalling: info.capabilities.toolCalling,
-			imageInput: info.capabilities.imageInput,
-			maxInputTokens: info.maxInputTokens,
-			maxOutputTokens: info.maxOutputTokens,
-		}));
+		return entry.infos.map((info) => {
+			const model = entry.models.find((candidate) => candidate.id === info.id);
+			const route =
+				entry.routes.get(info.id) ??
+				resolveModelRoute(this.toModelInfo(info, model), this.getRouteConfigs());
+			const defaultRoute = resolveModelRoute(this.toModelInfo(info, model), []);
+			return {
+				id: info.id,
+				transport: route.transport,
+				endpointKind: route.endpointKind,
+				routeSource: route.source,
+				defaultTransport: defaultRoute.transport,
+				defaultEndpointKind: defaultRoute.endpointKind,
+				defaultRouteSource: defaultRoute.source,
+				toolCalling: info.capabilities.toolCalling,
+				imageInput: info.capabilities.imageInput,
+				maxInputTokens: info.maxInputTokens,
+				maxOutputTokens: info.maxOutputTokens,
+			};
+		});
 	}
 
 	async testRoute(prompt: string, token: CancellationToken): Promise<string> {

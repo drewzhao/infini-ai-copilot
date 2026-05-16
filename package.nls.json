@@ -7,6 +7,7 @@
 	"command.hideModel.title": "Hide InfiniAI Model from Picker",
 	"command.showModel.title": "Show InfiniAI Model in Picker",
 	"command.showAllModels.title": "Show All InfiniAI Models in Picker",
+	"command.switchModelProtocol.title": "Switch Model Protocol",
 	"command.switchPlan.title": "Switch Plan",
 	"command.openSettings.title": "Open InfiniAI Settings",
 	"command.clearThinkingReplayCache.title": "Clear Thinking Replay Cache",

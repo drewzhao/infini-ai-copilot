@@ -94,6 +94,11 @@
 				"icon": "$(clear-all)"
 			},
 			{
+				"command": "infiniai.switchModelProtocol",
+				"title": "%command.switchModelProtocol.title%",
+				"category": "InfiniAI"
+			},
+			{
 				"command": "infiniai.switchPlan",
 				"title": "%command.switchPlan.title%",
 				"category": "InfiniAI"
@@ -160,6 +165,16 @@
 					"command": "infiniai.showModel",
 					"when": "view == infiniai.modelsView && viewItem == infiniai.model.hidden",
 					"group": "inline"
+				},
+				{
+					"command": "infiniai.switchModelProtocol",
+					"when": "view == infiniai.modelsView && viewItem == infiniai.model.visible",
+					"group": "navigation@1"
+				},
+				{
+					"command": "infiniai.switchModelProtocol",
+					"when": "view == infiniai.modelsView && viewItem == infiniai.model.hidden",
+					"group": "navigation@1"
 				}
 			]
 		},
