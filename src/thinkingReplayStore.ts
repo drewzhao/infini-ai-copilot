@@ -6,6 +6,7 @@ export interface ThinkingReplayEntry {
 	readonly modelId: string;
 	readonly callId: string;
 	readonly reasoningContent: string;
+	readonly reasoningSignature?: string;
 	readonly capturedAt: number;
 	readonly byteLength: number;
 }
@@ -39,6 +40,7 @@ interface PendingTurn {
 	readonly modelId: string;
 	readonly callIds: Set<string>;
 	readonly chunks: string[];
+	readonly signatureChunks: string[];
 	byteLength: number;
 	invalid: boolean;
 }
@@ -63,6 +65,7 @@ function isReplayEntry(value: unknown): value is ThinkingReplayEntry {
 		typeof v.modelId === "string" &&
 		typeof v.callId === "string" &&
 		typeof v.reasoningContent === "string" &&
+		(v.reasoningSignature === undefined || typeof v.reasoningSignature === "string") &&
 		typeof v.capturedAt === "number" &&
 		typeof v.byteLength === "number" &&
 		v.modelId.length > 0 &&
@@ -151,6 +154,7 @@ export class ThinkingReplayStore {
 			modelId,
 			callIds: new Set<string>(),
 			chunks: [],
+			signatureChunks: [],
 			byteLength: 0,
 			invalid: !modelId,
 		});
@@ -171,6 +175,17 @@ export class ThinkingReplayStore {
 			return;
 		}
 		pending.chunks.push(text);
+	}
+
+	appendReasoningSignature(turnId: string, signature: string): void {
+		if (!signature) {
+			return;
+		}
+		const pending = this.pending.get(turnId);
+		if (!pending) {
+			return;
+		}
+		pending.signatureChunks.push(signature);
 	}
 
 	recordToolCall(turnId: string, callId: string): void {
@@ -196,14 +211,16 @@ export class ThinkingReplayStore {
 		if (!reasoningContent) {
 			return;
 		}
+		const reasoningSignature = pending.signatureChunks.join("") || undefined;
 
 		const capturedAt = this.now();
-		const entryByteLength = byteLength(reasoningContent);
+		const entryByteLength = byteLength(reasoningContent) + (reasoningSignature ? byteLength(reasoningSignature) : 0);
 		for (const callId of pending.callIds) {
 			const entry: ThinkingReplayEntry = {
 				modelId: pending.modelId,
 				callId,
 				reasoningContent,
+				reasoningSignature,
 				capturedAt,
 				byteLength: entryByteLength,
 			};

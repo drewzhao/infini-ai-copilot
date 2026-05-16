@@ -11,6 +11,10 @@ InfiniAI Provider for VS Code 将 InfiniAI 注册为稳定的 VS Code 语言模�
 5. 输入对应方案的 InfiniAI API Key。密钥会保存在 VS Code Secret Storage 中。
 6. 在模型选择器中选择 InfiniAI 模型。
 
+对于 MiMo V2 或 DeepSeek V4 这类思考模型，默认安全策略会关闭 thinking，以避免上游
+`reasoning_content` HTTP 400。只有明确把模型加入 `infiniai.enableThinkingRoundTripForModels` 后，扩展才会在
+OpenAI 兼容路由和 Anthropic Messages 路由上捕获并回放必要的思考上下文。修改显式启用列表后，请从新聊天开始。
+
 也可以在 Chat 中使用 `@infiniai` 进行诊断：
 
 - `@infiniai /doctor` 检查配置、密钥是否存在、端点设置、路由覆盖数量、缓存状态以及最近一次脱敏后的提供方错误。
@@ -161,6 +165,15 @@ VS Code 稳定版语言模型 API (`vscode.LanguageModelChatMessage`) 没有公�
 如果希望已启用的思考工具调用对话在 VS Code 重载或重启后仍能继续，保持 `infiniai.thinkingReplayStore` 默认值 `"localPlaintext"`。只有在不希望回放数据写入磁盘，并且可以接受重启后不能继续这类对话时，才选择 `"memory"`。
 
 运行 `InfiniAI: Clear Thinking Replay Cache` 可清除当前回放缓存。清除后，已有工具调用对话可能无法继续使用思考回放；新对话可以重新建立回放数据。
+
+回放逻辑会按实际传输协议处理：
+
+- OpenAI 兼容路由会捕获流式返回的 `reasoning_content`，并在后续敏感请求前注入到上一条 assistant 消息中。
+- Anthropic Messages 路由会捕获流式返回的 `thinking` block，包括存在时的 signature，并在上一条 assistant
+  `tool_use` block 前注入匹配的 `thinking` block。
+
+因此，对于 `mimo-v2.5-pro` 这类 Claude 兼容 InfiniAI 模型，只要所需回放缓存仍存在，在 OpenAI Chat
+Completions 与 Anthropic Messages 之间切换也不会失去回放保护。
 
 ## 命令
 

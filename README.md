@@ -11,6 +11,11 @@ InfiniAI Provider for VS Code registers InfiniAI as a stable VS Code language mo
 5. Enter the matching InfiniAI API key. The key is stored in VS Code Secret Storage.
 6. Select an InfiniAI model from the model picker.
 
+For MiMo V2 or DeepSeek V4 thinking models, the default guard keeps thinking disabled to avoid upstream
+`reasoning_content` HTTP 400 errors. If you explicitly opt a model into
+`infiniai.enableThinkingRoundTripForModels`, the extension captures and replays the required thinking context on both
+OpenAI-compatible and Anthropic Messages routes. Start a new chat after changing the opt-in list.
+
 You can also use `@infiniai` in Chat for diagnostics:
 
 - `@infiniai /doctor` checks configuration, key presence, endpoint settings, route override counts, cache state, and the last sanitized provider error.
@@ -151,6 +156,16 @@ Configure the guard with these settings:
 - Add a pattern to `infiniai.enableThinkingRoundTripForModels` (e.g. `"mimo-v2*"` or `"deepseek-v4*"`) to try thinking replay for a model that would otherwise be disabled by the safety list. If a model matches both settings, this opt-in wins only when replay preflight proves the required `reasoning_content` is available. If replay data is missing, expired, or unavailable, the extension fails locally instead of sending an unsafe request that would return HTTP 400.
 - Keep `infiniai.thinkingReplayStore` at the default `"localPlaintext"` if you want opted-in thinking tool-call conversations to survive VS Code reload or restart while cache entries remain valid. Choose `"memory"` only if you do not want replay data written to disk and can tolerate losing restart continuity.
 - Run `InfiniAI: Clear Thinking Replay Cache` to remove the active replay cache.
+
+Replay behavior is transport-aware:
+
+- OpenAI-compatible routes capture streamed `reasoning_content` and inject it into the prior assistant message before
+  replay-sensitive follow-up requests.
+- Anthropic Messages routes capture streamed `thinking` blocks, including optional signatures when present, and inject a
+  matching `thinking` block before the prior assistant `tool_use` block.
+
+This means Claude-compatible InfiniAI models such as `mimo-v2.5-pro` can be switched between OpenAI Chat Completions and
+Anthropic Messages without losing the replay guard, as long as the required replay cache entry still exists.
 
 ## Commands
 

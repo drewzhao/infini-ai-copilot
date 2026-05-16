@@ -1,15 +1,21 @@
 import assert from "assert/strict";
 
+import type { AnthropicMessage } from "./anthropic/anthropicTypes";
 import type { OpenAIChatMessage } from "./openai/openaiTypes";
-import { applyThinkingReplay, decideThinkingReplayRequest } from "./thinkingReplay";
+import { applyAnthropicThinkingReplay, applyThinkingReplay, decideThinkingReplayRequest } from "./thinkingReplay";
 import { MemoryThinkingReplayStorage, ThinkingReplayStore } from "./thinkingReplayStore";
 
-async function storeWithEntries(entries: Array<{ modelId: string; callId: string; reasoningContent: string }>) {
+async function storeWithEntries(
+	entries: Array<{ modelId: string; callId: string; reasoningContent: string; reasoningSignature?: string }>
+) {
 	const store = new ThinkingReplayStore();
 	await store.initialize(new MemoryThinkingReplayStorage());
 	for (const entry of entries) {
 		const turn = store.beginTurn(entry.modelId);
 		store.appendReasoning(turn.turnId, entry.reasoningContent);
+		if (entry.reasoningSignature) {
+			store.appendReasoningSignature(turn.turnId, entry.reasoningSignature);
+		}
 		store.recordToolCall(turn.turnId, entry.callId);
 		await store.commit(turn.turnId);
 	}
@@ -125,6 +131,85 @@ describe("applyThinkingReplay", () => {
 	});
 });
 
+describe("applyAnthropicThinkingReplay", () => {
+	it("injects matching thinking blocks before Anthropic tool_use blocks", async () => {
+		const store = await storeWithEntries([
+			{
+				modelId: "mimo-v2.5-pro",
+				callId: "toolu_1",
+				reasoningContent: "stored thinking",
+				reasoningSignature: "sig_1",
+			},
+		]);
+		const messages: AnthropicMessage[] = [
+			{ role: "user", content: [{ type: "text", text: "hello" }] },
+			{
+				role: "assistant",
+				content: [
+					{ type: "text", text: "I will inspect that." },
+					{ type: "tool_use", id: "toolu_1", name: "read_file", input: {} },
+				],
+			},
+			{ role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "result" }] },
+		];
+
+		const result = applyAnthropicThinkingReplay({ modelId: "mimo-v2.5-pro", messages, store });
+
+		assert.equal(result.allRequiredReasoningReplayed, true);
+		assert.equal(result.hasAssistantToolCalls, true);
+		assert.equal(result.replayedCount, 1);
+		assert.deepEqual(result.missingCallIds, []);
+		assert.deepEqual((result.messages[1].content as unknown[])[1], {
+			type: "thinking",
+			thinking: "stored thinking",
+			signature: "sig_1",
+		});
+		assert.deepEqual((messages[1].content as unknown[])[1], {
+			type: "tool_use",
+			id: "toolu_1",
+			name: "read_file",
+			input: {},
+		});
+		assert.notEqual(result.messages[1], messages[1]);
+	});
+
+	it("marks missing Anthropic tool_use replay entries as unreplayable", async () => {
+		const store = await storeWithEntries([]);
+		const messages: AnthropicMessage[] = [
+			{
+				role: "assistant",
+				content: [{ type: "tool_use", id: "toolu_missing", name: "read_file", input: {} }],
+			},
+		];
+
+		const result = applyAnthropicThinkingReplay({ modelId: "mimo-v2.5-pro", messages, store });
+
+		assert.equal(result.allRequiredReasoningReplayed, false);
+		assert.deepEqual(result.missingCallIds, ["toolu_missing"]);
+		assert.deepEqual(result.messages[0].content, messages[0].content);
+	});
+
+	it("leaves existing Anthropic thinking blocks replay-safe", async () => {
+		const store = await storeWithEntries([]);
+		const messages: AnthropicMessage[] = [
+			{
+				role: "assistant",
+				content: [
+					{ type: "thinking", thinking: "host supplied", signature: "sig_host" },
+					{ type: "tool_use", id: "toolu_host", name: "read_file", input: {} },
+				],
+			},
+		];
+
+		const result = applyAnthropicThinkingReplay({ modelId: "mimo-v2.5-pro", messages, store });
+
+		assert.equal(result.allRequiredReasoningReplayed, true);
+		assert.equal(result.hasAssistantToolCalls, true);
+		assert.equal(result.replayedCount, 0);
+		assert.deepEqual(result.messages[0].content, messages[0].content);
+	});
+});
+
 describe("decideThinkingReplayRequest", () => {
 	it("allows opted-in new chats and full replay hits", async () => {
 		const empty = applyThinkingReplay({
@@ -145,9 +230,7 @@ describe("decideThinkingReplayRequest", () => {
 					tool_calls: [{ id: "call_1", type: "function", function: { name: "a", arguments: "{}" } }],
 				},
 			],
-			store: await storeWithEntries([
-				{ modelId: "mimo-v2.5-pro", callId: "call_1", reasoningContent: "stored" },
-			]),
+			store: await storeWithEntries([{ modelId: "mimo-v2.5-pro", callId: "call_1", reasoningContent: "stored" }]),
 		});
 		assert.deepEqual(decideThinkingReplayRequest({ userOptedIntoRoundTrip: true, preflight: hit }), {
 			allowThinkingRoundTrip: true,
@@ -177,6 +260,9 @@ describe("decideThinkingReplayRequest", () => {
 			decideThinkingReplayRequest({ userOptedIntoRoundTrip: false, preflight: miss }).failLocalReason,
 			undefined
 		);
-		assert.equal(decideThinkingReplayRequest({ userOptedIntoRoundTrip: false, preflight: miss }).allowThinkingRoundTrip, false);
+		assert.equal(
+			decideThinkingReplayRequest({ userOptedIntoRoundTrip: false, preflight: miss }).allowThinkingRoundTrip,
+			false
+		);
 	});
 });

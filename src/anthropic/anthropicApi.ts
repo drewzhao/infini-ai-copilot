@@ -21,14 +21,29 @@ import { isImageMimeType, isToolResultPart, collectToolResultText, convertToolsT
 
 import { CommonApi } from "../commonApi";
 import { applyAnthropicModelConfiguration, resolveInfiniAIModelConfiguration } from "../modelConfiguration";
+import { getThinkingPartCtor } from "../proposedApi";
 import { readSseEvents } from "../sse";
 import { ProviderProtocolError, StreamParseError, sanitizeForLog } from "../utils";
+import type { PendingThinkingTurn, ThinkingReplayStore } from "../thinkingReplayStore";
+
+export interface AnthropicApiOptions {
+	readonly thinkingReplayStore?: ThinkingReplayStore;
+	readonly pendingThinkingTurn?: PendingThinkingTurn;
+	readonly emitThinkingParts?: boolean;
+}
 
 export class AnthropicApi extends CommonApi {
 	private _systemContent: string | undefined;
+	private readonly thinkingReplayStore?: ThinkingReplayStore;
+	private readonly pendingThinkingTurn?: PendingThinkingTurn;
+	private readonly emitThinkingParts: boolean;
+	private thinkingReplayTerminal = false;
 
-	constructor() {
+	constructor(options: AnthropicApiOptions = {}) {
 		super();
+		this.thinkingReplayStore = options.thinkingReplayStore;
+		this.pendingThinkingTurn = options.pendingThinkingTurn;
+		this.emitThinkingParts = options.emitThinkingParts ?? true;
 	}
 
 	/**
@@ -42,6 +57,7 @@ export class AnthropicApi extends CommonApi {
 		modelConfig: { includeReasoningInRequest: boolean; supportParameters: string }
 	): AnthropicMessage[] {
 		const out: AnthropicMessage[] = [];
+		const ThinkingPartCtor = getThinkingPartCtor();
 
 		for (const m of messages) {
 			const role = mapRole(m);
@@ -75,6 +91,9 @@ export class AnthropicApi extends CommonApi {
 						tool_use_id: callId,
 						content,
 					});
+				} else if (ThinkingPartCtor && part instanceof ThinkingPartCtor) {
+					const value = (part as vscode.LanguageModelThinkingPart).value;
+					thinkingParts.push(Array.isArray(value) ? value.join("") : value);
 				}
 			}
 
@@ -295,6 +314,7 @@ export class AnthropicApi extends CommonApi {
 		progress: Progress<vscode.LanguageModelResponsePart>,
 		token: CancellationToken
 	): Promise<void> {
+		let completed = false;
 		try {
 			for await (const event of readSseEvents(responseBody, token)) {
 				const data = event.data.trim();
@@ -317,10 +337,19 @@ export class AnthropicApi extends CommonApi {
 					);
 				}
 			}
+			completed = true;
+		} catch (err) {
+			this.abortReplayTurn();
+			throw err;
 		} finally {
 			await this.flushToolCallBuffers(progress, /*throwOnInvalid*/ false);
 			// If there's an active thinking sequence, end it first
 			this.reportEndThinking();
+			if (completed) {
+				await this.completeReplayTurn();
+			} else {
+				this.abortReplayTurn();
+			}
 		}
 	}
 
@@ -372,6 +401,7 @@ export class AnthropicApi extends CommonApi {
 			if (chunk.content_block.type === "thinking") {
 				// Start thinking block
 				if (chunk.content_block.thinking) {
+					this.captureReplayReasoning(chunk.content_block.thinking);
 					this.bufferThinkingContent(chunk.content_block.thinking, progress);
 				}
 			} else if (chunk.content_block.type === "tool_use") {
@@ -399,6 +429,7 @@ export class AnthropicApi extends CommonApi {
 				this._hasEmittedAssistantText = true;
 			} else if (chunk.delta.type === "thinking_delta" && chunk.delta.thinking) {
 				// Buffer thinking content
+				this.captureReplayReasoning(chunk.delta.thinking);
 				this.bufferThinkingContent(chunk.delta.thinking, progress);
 			} else if (chunk.delta.type === "input_json_delta" && chunk.delta.partial_json) {
 				// Handle tool call argument streaming
@@ -412,13 +443,53 @@ export class AnthropicApi extends CommonApi {
 					await this.tryEmitBufferedToolCall(idx, progress);
 				}
 			} else if (chunk.delta.type === "signature_delta" && chunk.delta.signature) {
-				// Signature for thinking block - ignore for now
-				// Could store for verification if needed later
+				this.captureReplaySignature(chunk.delta.signature);
 			}
 		} else if (chunk.type === "content_block_stop" || chunk.type === "message_stop") {
 			// End of message - ensure thinking is ended and flush all tool calls
 			await this.flushToolCallBuffers(progress, false);
 			this.reportEndThinking();
 		}
+	}
+
+	protected override onToolCallEmitted(callId: string): void {
+		if (!this.thinkingReplayStore || !this.pendingThinkingTurn) {
+			return;
+		}
+		this.thinkingReplayStore.recordToolCall(this.pendingThinkingTurn.turnId, callId);
+	}
+
+	protected override bufferThinkingContent(text: string, progress?: Progress<vscode.LanguageModelResponsePart>): void {
+		super.bufferThinkingContent(text, this.emitThinkingParts ? progress : undefined);
+	}
+
+	private captureReplayReasoning(text: string): void {
+		if (!this.thinkingReplayStore || !this.pendingThinkingTurn) {
+			return;
+		}
+		this.thinkingReplayStore.appendReasoning(this.pendingThinkingTurn.turnId, text);
+	}
+
+	private captureReplaySignature(signature: string): void {
+		if (!this.thinkingReplayStore || !this.pendingThinkingTurn) {
+			return;
+		}
+		this.thinkingReplayStore.appendReasoningSignature(this.pendingThinkingTurn.turnId, signature);
+	}
+
+	private async completeReplayTurn(): Promise<void> {
+		if (this.thinkingReplayTerminal || !this.thinkingReplayStore || !this.pendingThinkingTurn) {
+			return;
+		}
+		this.thinkingReplayTerminal = true;
+		await this.thinkingReplayStore.commit(this.pendingThinkingTurn.turnId);
+	}
+
+	private abortReplayTurn(): void {
+		if (this.thinkingReplayTerminal || !this.thinkingReplayStore || !this.pendingThinkingTurn) {
+			return;
+		}
+		this.thinkingReplayTerminal = true;
+		this.thinkingReplayStore.abort(this.pendingThinkingTurn.turnId);
 	}
 }

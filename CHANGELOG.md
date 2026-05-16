@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.6] - 2026-05-16
+
+### Changed
+
+- Thinking replay now works for Anthropic-routed MiMo/DeepSeek tool-call conversations, not only OpenAI-compatible routes. Anthropic streaming captures `thinking` blocks and optional signatures, then replays them before prior `tool_use` blocks when an opted-in model needs the previous reasoning context.
+- README files now document the user flow for opting thinking models into replay and clarify that replay safety follows Claude-compatible models across OpenAI Chat Completions and Anthropic Messages protocol switching.
+
+### Fixed
+
+- Opted-in Claude-compatible thinking models such as `mimo-v2.5-pro` no longer bypass replay safety when routed through Anthropic Messages, avoiding the `reasoning_content` HTTP 400 seen after tool-call turns.
+
 ## [0.5.5] - 2026-05-16
 
 ### Added

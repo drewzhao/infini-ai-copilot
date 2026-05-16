@@ -9,7 +9,13 @@ import {
 } from "vscode";
 
 import { AnthropicApi } from "./anthropic/anthropicApi";
-import { AnthropicRequestBody } from "./anthropic/anthropicTypes";
+import type {
+	AnthropicContentBlock,
+	AnthropicMessage,
+	AnthropicRequestBody,
+	AnthropicThinkingBlock,
+	AnthropicToolUseBlock,
+} from "./anthropic/anthropicTypes";
 import { enrichModelWithBuiltInMetadata, inferModelFamily, isBuiltInNonChatModel } from "./catalogMetadata";
 import { surfaceActionableError } from "./errorActions";
 import { makeUserSelectableLanguageModelInfo } from "./grayLanguageModelMetadata";
@@ -18,12 +24,13 @@ import { OpenaiApi } from "./openai/openaiApi";
 import type { OpenAIChatMessage } from "./openai/openaiTypes";
 import { prepareTokenCount } from "./provideToken";
 import { hasThinkingPartApi } from "./proposedApi";
-import { applyThinkingReplay, decideThinkingReplayRequest } from "./thinkingReplay";
+import { applyAnthropicThinkingReplay, applyThinkingReplay, decideThinkingReplayRequest } from "./thinkingReplay";
 import { thinkingReplayStore } from "./thinkingReplayStore";
 import { countModelRouteOverrides, resolveModelRoute } from "./route";
 import { updateContextStatusBar } from "./statusBar";
 import { getVisibleInfiniAITestModels } from "./testModelSelection";
 import {
+	applyDisableThinking,
 	getDisableThinkingPatterns,
 	getThinkingRoundTripPatterns,
 	shouldDisableThinking,
@@ -110,6 +117,45 @@ function summarizeThinkingMessages(messages: readonly OpenAIChatMessage[]): {
 		}
 		const hasToolCalls = Array.isArray(message.tool_calls) && message.tool_calls.length > 0;
 		const hasReasoning = typeof message.reasoning_content === "string" && message.reasoning_content.length > 0;
+		if (hasToolCalls) {
+			assistantToolCallCount++;
+		}
+		if (hasReasoning) {
+			assistantReasoningCount++;
+		}
+		if (hasToolCalls && !hasReasoning) {
+			assistantToolCallMissingReasoningCount++;
+		}
+	}
+	return { assistantToolCallCount, assistantReasoningCount, assistantToolCallMissingReasoningCount };
+}
+
+function isAnthropicContentBlockArray(content: AnthropicMessage["content"]): content is AnthropicContentBlock[] {
+	return Array.isArray(content);
+}
+
+function isAnthropicToolUseBlock(block: AnthropicContentBlock): block is AnthropicToolUseBlock {
+	return block.type === "tool_use";
+}
+
+function isAnthropicThinkingBlock(block: AnthropicContentBlock): block is AnthropicThinkingBlock {
+	return block.type === "thinking" && typeof block.thinking === "string" && block.thinking.length > 0;
+}
+
+function summarizeAnthropicThinkingMessages(messages: readonly AnthropicMessage[]): {
+	assistantToolCallCount: number;
+	assistantReasoningCount: number;
+	assistantToolCallMissingReasoningCount: number;
+} {
+	let assistantToolCallCount = 0;
+	let assistantReasoningCount = 0;
+	let assistantToolCallMissingReasoningCount = 0;
+	for (const message of messages) {
+		if (message.role !== "assistant" || !isAnthropicContentBlockArray(message.content)) {
+			continue;
+		}
+		const hasToolCalls = message.content.some(isAnthropicToolUseBlock);
+		const hasReasoning = message.content.some(isAnthropicThinkingBlock);
 		if (hasToolCalls) {
 			assistantToolCallCount++;
 		}
@@ -674,18 +720,81 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		infiniAIModel: InfiniAIModelInfo | undefined,
 		route: ModelRoute
 	): Promise<void> {
-		const anthropicApi = new AnthropicApi();
-		const anthropicMessages = anthropicApi.convertMessages(messages, {
+		const converter = new AnthropicApi();
+		const anthropicMessages = converter.convertMessages(messages, {
 			includeReasoningInRequest: false,
 			supportParameters: "",
 		});
+		const disableThinkingPatterns = getDisableThinkingPatterns();
+		const roundTripPatterns = getThinkingRoundTripPatterns();
+		const userOptedIntoRoundTrip = shouldEnableThinkingRoundTrip(model.id, roundTripPatterns);
+		await thinkingReplayStore.prune();
+		const replayPreflight = applyAnthropicThinkingReplay({
+			modelId: model.id,
+			messages: anthropicMessages,
+			store: thinkingReplayStore,
+		});
+		const replayDecision = decideThinkingReplayRequest({
+			userOptedIntoRoundTrip,
+			preflight: replayPreflight,
+		});
+		if (replayDecision.failLocalReason) {
+			throw new Error(replayDecision.failLocalReason);
+		}
+		const requestMessages = replayDecision.allowThinkingRoundTrip ? replayPreflight.messages : anthropicMessages;
+		const pendingThinkingTurn = replayDecision.allowThinkingRoundTrip
+			? thinkingReplayStore.beginTurn(model.id)
+			: undefined;
+		const modelConfiguration = resolveInfiniAIModelConfiguration(options);
+		const forceDisableThinking = shouldDisableThinking(model.id, disableThinkingPatterns);
+		const suppressResponseThinking =
+			modelConfiguration.thinkingMode === "disabled" ||
+			(forceDisableThinking && !replayDecision.allowThinkingRoundTrip);
+		const anthropicApi = new AnthropicApi({
+			thinkingReplayStore: pendingThinkingTurn ? thinkingReplayStore : undefined,
+			pendingThinkingTurn,
+			emitThinkingParts: !suppressResponseThinking,
+		});
 		let requestBody: AnthropicRequestBody = {
 			model: model.id,
-			messages: anthropicMessages,
+			messages: requestMessages,
 			stream: true,
 			max_tokens: model.maxOutputTokens || DEFAULT_MAX_TOKENS,
 		};
 		requestBody = anthropicApi.prepareRequestBody(requestBody, infiniAIModel, options);
+		if (suppressResponseThinking) {
+			applyDisableThinking(requestBody as unknown as Record<string, unknown>);
+		}
+		const thinkingSummary = summarizeAnthropicThinkingMessages(requestMessages);
+		const requestInitiator = (options as { requestInitiator?: unknown }).requestInitiator;
+		if ((requestBody as unknown as Record<string, unknown>).enable_thinking === false) {
+			const source =
+				modelConfiguration.thinkingMode === "disabled"
+					? "modelConfiguration"
+					: forceDisableThinking
+						? "safetyPattern"
+						: "requestBody";
+			logInfo(this.output, `Thinking disabled for request model=${sanitizeForLog(model.id, 120)} source=${source}`);
+		}
+		logDebug(
+			this.output,
+			`Thinking guard model=${sanitizeForLog(model.id, 120)} vscode=${sanitizeForLog(vscode.version, 40)} ` +
+				`app=${sanitizeForLog(vscode.env.appName, 80)} transport=Anthropic ` +
+				`requestInitiator=${sanitizeForLog(String(requestInitiator ?? ""), 120)} ` +
+				`hasThinkingPartApi=${hasThinkingPartApi()} ` +
+				`forceDisable=${forceDisableThinking} ` +
+				`roundTripOptIn=${userOptedIntoRoundTrip} ` +
+				`roundTripAllowed=${replayDecision.allowThinkingRoundTrip} ` +
+				`roundTripReplayed=${replayPreflight.replayedCount} ` +
+				`roundTripMissing=${replayPreflight.missingCallIds.length} ` +
+				`roundTripConflicts=${replayPreflight.conflictingCallIds.length} ` +
+				`thinkingDisabled=${(requestBody as unknown as Record<string, unknown>).enable_thinking === false} ` +
+				`disablePatterns=${sanitizeForLog(disableThinkingPatterns.join(","), 300)} ` +
+				`roundTripPatterns=${sanitizeForLog(roundTripPatterns.join(","), 300)} ` +
+				`assistantToolCalls=${thinkingSummary.assistantToolCallCount} ` +
+				`assistantReasoning=${thinkingSummary.assistantReasoningCount} ` +
+				`assistantToolCallsMissingReasoning=${thinkingSummary.assistantToolCallMissingReasoningCount}`
+		);
 		const response = await this.postJsonWithRetry(
 			this.requestUrl(route, model.id),
 			this.requestHeaders(route, apiKey),

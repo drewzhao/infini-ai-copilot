@@ -1,8 +1,14 @@
 import type { OpenAIChatMessage } from "./openai/openaiTypes";
+import type {
+	AnthropicContentBlock,
+	AnthropicMessage,
+	AnthropicThinkingBlock,
+	AnthropicToolUseBlock,
+} from "./anthropic/anthropicTypes";
 import type { ThinkingReplayStore } from "./thinkingReplayStore";
 
-export interface ThinkingReplayPreflight {
-	readonly messages: OpenAIChatMessage[];
+export interface ThinkingReplayPreflight<TMessage = OpenAIChatMessage> {
+	readonly messages: TMessage[];
 	readonly allRequiredReasoningReplayed: boolean;
 	readonly hasAssistantToolCalls: boolean;
 	readonly replayedCount: number;
@@ -82,9 +88,119 @@ export function applyThinkingReplay(input: {
 	};
 }
 
+function cloneAnthropicBlock(block: AnthropicContentBlock): AnthropicContentBlock {
+	if (block.type === "image") {
+		return { ...block, source: { ...block.source } };
+	}
+	if (block.type === "tool_use") {
+		return { ...block, input: { ...block.input } };
+	}
+	if (block.type === "tool_result" && Array.isArray(block.content)) {
+		return { ...block, content: block.content.map((contentBlock) => ({ ...contentBlock })) };
+	}
+	return { ...block };
+}
+
+function isAnthropicToolUseBlock(block: AnthropicContentBlock): block is AnthropicToolUseBlock {
+	return block.type === "tool_use";
+}
+
+function isAnthropicThinkingBlock(block: AnthropicContentBlock): block is AnthropicThinkingBlock {
+	return block.type === "thinking" && typeof block.thinking === "string" && block.thinking.length > 0;
+}
+
+export function applyAnthropicThinkingReplay(input: {
+	readonly modelId: string;
+	readonly messages: readonly AnthropicMessage[];
+	readonly store: ThinkingReplayStore;
+}): ThinkingReplayPreflight<AnthropicMessage> {
+	const missingCallIds: string[] = [];
+	const conflictingCallIds: string[] = [];
+	let hasAssistantToolCalls = false;
+	let replayedCount = 0;
+
+	const messages = input.messages.map((message) => {
+		const clonedContent = Array.isArray(message.content) ? message.content.map(cloneAnthropicBlock) : message.content;
+		const clonedMessage: AnthropicMessage = { ...message, content: clonedContent };
+
+		if (message.role !== "assistant" || !Array.isArray(clonedContent)) {
+			return clonedMessage;
+		}
+
+		const toolUseBlocks = clonedContent.filter(isAnthropicToolUseBlock);
+		if (toolUseBlocks.length === 0) {
+			return clonedMessage;
+		}
+
+		hasAssistantToolCalls = true;
+		if (clonedContent.some(isAnthropicThinkingBlock)) {
+			return clonedMessage;
+		}
+
+		const reasoningByCallId: Array<{
+			callId: string;
+			reasoningContent: string;
+			reasoningSignature: string | undefined;
+		}> = [];
+		for (const toolUse of toolUseBlocks) {
+			if (!toolUse.id) {
+				missingCallIds.push("<missing>");
+				continue;
+			}
+			const entry = input.store.lookup(input.modelId, toolUse.id);
+			if (!entry) {
+				missingCallIds.push(toolUse.id);
+				continue;
+			}
+			reasoningByCallId.push({
+				callId: toolUse.id,
+				reasoningContent: entry.reasoningContent,
+				reasoningSignature: entry.reasoningSignature,
+			});
+		}
+
+		if (reasoningByCallId.length !== toolUseBlocks.length) {
+			return clonedMessage;
+		}
+
+		const first = reasoningByCallId[0];
+		if (!first) {
+			return clonedMessage;
+		}
+		if (
+			reasoningByCallId.some(
+				(entry) =>
+					entry.reasoningContent !== first.reasoningContent || entry.reasoningSignature !== first.reasoningSignature
+			)
+		) {
+			conflictingCallIds.push(...reasoningByCallId.map((entry) => entry.callId));
+			return clonedMessage;
+		}
+
+		const thinkingBlock: AnthropicThinkingBlock = {
+			type: "thinking",
+			thinking: first.reasoningContent,
+			...(first.reasoningSignature ? { signature: first.reasoningSignature } : {}),
+		};
+		const firstToolUseIndex = clonedContent.findIndex(isAnthropicToolUseBlock);
+		clonedContent.splice(firstToolUseIndex === -1 ? 0 : firstToolUseIndex, 0, thinkingBlock);
+		replayedCount++;
+		return clonedMessage;
+	});
+
+	return {
+		messages,
+		allRequiredReasoningReplayed: missingCallIds.length === 0 && conflictingCallIds.length === 0,
+		hasAssistantToolCalls,
+		replayedCount,
+		missingCallIds,
+		conflictingCallIds,
+	};
+}
+
 export function decideThinkingReplayRequest(input: {
 	readonly userOptedIntoRoundTrip: boolean;
-	readonly preflight: ThinkingReplayPreflight;
+	readonly preflight: ThinkingReplayPreflight<unknown>;
 }): ThinkingReplayRequestDecision {
 	if (!input.userOptedIntoRoundTrip) {
 		return { allowThinkingRoundTrip: false, failLocalReason: undefined };
