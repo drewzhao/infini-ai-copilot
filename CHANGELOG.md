@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `@infiniai /models` includes the route source column, and `@infiniai /doctor` reports total configured route overrides plus exact per-model route overrides.
 - `@infiniai /test` now chooses only from visible InfiniAI models in the provider cache and no longer requires tool-calling capability for a simple health request.
 - The README files now document the stable-gray API policy used for `isUserSelectable`, `configurationSchema`, and model configuration request options while keeping the Marketplace manifest free of proposed API declarations.
+- Detailed proposed-API compatibility guidance for thinking replay now lives in `reports/infiniai-thinking-replay-store-design-report.md`, keeping the README files focused on user-facing behavior.
 
 ### Fixed
 
