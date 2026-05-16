@@ -336,7 +336,10 @@ function normalizeModel(rawModel) {
 			description,
 		}),
 		capabilities: {
-			toolCalling: trustedScenes.includes("工具调用"),
+			// The catalog's scene tags are positive evidence only. Some Claude-compatible
+			// chat models omit the "工具调用" tag even though they should remain eligible
+			// for VS Code agent-mode probing, so absence must not become an explicit false.
+			toolCalling: trustedScenes.includes("工具调用") ? true : undefined,
 			imageInput: trustedScenes.includes("视觉理解"),
 			codeGeneration: trustedScenes.includes("代码生成"),
 		},

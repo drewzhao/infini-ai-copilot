@@ -57,7 +57,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"detail": "百川 · 医疗能力世界第一",
 		"tooltip": "baichuan-m2-32b\nProvider: 百川 · 大语言模型\nCapabilities: Text\nContext: 65,536 tokens\nMax output: 8,192 tokens\nPromotion: 医疗能力世界第一\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
-			"toolCalling": false,
 			"imageInput": false,
 			"codeGeneration": false
 		}
@@ -75,7 +74,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"detail": "DeepSeek · Vision · 最新开源",
 		"tooltip": "deepseek-ocr-2\nProvider: DeepSeek · 多模态模型\nCapabilities: Text, Vision\nContext: 8,192 tokens\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
-			"toolCalling": false,
 			"imageInput": true,
 			"codeGeneration": false
 		}
@@ -113,7 +111,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"detail": "Deepseek · 最新开源",
 		"tooltip": "deepseek-r1-distill-qwen-32b\nProvider: Deepseek · 大语言模型\nCapabilities: Text\nContext: 32,768 tokens\nMax output: 8,192 tokens\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
-			"toolCalling": false,
 			"imageInput": false,
 			"codeGeneration": false
 		}
@@ -132,7 +129,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"detail": "DeepSeek · 0324升级版",
 		"tooltip": "deepseek-v3\nProvider: DeepSeek · 大语言模型\nCapabilities: Text\nContext: 131,072 tokens\nMax output: 16,384 tokens\nPromotion: 0324升级版\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
-			"toolCalling": false,
 			"imageInput": false,
 			"codeGeneration": false
 		}
@@ -244,7 +240,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"detail": "Deepseek · Claude-compatible",
 		"tooltip": "deepseek-v4-flash\nProvider: Deepseek · 大语言模型\nContext: 1,024,000 tokens\nMax output: 393,216 tokens\nEndpoint: Claude兼容\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
-			"toolCalling": false,
 			"imageInput": false,
 			"codeGeneration": false
 		}
@@ -263,7 +258,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"detail": "Deepseek · Claude-compatible",
 		"tooltip": "deepseek-v4-pro\nProvider: Deepseek · 大语言模型\nContext: 1,024,000 tokens\nMax output: 393,216 tokens\nEndpoint: Claude兼容\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
-			"toolCalling": false,
 			"imageInput": false,
 			"codeGeneration": false
 		}
@@ -281,7 +275,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"detail": "智谱 · Claude-compatible · 最新开源",
 		"tooltip": "glm-4.5\nProvider: 智谱 · 大语言模型\nCapabilities: Text\nContext: 131,072 tokens\nEndpoint: Claude兼容\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
-			"toolCalling": false,
 			"imageInput": false,
 			"codeGeneration": false
 		}
@@ -299,7 +292,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"detail": "智谱 · Claude-compatible · 最新开源",
 		"tooltip": "glm-4.5-air\nProvider: 智谱 · 大语言模型\nCapabilities: Text\nContext: 131,072 tokens\nEndpoint: Claude兼容\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
-			"toolCalling": false,
 			"imageInput": false,
 			"codeGeneration": false
 		}
@@ -428,7 +420,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"detail": "OpenAI · 抢先体验",
 		"tooltip": "gpt-oss-120b\nProvider: OpenAI · 大语言模型\nCapabilities: Text\nContext: 131,072 tokens\nMax output: 32,768 tokens\nPromotion: 抢先体验\ngpt\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
-			"toolCalling": false,
 			"imageInput": false,
 			"codeGeneration": false
 		}
@@ -503,7 +494,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"detail": "无问芯穹 · 无穹自研",
 		"tooltip": "megrez-3b-instruct\nProvider: 无问芯穹 · 大语言模型\nCapabilities: Text\nContext: 32,768 tokens\nMax output: 4,096 tokens\nPromotion: 无穹自研\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
-			"toolCalling": false,
 			"imageInput": false,
 			"codeGeneration": false
 		}
@@ -521,7 +511,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"detail": "小米 · Claude-compatible",
 		"tooltip": "mimo-v2-pro\nProvider: 小米 · 大语言模型\nContext: 262,144 tokens\nEndpoint: Claude兼容\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
-			"toolCalling": false,
 			"imageInput": false,
 			"codeGeneration": false
 		}
@@ -539,7 +528,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"detail": "小米 · Claude-compatible",
 		"tooltip": "mimo-v2.5-pro\nProvider: 小米 · 大语言模型\nContext: 262,144 tokens\nEndpoint: Claude兼容\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
-			"toolCalling": false,
 			"imageInput": false,
 			"codeGeneration": false
 		}
@@ -593,7 +581,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"detail": "Minimax · Claude-compatible",
 		"tooltip": "minimax-m2.7\nProvider: Minimax · 大语言模型\nCapabilities: Text\nContext: 204,800 tokens\nEndpoint: Claude兼容\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
-			"toolCalling": false,
 			"imageInput": false,
 			"codeGeneration": false
 		}
@@ -612,7 +599,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"detail": "DeepSeek · 【包并发】0528升级版",
 		"tooltip": "pro-deepseek-r1\nProvider: DeepSeek · 大语言模型\nCapabilities: Text\nContext: 131,072 tokens\nMax output: 32,768 tokens\nPromotion: 【包并发】0528升级版\n用于专属测试。\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
-			"toolCalling": false,
 			"imageInput": false,
 			"codeGeneration": false
 		}
@@ -631,7 +617,6 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"detail": "DeepSeek · 【包并发】0324升级版",
 		"tooltip": "pro-deepseek-v3\nProvider: DeepSeek · 大语言模型\nCapabilities: Text\nContext: 131,072 tokens\nMax output: 16,384 tokens\nPromotion: 【包并发】0324升级版\n包并发实例\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
-			"toolCalling": false,
 			"imageInput": false,
 			"codeGeneration": false
 		}

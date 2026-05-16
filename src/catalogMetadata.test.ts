@@ -58,6 +58,13 @@ describe("built-in InfiniAI catalog metadata", () => {
 		assert.equal(isBuiltInNonChatModel("deepseek-v4-pro"), false);
 	});
 
+	it("does not turn missing tool scene tags into hard tool-calling negatives", () => {
+		assert.equal(getBuiltInInfiniAIModelMetadata("deepseek-v4-pro")?.capabilities?.toolCalling, undefined);
+		assert.equal(getBuiltInInfiniAIModelMetadata("deepseek-v4-flash")?.capabilities?.toolCalling, undefined);
+		assert.equal(getBuiltInInfiniAIModelMetadata("mimo-v2-pro")?.capabilities?.toolCalling, undefined);
+		assert.equal(getBuiltInInfiniAIModelMetadata("mimo-v2.5-pro")?.capabilities?.toolCalling, undefined);
+	});
+
 	it("keeps a useful family for unknown models", () => {
 		assert.equal(getBuiltInInfiniAIModelMetadata("unknown-model"), undefined);
 		assert.equal(enrichModelWithBuiltInMetadata(liveModel("unknown-model")).family, "unknown-model");
