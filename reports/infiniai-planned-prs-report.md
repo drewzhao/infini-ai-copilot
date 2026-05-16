@@ -71,7 +71,7 @@ Classification standard:
 | ID | Proposed PR | Status | Risk | Depends on | Primary outcome |
 |---|---|---|---|---|---|
 | PR-001 | Stable guardrails and auth manifest fix | Done | Low | None | Remove manifest warning and enforce no proposed API declaration. |
-| PR-002 | Gray metadata helper and model picker UX | Proposed | Low/Medium | PR-001 | Centralize gray fields and improve picker metadata. |
+| PR-002 | Gray metadata helper and model picker UX | Done | Low/Medium | PR-001 | Centralize gray fields and improve picker metadata. |
 | PR-003 | Per-model configuration schema and request mapping | Proposed | Medium | PR-001, PR-002 preferred | Add user-visible per-model controls and map them safely to upstream requests. |
 | PR-004 | Stable smoke/probe validation harness | Proposed | Medium | PR-001 | Make loophole usability testable in Stable without proposal flags. |
 | PR-005 | Provider-group configuration migration study | Deferred | Medium/High | PR-003, UX decision | Decide whether to replace or supplement `managementCommand`. |
@@ -147,7 +147,7 @@ Verification:
 
 ## PR-002: Gray Metadata Helper And Model Picker UX
 
-Status: Proposed
+Status: Done
 
 ### Goal
 
@@ -190,6 +190,36 @@ Stable UI check:
 - Open the model picker.
 - Verify InfiniAI models still appear.
 - Verify category/status/cost metadata only if that PR intentionally adds them.
+
+### Implementation Record
+
+Implemented on 2026-05-16.
+
+Files changed:
+
+- `src/grayLanguageModelMetadata.ts`
+- `src/grayLanguageModelMetadata.test.ts`
+- `src/provider.ts`
+- `reports/infiniai-planned-prs-report.md`
+
+Notes:
+
+- Added a small helper that centralizes Stable-safe gray model metadata.
+- Moved `isUserSelectable: true` out of `src/provider.ts` and into the helper.
+- Kept `statusIcon` in the helper type, but did not emit a status icon yet because the extension does not currently have a real per-model health/status signal.
+- Did not add category, pricing, or configuration metadata in this PR; those need either reliable product data or the PR-003 request-mapping work.
+- Did not add `targetChatSessionType`, `requiresAuthorization`, `isDefault`, or `capabilities.editTools`.
+
+Verification:
+
+- `npm test` passed with 73 passing tests.
+- `npm run lint` passed.
+- `rg -n '"enabledApiProposals"|enableProposedApi' package.json src` returned no matches.
+- `rg -n 'targetChatSessionType|requiresAuthorization|isDefault|editTools|"enabledApiProposals"|enableProposedApi' package.json src --glob '!*.test.ts'` returned no matches.
+- `rg -n 'isUserSelectable|statusIcon' src --glob '!*.test.ts'` only reported `src/grayLanguageModelMetadata.ts`.
+- Computer Use reloaded the Extension Development Host and verified the InfiniAI view repopulated with models.
+- Computer Use opened the model picker, searched `qwen3`, and verified InfiniAI Qwen models appeared in the picker.
+- Latest VS Code session logs under `~/Library/Application Support/Code/logs/20260516T030725` contained no `Undeclared authentication provider`, `CANNOT use API proposal`, `checkProposedApiEnabled`, `enabledApiProposals`, `enableProposedApi`, `targetChatSessionType`, `requiresAuthorization`, or `editTools` matches.
 
 ## PR-003: Per-Model Configuration Schema And Request Mapping
 

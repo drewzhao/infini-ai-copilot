@@ -12,6 +12,7 @@ import { AnthropicApi } from "./anthropic/anthropicApi";
 import { AnthropicRequestBody } from "./anthropic/anthropicTypes";
 import { enrichModelWithBuiltInMetadata, inferModelFamily, isBuiltInNonChatModel } from "./catalogMetadata";
 import { surfaceActionableError } from "./errorActions";
+import { makeUserSelectableLanguageModelInfo } from "./grayLanguageModelMetadata";
 import { OpenaiApi } from "./openai/openaiApi";
 import type { OpenAIChatMessage } from "./openai/openaiTypes";
 import { prepareTokenCount } from "./provideToken";
@@ -471,7 +472,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			{ enablePatterns, disablePatterns }
 		);
 
-		return {
+		return makeUserSelectableLanguageModelInfo({
 			id: model.id,
 			name: model.displayName ?? model.id,
 			tooltip: model.tooltip ?? `InfiniAI Model ${model.id}`,
@@ -480,15 +481,12 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			version: model.version ?? model.created?.toString() ?? "1.0.0",
 			maxInputTokens: maxInput,
 			maxOutputTokens: maxOutput,
-			// Proposed API field consumed by newer VS Code hosts to include
-			// third-party models in the chat model picker by default.
-			isUserSelectable: true,
 			capabilities: {
 				toolCalling:
 					model.capabilities?.toolCalling ?? (!model.id.includes("embed") && !model.id.includes("reranker")),
 				imageInput,
 			},
-		} as LanguageModelChatInformation;
+		});
 	}
 
 	private toModelInfo(
