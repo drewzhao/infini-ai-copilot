@@ -10,6 +10,7 @@ import {
 
 import { AnthropicApi } from "./anthropic/anthropicApi";
 import { AnthropicRequestBody } from "./anthropic/anthropicTypes";
+import { enrichModelWithBuiltInMetadata, inferModelFamily, isBuiltInNonChatModel } from "./catalogMetadata";
 import { surfaceActionableError } from "./errorActions";
 import { OpenaiApi } from "./openai/openaiApi";
 import type { OpenAIChatMessage } from "./openai/openaiTypes";
@@ -431,15 +432,24 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		const { models } = await fetchModels(apiKey, this.userAgent, this.output, token);
 		const routeConfigs = this.getRouteConfigs();
 		const routes = new Map<string, ModelRoute>();
-		const infos = models.map((model) => {
+		const enrichedModels = models
+			.map(enrichModelWithBuiltInMetadata)
+			.filter((model) => !isBuiltInNonChatModel(model.id));
+		const infos = enrichedModels.map((model) => {
 			const route = resolveModelRoute(model, routeConfigs);
 			routes.set(model.id, route);
 			return this.toLanguageModelInfo(model, route);
 		});
-		logInfo(this.output, `Fetched ${models.length} models from InfiniAI API`);
+		const filteredCount = models.length - enrichedModels.length;
+		logInfo(
+			this.output,
+			filteredCount > 0
+				? `Fetched ${models.length} models from InfiniAI API; using ${enrichedModels.length} chat models after built-in catalog filtering`
+				: `Fetched ${models.length} models from InfiniAI API`
+		);
 		return {
 			key,
-			models,
+			models: enrichedModels,
 			infos,
 			routes,
 			fetchedAt: Date.now(),
@@ -448,27 +458,35 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 
 	private toLanguageModelInfo(model: InfiniAIModelInfo, route: ModelRoute): LanguageModelChatInformation {
 		const contextLength = model.context_length ?? this.inferContextLength(model.id) ?? DEFAULT_CONTEXT_LENGTH;
-		const maxOutput = model.max_tokens ?? DEFAULT_MAX_TOKENS;
-		const maxInput = Math.max(1, contextLength - maxOutput);
+		const maxOutput = model.max_tokens ?? model.maxOutputTokens ?? DEFAULT_MAX_TOKENS;
+		const maxInput = model.maxInputTokens ?? Math.max(1, contextLength - maxOutput);
 		const cfg = vscode.workspace.getConfiguration("infiniai");
 		const enablePatterns = cfg.get<string[]>("imageInputModels", []);
 		const disablePatterns = cfg.get<string[]>("disableImageInputModels", []);
+		const imageInput = resolveImageInputCapability(
+			{
+				...model,
+				vision: model.vision ?? model.capabilities?.imageInput,
+			},
+			{ enablePatterns, disablePatterns }
+		);
 
 		return {
 			id: model.id,
-			name: model.id,
-			tooltip: `InfiniAI Model ${model.id}`,
-			detail: `InfiniAI ${route.transport}`,
-			family: model.family ?? route.endpointKind,
-			version: model.created?.toString() || "1.0.0",
+			name: model.displayName ?? model.id,
+			tooltip: model.tooltip ?? `InfiniAI Model ${model.id}`,
+			detail: model.detail ?? `InfiniAI ${route.transport}`,
+			family: model.family ?? inferModelFamily(model.id),
+			version: model.version ?? model.created?.toString() ?? "1.0.0",
 			maxInputTokens: maxInput,
 			maxOutputTokens: maxOutput,
 			// Proposed API field consumed by newer VS Code hosts to include
 			// third-party models in the chat model picker by default.
 			isUserSelectable: true,
 			capabilities: {
-				toolCalling: !model.id.includes("embed") && !model.id.includes("reranker"),
-				imageInput: resolveImageInputCapability(model, { enablePatterns, disablePatterns }),
+				toolCalling:
+					model.capabilities?.toolCalling ?? (!model.id.includes("embed") && !model.id.includes("reranker")),
+				imageInput,
 			},
 		} as LanguageModelChatInformation;
 	}

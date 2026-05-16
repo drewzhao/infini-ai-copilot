@@ -27,6 +27,24 @@ function loadRoute(configValues: Record<string, unknown>) {
 }
 
 describe("model routing", () => {
+	it("uses built-in catalog endpoint metadata for known Claude-compatible models", () => {
+		const route = loadRoute({
+			"infiniai.plan": "standard",
+			"infiniai.anthropic.baseUrl": "https://anthropic.example",
+		});
+		const { enrichModelWithBuiltInMetadata } = require("./catalogMetadata") as typeof import("./catalogMetadata");
+
+		const result = route.resolveModelRoute(
+			enrichModelWithBuiltInMetadata({ id: "deepseek-v4-pro", object: "model", created: 1, owned_by: "infini" }),
+			[]
+		);
+
+		assert.equal(result.transport, "anthropic");
+		assert.equal(result.endpointKind, "messages");
+		assert.equal(result.baseUrl, "https://anthropic.example");
+		assert.equal(result.source, "metadata");
+	});
+
 	it("matches wildcard route overrides before metadata", () => {
 		const route = loadRoute({
 			"infiniai.plan": "standard",

@@ -109,16 +109,28 @@ export interface InfiniAIModelInfo {
 	object: string;
 	created: number;
 	owned_by: string;
+	displayName?: string;
+	version?: string;
 	family?: string;
 	apiMode?: ModelTransport | "ollama";
 	baseUrl?: string;
 	endpointKind?: ModelEndpointKind;
 	context_length?: number;
 	max_tokens?: number;
+	maxInputTokens?: number;
+	maxOutputTokens?: number;
 	architecture?: HFArchitecture;
 	input_modalities?: string[];
 	modalities?: string[];
 	vision?: boolean;
+	detail?: string;
+	tooltip?: string;
+	capabilities?: {
+		toolCalling?: boolean | number;
+		imageInput?: boolean;
+		reasoning?: boolean;
+		codeGeneration?: boolean;
+	};
 	extra?: Record<string, unknown>;
 }
 
