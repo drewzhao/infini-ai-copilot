@@ -1,8 +1,11 @@
 import type * as vscode from "vscode";
 
+import type { InfiniAIModelConfigurationSchema } from "./modelConfiguration";
+
 export interface StableSafeGrayLanguageModelMetadata {
 	readonly isUserSelectable?: boolean;
 	readonly statusIcon?: vscode.ThemeIcon;
+	readonly configurationSchema?: InfiniAIModelConfigurationSchema;
 }
 
 export type InfiniAILanguageModelChatInformation = vscode.LanguageModelChatInformation &
@@ -16,11 +19,16 @@ export function withStableSafeGrayLanguageModelMetadata(
 		...info,
 		...(metadata.isUserSelectable !== undefined ? { isUserSelectable: metadata.isUserSelectable } : {}),
 		...(metadata.statusIcon !== undefined ? { statusIcon: metadata.statusIcon } : {}),
+		...(metadata.configurationSchema !== undefined ? { configurationSchema: metadata.configurationSchema } : {}),
 	};
 }
 
 export function makeUserSelectableLanguageModelInfo(
-	info: vscode.LanguageModelChatInformation
+	info: vscode.LanguageModelChatInformation,
+	modelConfigSchema?: InfiniAIModelConfigurationSchema
 ): InfiniAILanguageModelChatInformation {
-	return withStableSafeGrayLanguageModelMetadata(info, { isUserSelectable: true });
+	return withStableSafeGrayLanguageModelMetadata(info, {
+		isUserSelectable: true,
+		...(modelConfigSchema !== undefined ? { configurationSchema: modelConfigSchema } : {}),
+	});
 }

@@ -20,6 +20,7 @@ import type {
 import { isImageMimeType, isToolResultPart, collectToolResultText, convertToolsToOpenAI, mapRole } from "../utils";
 
 import { CommonApi } from "../commonApi";
+import { applyVertexModelConfiguration, resolveInfiniAIModelConfiguration } from "../modelConfiguration";
 import { readSseEvents } from "../sse";
 import { StreamParseError, sanitizeForLog } from "../utils";
 
@@ -218,6 +219,8 @@ export class VertexApi extends CommonApi {
 				vrb.toolConfig.functionCallingConfig.allowedFunctionNames = [toolConfig.tool_choice.function.name];
 			}
 		}
+
+		applyVertexModelConfiguration(vrb, resolveInfiniAIModelConfiguration(options));
 
 		// Process extra configuration parameters
 		// if (um?.extra && typeof um.extra === "object") {

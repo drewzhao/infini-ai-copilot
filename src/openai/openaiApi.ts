@@ -27,6 +27,7 @@ import {
 } from "../utils";
 
 import { CommonApi } from "../commonApi";
+import { applyOpenAIModelConfiguration, resolveInfiniAIModelConfiguration } from "../modelConfiguration";
 import { readSseEvents } from "../sse";
 import { StreamParseError, sanitizeForLog } from "../utils";
 import {
@@ -298,6 +299,8 @@ export class OpenaiApi extends CommonApi {
 		if (toolConfig.tool_choice) {
 			orb.tool_choice = toolConfig.tool_choice;
 		}
+
+		applyOpenAIModelConfiguration(orb, resolveInfiniAIModelConfiguration(options));
 
 		// // Configure user-defined additional parameters
 		// if (um?.top_k !== undefined) {

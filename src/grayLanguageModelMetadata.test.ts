@@ -8,7 +8,7 @@ import { withStableSafeGrayLanguageModelMetadata } from "./grayLanguageModelMeta
 const REPO_ROOT = process.cwd();
 const RUNTIME_SOURCE_ROOT = path.join(REPO_ROOT, "src");
 const HELPER_PATH = path.join("src", "grayLanguageModelMetadata.ts");
-const STABLE_SAFE_GRAY_FIELDS = ["isUserSelectable", "statusIcon"] as const;
+const STABLE_SAFE_GRAY_FIELDS = ["isUserSelectable", "statusIcon", "configurationSchema"] as const;
 
 function baseLanguageModelInfo(): vscode.LanguageModelChatInformation {
 	return {
@@ -59,6 +59,25 @@ describe("gray language model metadata", () => {
 		assert.equal("isUserSelectable" in result, false);
 	});
 
+	it("adds model configuration schemas only when explicitly provided", () => {
+		const schema = {
+			properties: {
+				maxOutputTokens: {
+					type: "number" as const,
+					title: "Max output tokens",
+					enum: [0, 1024],
+					default: 0,
+				},
+			},
+		};
+		const result = withStableSafeGrayLanguageModelMetadata(baseLanguageModelInfo(), {
+			configurationSchema: schema,
+		});
+
+		assert.equal(result.configurationSchema, schema);
+		assert.equal("isUserSelectable" in result, false);
+	});
+
 	it("keeps Stable-safe gray metadata writes centralized", () => {
 		const matches: string[] = [];
 		for (const file of walkRuntimeSourceFiles(RUNTIME_SOURCE_ROOT)) {
@@ -72,6 +91,7 @@ describe("gray language model metadata", () => {
 		}
 
 		assert.ok(matches.some((match) => match === `${HELPER_PATH}:isUserSelectable`));
+		assert.ok(matches.some((match) => match === `${HELPER_PATH}:configurationSchema`));
 		assert.deepEqual(matches.filter((match) => !match.startsWith(`${HELPER_PATH}:`)), []);
 	});
 });

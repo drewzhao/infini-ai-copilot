@@ -20,6 +20,7 @@ import type {
 import { isImageMimeType, isToolResultPart, collectToolResultText, convertToolsToOpenAI, mapRole } from "../utils";
 
 import { CommonApi } from "../commonApi";
+import { applyAnthropicModelConfiguration, resolveInfiniAIModelConfiguration } from "../modelConfiguration";
 import { readSseEvents } from "../sse";
 import { ProviderProtocolError, StreamParseError, sanitizeForLog } from "../utils";
 
@@ -267,6 +268,8 @@ export class AnthropicApi extends CommonApi {
 				arb.tool_choice = { type: "tool", name: toolConfig.tool_choice.function.name };
 			}
 		}
+
+		applyAnthropicModelConfiguration(arb, resolveInfiniAIModelConfiguration(options));
 
 		// Process extra configuration parameters
 		// if (um?.extra && typeof um.extra === "object") {

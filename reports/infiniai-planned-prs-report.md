@@ -72,7 +72,7 @@ Classification standard:
 |---|---|---|---|---|---|
 | PR-001 | Stable guardrails and auth manifest fix | Done | Low | None | Remove manifest warning and enforce no proposed API declaration. |
 | PR-002 | Gray metadata helper and model picker UX | Done | Low/Medium | PR-001 | Centralize gray fields and improve picker metadata. |
-| PR-003 | Per-model configuration schema and request mapping | Proposed | Medium | PR-001, PR-002 preferred | Add user-visible per-model controls and map them safely to upstream requests. |
+| PR-003 | Per-model configuration schema and request mapping | Done | Medium | PR-001, PR-002 preferred | Add user-visible per-model controls and map them safely to upstream requests. |
 | PR-004 | Stable smoke/probe validation harness | Proposed | Medium | PR-001 | Make loophole usability testable in Stable without proposal flags. |
 | PR-005 | Provider-group configuration migration study | Deferred | Medium/High | PR-003, UX decision | Decide whether to replace or supplement `managementCommand`. |
 | PR-006 | Agents-window compatibility strategy | Deferred | High | Upstream API clarity | Avoid fake support; document real options. |
@@ -223,7 +223,7 @@ Verification:
 
 ## PR-003: Per-Model Configuration Schema And Request Mapping
 
-Status: Proposed
+Status: Done
 
 ### Goal
 
@@ -291,6 +291,47 @@ Manual VS Code check:
 - Change one model config value.
 - Send a request.
 - Verify the request body contains the intended provider parameter and no unintended raw config.
+
+### Implementation Record
+
+Implemented on 2026-05-16.
+
+Files changed:
+
+- `src/modelConfiguration.ts`
+- `src/modelConfiguration.test.ts`
+- `src/grayLanguageModelMetadata.ts`
+- `src/grayLanguageModelMetadata.test.ts`
+- `src/provider.ts`
+- `src/openai/openaiApi.ts`
+- `src/anthropic/anthropicApi.ts`
+- `src/vertex/vertexApi.ts`
+- `reports/infiniai-planned-prs-report.md`
+
+Notes:
+
+- Added per-model configuration schema generation for max output tokens on all chat models.
+- Added reasoning effort and thinking-mode controls only when built-in or live metadata marks the model as reasoning-capable.
+- Kept the gray `configurationSchema` field centralized in `src/grayLanguageModelMetadata.ts`.
+- Read both hidden runtime option names, `modelConfiguration` and `configuration`, with `modelConfiguration` taking precedence.
+- Mapped supported keys only:
+  - OpenAI-compatible: `maxOutputTokens` -> `max_tokens`, `reasoningEffort` -> `reasoning_effort`, `thinkingMode: "disabled"` -> `enable_thinking: false` and `thinking.type: "disabled"`.
+  - Anthropic-compatible: `maxOutputTokens` -> `max_tokens`.
+  - Vertex-compatible: `maxOutputTokens` -> `generationConfig.maxOutputTokens`.
+- Ignored unknown keys and model-default values rather than passing raw configuration into request bodies.
+- Did not add `enabledApiProposals`, `--enable-proposed-api`, raw request JSON passthrough, secret-bearing config, or `thinkingMode: "enabled"`.
+
+Verification:
+
+- `npm test` passed with 82 passing tests.
+- `npm run lint` passed.
+- `rg -n '"enabledApiProposals"|enableProposedApi' package.json src` returned no matches.
+- `rg -n 'targetChatSessionType|requiresAuthorization|isDefault|editTools|"enabledApiProposals"|enableProposedApi' package.json src --glob '!*.test.ts'` returned no matches.
+- `rg -n 'isUserSelectable|statusIcon|configurationSchema' src --glob '!*.test.ts'` only reported `src/grayLanguageModelMetadata.ts`.
+- Computer Use reloaded the Extension Development Host.
+- Computer Use opened the chat model picker, searched `qwen3`, and verified reasoning-capable InfiniAI Qwen models displayed `Model default` from the new configuration schema.
+- Request-body mappings were verified by unit tests instead of UI request logging, so no raw request body or secret-bearing data needed to be logged.
+- Latest VS Code session logs under `~/Library/Application Support/Code/logs/20260516T030725` contained no `Undeclared authentication provider`, `CANNOT use API proposal`, `checkProposedApiEnabled`, `enabledApiProposals`, `enableProposedApi`, `targetChatSessionType`, `requiresAuthorization`, `editTools`, or `configurationSchema` error matches.
 
 ## PR-004: Stable Smoke/Probe Validation Harness
 

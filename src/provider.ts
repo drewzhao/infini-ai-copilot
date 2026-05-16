@@ -13,6 +13,7 @@ import { AnthropicRequestBody } from "./anthropic/anthropicTypes";
 import { enrichModelWithBuiltInMetadata, inferModelFamily, isBuiltInNonChatModel } from "./catalogMetadata";
 import { surfaceActionableError } from "./errorActions";
 import { makeUserSelectableLanguageModelInfo } from "./grayLanguageModelMetadata";
+import { buildInfiniAIModelConfigurationSchema } from "./modelConfiguration";
 import { OpenaiApi } from "./openai/openaiApi";
 import type { OpenAIChatMessage } from "./openai/openaiTypes";
 import { prepareTokenCount } from "./provideToken";
@@ -472,21 +473,24 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			{ enablePatterns, disablePatterns }
 		);
 
-		return makeUserSelectableLanguageModelInfo({
-			id: model.id,
-			name: model.displayName ?? model.id,
-			tooltip: model.tooltip ?? `InfiniAI Model ${model.id}`,
-			detail: model.detail ?? `InfiniAI ${route.transport}`,
-			family: model.family ?? inferModelFamily(model.id),
-			version: model.version ?? model.created?.toString() ?? "1.0.0",
-			maxInputTokens: maxInput,
-			maxOutputTokens: maxOutput,
-			capabilities: {
-				toolCalling:
-					model.capabilities?.toolCalling ?? (!model.id.includes("embed") && !model.id.includes("reranker")),
-				imageInput,
+		return makeUserSelectableLanguageModelInfo(
+			{
+				id: model.id,
+				name: model.displayName ?? model.id,
+				tooltip: model.tooltip ?? `InfiniAI Model ${model.id}`,
+				detail: model.detail ?? `InfiniAI ${route.transport}`,
+				family: model.family ?? inferModelFamily(model.id),
+				version: model.version ?? model.created?.toString() ?? "1.0.0",
+				maxInputTokens: maxInput,
+				maxOutputTokens: maxOutput,
+				capabilities: {
+					toolCalling:
+						model.capabilities?.toolCalling ?? (!model.id.includes("embed") && !model.id.includes("reranker")),
+					imageInput,
+				},
 			},
-		});
+			buildInfiniAIModelConfigurationSchema(model, maxOutput)
+		);
 	}
 
 	private toModelInfo(
