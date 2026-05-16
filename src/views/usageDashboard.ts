@@ -97,9 +97,7 @@ export class InfiniAIUsageDashboardProvider implements vscode.WebviewViewProvide
 				this.postRender();
 				return;
 			case "reset": {
-				this._records = [];
-				await this.persistRecords();
-				this.postRender();
+				await this.confirmAndResetRecords();
 				return;
 			}
 			case "export": {
@@ -107,6 +105,21 @@ export class InfiniAIUsageDashboardProvider implements vscode.WebviewViewProvide
 				return;
 			}
 		}
+	}
+
+	private async confirmAndResetRecords(): Promise<void> {
+		const confirm = vscode.l10n.t("Reset");
+		const choice = await vscode.window.showWarningMessage(
+			vscode.l10n.t("Clear all locally recorded usage data?"),
+			{ modal: true },
+			confirm
+		);
+		if (choice !== confirm) {
+			return;
+		}
+		this._records = [];
+		await this.persistRecords();
+		this.postRender();
 	}
 
 	private async exportCsv(): Promise<void> {
@@ -202,7 +215,6 @@ export class InfiniAIUsageDashboardProvider implements vscode.WebviewViewProvide
 			columnCached: vscode.l10n.t("Cached"),
 			reset: vscode.l10n.t("Reset"),
 			exportCsv: vscode.l10n.t("Export CSV"),
-			confirmReset: vscode.l10n.t("Clear all locally recorded usage data?"),
 			empty: vscode.l10n.t("No usage data yet. Send a chat request to start tracking."),
 			comingSoon: vscode.l10n.t("Account-level totals (Coming soon)"),
 		};
@@ -317,9 +329,7 @@ export class InfiniAIUsageDashboardProvider implements vscode.WebviewViewProvide
 
 		document.getElementById('exportBtn').addEventListener('click', () => vscode.postMessage({ type: 'export' }));
 		document.getElementById('resetBtn').addEventListener('click', () => {
-			if (confirm(labels.confirmReset)) {
-				vscode.postMessage({ type: 'reset' });
-			}
+			vscode.postMessage({ type: 'reset' });
 		});
 
 		window.addEventListener('message', (event) => {
