@@ -41,14 +41,13 @@ describe("model configuration schema", () => {
 		assert.equal(schema.properties.reasoningEffort.default, "unset");
 		assert.equal(schema.properties.reasoningEffort.group, "navigation");
 		assert.deepEqual(schema.properties.thinkingMode.enum, ["unset", "disabled", "enabled"]);
-		assert.deepEqual(schema.properties.thinkingMode.enumItemLabels, ["Empty", "Disabled", "Enabled"]);
-		assert.doesNotMatch(schema.properties.thinkingMode.description ?? "", /provider[- ]specific/i);
+		assert.deepEqual(schema.properties.thinkingMode.enumItemLabels, ["Unset", "Disabled", "Enabled"]);
+		assert.match(schema.properties.thinkingMode.description ?? "", /confirmed request parameter/);
 		assert.doesNotMatch(schema.properties.thinkingMode.enumDescriptions?.join("\n") ?? "", /Best[- ]effort/i);
-		assert.doesNotMatch(schema.properties.thinkingMode.enumDescriptions?.join("\n") ?? "", /provider[- ]specific/i);
 		assert.equal(schema.properties.thinkingMode.default, "unset");
 	});
 
-	it("does not require reasoning metadata to expose unset-safe controls", () => {
+	it("uses the built-in reasoning profile to expose supported controls", () => {
 		const schema = buildInfiniAIModelConfigurationSchema(
 			modelInfo({
 				capabilities: {
@@ -61,6 +60,18 @@ describe("model configuration schema", () => {
 		assert.ok(schema.properties.maxOutputTokens);
 		assert.deepEqual(schema.properties.reasoningEffort.enum, ["unset", "low", "medium", "high"]);
 		assert.deepEqual(schema.properties.thinkingMode.enum, ["unset", "disabled", "enabled"]);
+	});
+
+	it("does not expose thinking controls for unknown profiles", () => {
+		const schema = buildInfiniAIModelConfigurationSchema(
+			modelInfo({
+				id: "custom-frontier-model",
+			}),
+			4096
+		);
+
+		assert.ok(schema.properties.maxOutputTokens);
+		assert.equal(schema.properties.thinkingMode, undefined);
 	});
 });
 
@@ -142,7 +153,6 @@ describe("model configuration request mapping", () => {
 			max_tokens: 2048,
 			reasoning_effort: "high",
 			enable_thinking: false,
-			thinking: { type: "disabled" },
 		});
 		assert.equal(rawBody.maxOutputTokens, undefined);
 		assert.equal(rawBody.reasoningEffort, undefined);
@@ -150,16 +160,37 @@ describe("model configuration request mapping", () => {
 	});
 
 	it("maps explicit thinking enablement when selected", () => {
-		const body: Record<string, unknown> = { model: "kimi-k2-thinking" };
+		const body: Record<string, unknown> = { model: "kimi-k2.6" };
 
 		applyOpenAIModelConfiguration(body, {
 			thinkingMode: "enabled",
 		});
 
 		assert.deepEqual(body, {
-			model: "kimi-k2-thinking",
-			enable_thinking: true,
+			model: "kimi-k2.6",
 			thinking: { type: "enabled" },
+		});
+	});
+
+	it("selects MiniMax split reasoning mode through the request policy", () => {
+		const body: Record<string, unknown> = { model: "minimax-m2.7" };
+
+		applyOpenAIModelConfiguration(body, {});
+
+		assert.deepEqual(body, {
+			model: "minimax-m2.7",
+			reasoning_split: true,
+		});
+	});
+
+	it("selects MiniMax split reasoning mode for future MiniMax OpenAI-compatible IDs", () => {
+		const body: Record<string, unknown> = { model: "minimax-next" };
+
+		applyOpenAIModelConfiguration(body, {});
+
+		assert.deepEqual(body, {
+			model: "minimax-next",
+			reasoning_split: true,
 		});
 	});
 

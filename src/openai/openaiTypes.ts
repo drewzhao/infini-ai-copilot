@@ -29,6 +29,7 @@ export interface OpenAIChatMessage {
 	tool_calls?: OpenAIToolCall[];
 	tool_call_id?: string;
 	reasoning_content?: string;
+	reasoning_details?: ProviderReasoningDetail[];
 	cache_control?: CacheControl; // 支持缓存控制
 }
 
@@ -76,3 +77,5 @@ export interface ReasoningTextDetail extends ReasoningDetailCommon {
 }
 
 export type ReasoningDetail = ReasoningSummaryDetail | ReasoningEncryptedDetail | ReasoningTextDetail;
+
+export type ProviderReasoningDetail = ReasoningDetail | Record<string, unknown>;

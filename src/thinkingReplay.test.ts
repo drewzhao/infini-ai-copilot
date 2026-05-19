@@ -2,6 +2,7 @@ import assert from "assert/strict";
 
 import type { AnthropicMessage } from "./anthropic/anthropicTypes";
 import type { OpenAIChatMessage } from "./openai/openaiTypes";
+import { resolveReasoningDialectProfile } from "./reasoningDialect";
 import { applyAnthropicThinkingReplay, applyThinkingReplay, decideThinkingReplayRequest } from "./thinkingReplay";
 import { MemoryThinkingReplayStorage, ThinkingReplayStore } from "./thinkingReplayStore";
 
@@ -128,6 +129,58 @@ describe("applyThinkingReplay", () => {
 		assert.equal(result.hasAssistantToolCalls, true);
 		assert.equal(result.replayedCount, 0);
 		assert.equal(result.messages[1].reasoning_content, "host supplied");
+	});
+
+	it("injects matching reasoning_details for MiniMax split-mode profiles", async () => {
+		const store = new ThinkingReplayStore();
+		await store.initialize(new MemoryThinkingReplayStorage());
+		const profile = resolveReasoningDialectProfile({ modelId: "minimax-m2.7", transport: "openai" });
+		const turn = store.beginTurn({
+			modelId: "minimax-m2.7",
+			profileId: profile.id,
+			transport: profile.transport,
+			carrier: "reasoning_details",
+		});
+		store.appendReasoningDetails(turn.turnId, [
+			{ type: "reasoning.text", text: "stored detail", format: "minimax", id: "r1" },
+		]);
+		store.recordToolCall(turn.turnId, "call_1");
+		await store.commit(turn.turnId);
+		const messages: OpenAIChatMessage[] = [
+			{
+				role: "assistant",
+				tool_calls: [{ id: "call_1", type: "function", function: { name: "read_file", arguments: "{}" } }],
+			},
+		];
+
+		const result = applyThinkingReplay({ modelId: "minimax-m2.7", profile, messages, store });
+
+		assert.equal(result.allRequiredReasoningReplayed, true);
+		assert.equal(result.replayedCount, 1);
+		assert.deepEqual(result.messages[0].reasoning_details, [
+			{ type: "reasoning.text", text: "stored detail", format: "minimax", id: "r1" },
+		]);
+		assert.equal(result.messages[0].reasoning_content, undefined);
+	});
+
+	it("rejects wrong-carrier replay entries instead of injecting reasoning_content into MiniMax split mode", async () => {
+		const store = await storeWithEntries([
+			{ modelId: "minimax-m2.7", callId: "call_1", reasoningContent: "wrong carrier" },
+		]);
+		const profile = resolveReasoningDialectProfile({ modelId: "minimax-m2.7", transport: "openai" });
+		const messages: OpenAIChatMessage[] = [
+			{
+				role: "assistant",
+				tool_calls: [{ id: "call_1", type: "function", function: { name: "read_file", arguments: "{}" } }],
+			},
+		];
+
+		const result = applyThinkingReplay({ modelId: "minimax-m2.7", profile, messages, store });
+
+		assert.equal(result.allRequiredReasoningReplayed, false);
+		assert.deepEqual(result.missingCallIds, ["call_1"]);
+		assert.equal(result.messages[0].reasoning_content, undefined);
+		assert.equal(result.messages[0].reasoning_details, undefined);
 	});
 });
 
@@ -263,6 +316,48 @@ describe("decideThinkingReplayRequest", () => {
 		assert.equal(
 			decideThinkingReplayRequest({ userOptedIntoRoundTrip: false, preflight: miss }).allowThinkingRoundTrip,
 			false
+		);
+	});
+
+	it("fails locally for replay-required profiles even without explicit opt-in", async () => {
+		const miss = applyThinkingReplay({
+			modelId: "glm-5.1",
+			messages: [
+				{
+					role: "assistant",
+					tool_calls: [{ id: "call_missing", type: "function", function: { name: "a", arguments: "{}" } }],
+				},
+			],
+			store: await storeWithEntries([]),
+		});
+
+		const decision = decideThinkingReplayRequest({
+			userOptedIntoRoundTrip: false,
+			replayRequiredByProfile: true,
+			preflight: miss,
+		});
+
+		assert.equal(decision.allowThinkingRoundTrip, false);
+		assert.equal(decision.failLocalReason?.includes("Reasoning cannot be resumed"), true);
+	});
+
+	it("allows automatic round-trip capture for replay-required new chats", async () => {
+		const empty = applyThinkingReplay({
+			modelId: "glm-5.1",
+			messages: [{ role: "user", content: "hello" }],
+			store: await storeWithEntries([]),
+		});
+
+		assert.deepEqual(
+			decideThinkingReplayRequest({
+				userOptedIntoRoundTrip: false,
+				replayRequiredByProfile: true,
+				preflight: empty,
+			}),
+			{
+				allowThinkingRoundTrip: true,
+				failLocalReason: undefined,
+			}
 		);
 	});
 });

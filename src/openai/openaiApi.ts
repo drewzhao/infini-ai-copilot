@@ -31,22 +31,24 @@ import {
 	applyOpenAIModelConfiguration,
 	resolveInfiniAIModelConfiguration,
 } from "../modelConfiguration";
+import { resolveReasoningDialectProfile } from "../reasoningDialect";
+import { applyReasoningRequestControls } from "../reasoningRequest";
 import { readSseEvents } from "../sse";
 import { StreamParseError, sanitizeForLog } from "../utils";
 import {
-	applyDisableThinking,
 	getDisableThinkingPatterns,
 	getThinkingRoundTripPatterns,
 	shouldEnableThinkingRoundTrip,
 	shouldDisableThinking,
 } from "../thinkingMode";
 import { getThinkingPartCtor } from "../proposedApi";
-import type { PendingThinkingTurn, ThinkingReplayStore } from "../thinkingReplayStore";
+import type { PendingThinkingTurn, StoredReplayCarrier, ThinkingReplayStore } from "../thinkingReplayStore";
 
 export interface OpenaiApiOptions {
 	readonly thinkingReplayStore?: ThinkingReplayStore;
 	readonly pendingThinkingTurn?: PendingThinkingTurn;
 	readonly emitThinkingParts?: boolean;
+	readonly replayCarrier?: StoredReplayCarrier;
 }
 
 const HIDDEN_THINKING_NO_FINAL_TEXT_FALLBACK =
@@ -57,6 +59,7 @@ export class OpenaiApi extends CommonApi {
 	private readonly thinkingReplayStore?: ThinkingReplayStore;
 	private readonly pendingThinkingTurn?: PendingThinkingTurn;
 	private readonly emitThinkingParts: boolean;
+	private readonly replayCarrier: StoredReplayCarrier;
 	private thinkingReplayTerminal = false;
 	private sawHiddenThinkingContent = false;
 	private hasEmittedVisibleText = false;
@@ -66,6 +69,7 @@ export class OpenaiApi extends CommonApi {
 		this.thinkingReplayStore = options.thinkingReplayStore;
 		this.pendingThinkingTurn = options.pendingThinkingTurn;
 		this.emitThinkingParts = options.emitThinkingParts ?? true;
+		this.replayCarrier = options.replayCarrier ?? "reasoning_content";
 	}
 
 	/**
@@ -312,7 +316,9 @@ export class OpenaiApi extends CommonApi {
 			orb.tool_choice = toolConfig.tool_choice;
 		}
 
-		applyOpenAIModelConfiguration(orb, resolveInfiniAIModelConfiguration(options));
+		const modelId = um?.id ?? (typeof orb.model === "string" ? orb.model : "");
+		const reasoningProfile = resolveReasoningDialectProfile({ modelId, transport: "openai" });
+		applyOpenAIModelConfiguration(orb, resolveInfiniAIModelConfiguration(options), reasoningProfile);
 
 		// // Configure user-defined additional parameters
 		// if (um?.top_k !== undefined) {
@@ -347,13 +353,12 @@ export class OpenaiApi extends CommonApi {
 		// plus user additions). Constructor availability alone is not a replay
 		// guarantee, so the safety list wins on stable and Insiders unless a
 		// future verified backend explicitly opts this request in.
-		const modelId = um?.id ?? (typeof orb.model === "string" ? orb.model : "");
 		const forceDisableThinking = shouldDisableThinking(modelId, getDisableThinkingPatterns());
 		const userOptedIntoRoundTrip = shouldEnableThinkingRoundTrip(modelId, getThinkingRoundTripPatterns());
 		const allowThinkingRoundTrip = userOptedIntoRoundTrip && replayPreflightSafe;
 
 		if (forceDisableThinking && !allowThinkingRoundTrip) {
-			applyDisableThinking(orb);
+			applyReasoningRequestControls(orb, reasoningProfile, { thinkingMode: "disabled" });
 		}
 
 		return orb;
@@ -399,9 +404,11 @@ export class OpenaiApi extends CommonApi {
 			await this.flushToolCallBuffers(progress, /*throwOnInvalid*/ false);
 			this.flushXmlThinkPending(progress);
 			if (completed) {
+				await this.completeReplayTurn();
 				this.reportNoVisibleResponseFallback(progress);
+			} else {
+				this.abortReplayTurn();
 			}
-			this.abortReplayTurn();
 			// If there's an active thinking sequence, end it first
 			this.reportEndThinking();
 		}
@@ -474,7 +481,11 @@ export class OpenaiApi extends CommonApi {
 
 					if (extractedText) {
 						this.sawHiddenThinkingContent = true;
-						this.captureReplayReasoning(extractedText);
+						if (this.replayCarrier === "reasoning_details") {
+							this.captureReplayReasoningDetails([detail]);
+						} else {
+							this.captureReplayReasoning(extractedText);
+						}
 						this.bufferThinkingContent(extractedText, progress);
 						emitted = true;
 					}
@@ -563,14 +574,14 @@ export class OpenaiApi extends CommonApi {
 			}
 		}
 
-		const finish = (choice.finish_reason as string | undefined) ?? undefined;
-		if (finish === "tool_calls" || finish === "stop") {
-			// On both 'tool_calls' and 'stop', emit any buffered calls and throw on invalid JSON
-			await this.flushToolCallBuffers(progress, /*throwOnInvalid*/ true);
-			await this.completeReplayTurn(finish);
+			const finish = (choice.finish_reason as string | undefined) ?? undefined;
+			if (finish === "tool_calls" || finish === "stop") {
+				// On both 'tool_calls' and 'stop', emit any buffered calls and throw on invalid JSON
+				await this.flushToolCallBuffers(progress, /*throwOnInvalid*/ true);
+				await this.completeReplayTurn();
+			}
+			return emitted;
 		}
-		return emitted;
-	}
 
 	protected override onToolCallEmitted(callId: string): void {
 		if (!this.thinkingReplayStore || !this.pendingThinkingTurn) {
@@ -593,16 +604,19 @@ export class OpenaiApi extends CommonApi {
 		this.thinkingReplayStore.appendReasoning(this.pendingThinkingTurn.turnId, text);
 	}
 
-	private async completeReplayTurn(finishReason: "tool_calls" | "stop"): Promise<void> {
+	private captureReplayReasoningDetails(details: readonly unknown[]): void {
+		if (!this.thinkingReplayStore || !this.pendingThinkingTurn) {
+			return;
+		}
+		this.thinkingReplayStore.appendReasoningDetails(this.pendingThinkingTurn.turnId, details);
+	}
+
+	private async completeReplayTurn(): Promise<void> {
 		if (this.thinkingReplayTerminal || !this.thinkingReplayStore || !this.pendingThinkingTurn) {
 			return;
 		}
 		this.thinkingReplayTerminal = true;
-		if (finishReason === "tool_calls") {
-			await this.thinkingReplayStore.commit(this.pendingThinkingTurn.turnId);
-		} else {
-			this.thinkingReplayStore.abort(this.pendingThinkingTurn.turnId);
-		}
+		await this.thinkingReplayStore.commit(this.pendingThinkingTurn.turnId);
 	}
 
 	private abortReplayTurn(): void {

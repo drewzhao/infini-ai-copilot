@@ -1,11 +1,13 @@
-import type { OpenAIChatMessage } from "./openai/openaiTypes";
+import type { OpenAIChatMessage, ProviderReasoningDetail } from "./openai/openaiTypes";
+import type { ReasoningDialectProfile, ReplayCarrier } from "./reasoningDialect";
 import type {
 	AnthropicContentBlock,
 	AnthropicMessage,
 	AnthropicThinkingBlock,
 	AnthropicToolUseBlock,
 } from "./anthropic/anthropicTypes";
-import type { ThinkingReplayStore } from "./thinkingReplayStore";
+import type { StoredReplayCarrier, ThinkingReplayEntry, ThinkingReplayStore } from "./thinkingReplayStore";
+import { isStoredReplayCarrier } from "./thinkingReplayStore";
 
 export interface ThinkingReplayPreflight<TMessage = OpenAIChatMessage> {
 	readonly messages: TMessage[];
@@ -27,8 +29,49 @@ export const THINKING_REPLAY_MISS_ERROR =
 	"or enabling reasoning mid-chat. Start a new chat to use reasoning with this model, or remove the reasoning " +
 	"opt-in to continue this chat without thinking.";
 
+function resolveReplayCarrier(profile: ReasoningDialectProfile | undefined): StoredReplayCarrier {
+	const carrier = profile?.replayCarrier ?? "reasoning_content";
+	return isStoredReplayCarrier(carrier) ? carrier : "reasoning_content";
+}
+
+function lookupReplayEntry(input: {
+	readonly modelId: string;
+	readonly callId: string;
+	readonly carrier: StoredReplayCarrier;
+	readonly profile?: ReasoningDialectProfile;
+	readonly store: ThinkingReplayStore;
+}): ThinkingReplayEntry | undefined {
+	if (!input.profile) {
+		return input.store.lookup(input.modelId, input.callId);
+	}
+	return input.store.lookup({
+		modelId: input.modelId,
+		callId: input.callId,
+		profileId: input.profile.id,
+		carrier: input.carrier,
+	});
+}
+
+function replayPayloadKey(entry: ThinkingReplayEntry, carrier: StoredReplayCarrier): string | undefined {
+	if (carrier === "reasoning_details") {
+		return entry.reasoningDetails ? JSON.stringify(entry.reasoningDetails) : undefined;
+	}
+	return entry.reasoningContent;
+}
+
+function messageHasReplayCarrier(message: OpenAIChatMessage, carrier: ReplayCarrier): boolean {
+	if (carrier === "reasoning_details") {
+		return Array.isArray(message.reasoning_details) && message.reasoning_details.length > 0;
+	}
+	if (carrier === "reasoning_content" || carrier === "think_tag_content") {
+		return typeof message.reasoning_content === "string" && message.reasoning_content.length > 0;
+	}
+	return false;
+}
+
 export function applyThinkingReplay(input: {
 	readonly modelId: string;
+	readonly profile?: ReasoningDialectProfile;
 	readonly messages: readonly OpenAIChatMessage[];
 	readonly store: ThinkingReplayStore;
 }): ThinkingReplayPreflight {
@@ -36,6 +79,7 @@ export function applyThinkingReplay(input: {
 	const conflictingCallIds: string[] = [];
 	let hasAssistantToolCalls = false;
 	let replayedCount = 0;
+	const carrier = resolveReplayCarrier(input.profile);
 
 	const messages = input.messages.map((message) => {
 		if (message.role !== "assistant" || !message.tool_calls || message.tool_calls.length === 0) {
@@ -43,39 +87,52 @@ export function applyThinkingReplay(input: {
 		}
 
 		hasAssistantToolCalls = true;
-		if (message.reasoning_content) {
+		if (messageHasReplayCarrier(message, carrier)) {
 			return { ...message };
 		}
 
-		const reasoningByCallId: Array<{ callId: string; reasoningContent: string }> = [];
+		const replayByCallId: Array<{ callId: string; entry: ThinkingReplayEntry; payloadKey: string }> = [];
 		for (const toolCall of message.tool_calls) {
 			if (!toolCall.id) {
 				missingCallIds.push("<missing>");
 				continue;
 			}
-			const entry = input.store.lookup(input.modelId, toolCall.id);
-			if (!entry) {
+			const entry = lookupReplayEntry({
+				modelId: input.modelId,
+				callId: toolCall.id,
+				carrier,
+				profile: input.profile,
+				store: input.store,
+			});
+			const payloadKey = entry ? replayPayloadKey(entry, carrier) : undefined;
+			if (!entry || !payloadKey) {
 				missingCallIds.push(toolCall.id);
 				continue;
 			}
-			reasoningByCallId.push({ callId: toolCall.id, reasoningContent: entry.reasoningContent });
+			replayByCallId.push({ callId: toolCall.id, entry, payloadKey });
 		}
 
-		if (reasoningByCallId.length !== message.tool_calls.length) {
+		if (replayByCallId.length !== message.tool_calls.length) {
 			return { ...message };
 		}
 
-		const first = reasoningByCallId[0]?.reasoningContent;
-		if (first === undefined) {
+		const first = replayByCallId[0];
+		if (!first) {
 			return { ...message };
 		}
-		if (reasoningByCallId.some((entry) => entry.reasoningContent !== first)) {
-			conflictingCallIds.push(...reasoningByCallId.map((entry) => entry.callId));
+		if (replayByCallId.some((entry) => entry.payloadKey !== first.payloadKey)) {
+			conflictingCallIds.push(...replayByCallId.map((entry) => entry.callId));
 			return { ...message };
 		}
 
 		replayedCount++;
-		return { ...message, reasoning_content: first };
+		if (carrier === "reasoning_details") {
+			return {
+				...message,
+				reasoning_details: [...(first.entry.reasoningDetails ?? [])] as ProviderReasoningDetail[],
+			};
+		}
+		return { ...message, reasoning_content: first.entry.reasoningContent };
 	});
 
 	return {
@@ -111,6 +168,7 @@ function isAnthropicThinkingBlock(block: AnthropicContentBlock): block is Anthro
 
 export function applyAnthropicThinkingReplay(input: {
 	readonly modelId: string;
+	readonly profile?: ReasoningDialectProfile;
 	readonly messages: readonly AnthropicMessage[];
 	readonly store: ThinkingReplayStore;
 }): ThinkingReplayPreflight<AnthropicMessage> {
@@ -147,8 +205,15 @@ export function applyAnthropicThinkingReplay(input: {
 				missingCallIds.push("<missing>");
 				continue;
 			}
-			const entry = input.store.lookup(input.modelId, toolUse.id);
-			if (!entry) {
+			const entry = input.profile
+				? input.store.lookup({
+						modelId: input.modelId,
+						callId: toolUse.id,
+						profileId: input.profile.id,
+						carrier: "anthropic_thinking_block",
+					})
+				: input.store.lookup(input.modelId, toolUse.id);
+			if (!entry?.reasoningContent) {
 				missingCallIds.push(toolUse.id);
 				continue;
 			}
@@ -200,9 +265,11 @@ export function applyAnthropicThinkingReplay(input: {
 
 export function decideThinkingReplayRequest(input: {
 	readonly userOptedIntoRoundTrip: boolean;
+	readonly replayRequiredByProfile?: boolean;
 	readonly preflight: ThinkingReplayPreflight<unknown>;
 }): ThinkingReplayRequestDecision {
-	if (!input.userOptedIntoRoundTrip) {
+	const shouldRoundTrip = input.userOptedIntoRoundTrip || input.replayRequiredByProfile === true;
+	if (!shouldRoundTrip) {
 		return { allowThinkingRoundTrip: false, failLocalReason: undefined };
 	}
 	if (!input.preflight.allRequiredReasoningReplayed && input.preflight.hasAssistantToolCalls) {

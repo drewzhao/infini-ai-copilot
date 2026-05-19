@@ -99,7 +99,7 @@ describe("OpenaiApi.prepareRequestBody thinking-mode guard", () => {
 			)
 		);
 
-		assert.equal(rb.enable_thinking, false);
+		assert.equal(rb.enable_thinking, undefined);
 		assert.deepEqual(rb.thinking, { type: "disabled" });
 	});
 
@@ -123,7 +123,7 @@ describe("OpenaiApi.prepareRequestBody thinking-mode guard", () => {
 			)
 		);
 
-		assert.equal(rb.enable_thinking, false);
+		assert.equal(rb.enable_thinking, undefined);
 		assert.deepEqual(rb.thinking, { type: "disabled" });
 	});
 
@@ -169,6 +169,26 @@ describe("OpenaiApi thinking replay streaming capture", () => {
 		assert.equal(store.lookup("mimo-v2.5-pro", "call_1")?.reasoningContent, "because ");
 	});
 
+	it("commits structured reasoning when the stream completes after tool calls without finish_reason", async () => {
+		const { openai, replayStore } = loadOpenaiApi();
+		const store = new replayStore.ThinkingReplayStore();
+		await store.initialize(new replayStore.MemoryThinkingReplayStorage());
+		const pendingTurn = store.beginTurn("mimo-v2.5-pro");
+		const api = new openai.OpenaiApi({ thinkingReplayStore: store, pendingThinkingTurn: pendingTurn });
+
+		await api.processStreamingResponse(
+			streamFromChunks([
+				'data: {"choices":[{"delta":{"reasoning_content":"because "}}]}\n\n',
+				'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read_file","arguments":"{}"}}]}}]}\n\n',
+				"data: [DONE]\n\n",
+			]),
+			{ report() {} },
+			token() as any
+		);
+
+		assert.equal(store.lookup("mimo-v2.5-pro", "call_1")?.reasoningContent, "because ");
+	});
+
 	it("aborts structured reasoning capture when the streamed turn stops without tool calls", async () => {
 		const { openai, replayStore } = loadOpenaiApi();
 		const store = new replayStore.ThinkingReplayStore();
@@ -187,6 +207,45 @@ describe("OpenaiApi thinking replay streaming capture", () => {
 		);
 
 		assert.equal(store.stats().entryCount, 0);
+	});
+
+	it("commits raw reasoning_details for MiniMax split-mode replay capture", async () => {
+		const { openai, replayStore } = loadOpenaiApi();
+		const store = new replayStore.ThinkingReplayStore();
+		await store.initialize(new replayStore.MemoryThinkingReplayStorage());
+		const pendingTurn = store.beginTurn({
+			modelId: "minimax-m2.7",
+			profileId: "minimax-m2",
+			transport: "openai",
+			carrier: "reasoning_details",
+		});
+		const api = new openai.OpenaiApi({
+			thinkingReplayStore: store,
+			pendingThinkingTurn: pendingTurn,
+			replayCarrier: "reasoning_details",
+		});
+
+		await api.processStreamingResponse(
+			streamFromChunks([
+				'data: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.text","text":"because","format":"minimax","id":"r1"}]}}]}\n\n',
+				'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read_file","arguments":"{}"}}]}}]}\n\n',
+				'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n',
+				"data: [DONE]\n\n",
+			]),
+			{ report() {} },
+			token() as any
+		);
+
+		const entry = store.lookup({
+			modelId: "minimax-m2.7",
+			callId: "call_1",
+			profileId: "minimax-m2",
+			carrier: "reasoning_details",
+		});
+		assert.deepEqual(entry?.reasoningDetails, [
+			{ type: "reasoning.text", text: "because", format: "minimax", id: "r1" },
+		]);
+		assert.equal(entry?.reasoningContent, undefined);
 	});
 });
 

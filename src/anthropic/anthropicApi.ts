@@ -22,6 +22,8 @@ import { isImageMimeType, isToolResultPart, collectToolResultText, convertToolsT
 import { CommonApi } from "../commonApi";
 import { applyAnthropicModelConfiguration, resolveInfiniAIModelConfiguration } from "../modelConfiguration";
 import { getThinkingPartCtor } from "../proposedApi";
+import { resolveReasoningDialectProfile } from "../reasoningDialect";
+import { applyReasoningRequestControls } from "../reasoningRequest";
 import { readSseEvents } from "../sse";
 import { ProviderProtocolError, StreamParseError, sanitizeForLog } from "../utils";
 import type { PendingThinkingTurn, ThinkingReplayStore } from "../thinkingReplayStore";
@@ -289,6 +291,9 @@ export class AnthropicApi extends CommonApi {
 		}
 
 		applyAnthropicModelConfiguration(arb, resolveInfiniAIModelConfiguration(options));
+		const modelId = um?.id ?? (typeof arb.model === "string" ? arb.model : "");
+		const reasoningProfile = resolveReasoningDialectProfile({ modelId, transport: "anthropic" });
+		applyReasoningRequestControls(arb as unknown as Record<string, unknown>, reasoningProfile, {});
 
 		// Process extra configuration parameters
 		// if (um?.extra && typeof um.extra === "object") {

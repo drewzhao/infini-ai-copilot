@@ -82,6 +82,26 @@ function token() {
 	};
 }
 
+describe("AnthropicApi.prepareRequestBody MiniMax request controls", () => {
+	it("always sends reasoning_split for MiniMax models", () => {
+		const { anthropic } = loadAnthropicApi();
+		const api = new anthropic.AnthropicApi();
+
+		const body = api.prepareRequestBody(
+			{
+				model: "minimax-m2.7",
+				messages: [],
+				stream: true,
+				max_tokens: 16,
+			},
+			{ id: "minimax-m2.7" } as any,
+			{ modelOptions: {}, tools: [] } as any
+		);
+
+		assert.equal(body.reasoning_split, true);
+	});
+});
+
 describe("AnthropicApi thinking replay streaming capture", () => {
 	it("commits structured thinking when the streamed turn finishes with tool use", async () => {
 		const { anthropic, replayStore } = loadAnthropicApi();

@@ -2,10 +2,19 @@ import { randomUUID } from "crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "fs/promises";
 import { dirname } from "path";
 
+import type { ReplayCarrier } from "./reasoningDialect";
+import type { ModelTransport } from "./types";
+
+export type StoredReplayCarrier = Exclude<ReplayCarrier, "none" | "unknown">;
+
 export interface ThinkingReplayEntry {
 	readonly modelId: string;
 	readonly callId: string;
-	readonly reasoningContent: string;
+	readonly profileId?: string;
+	readonly transport?: ModelTransport;
+	readonly carrier?: StoredReplayCarrier;
+	readonly reasoningContent?: string;
+	readonly reasoningDetails?: readonly unknown[];
 	readonly reasoningSignature?: string;
 	readonly capturedAt: number;
 	readonly byteLength: number;
@@ -14,6 +23,20 @@ export interface ThinkingReplayEntry {
 export interface PendingThinkingTurn {
 	readonly turnId: string;
 	readonly modelId: string;
+}
+
+export interface BeginThinkingReplayTurnInput {
+	readonly modelId: string;
+	readonly profileId: string;
+	readonly transport: ModelTransport;
+	readonly carrier: StoredReplayCarrier;
+}
+
+export interface ThinkingReplayLookupInput {
+	readonly modelId: string;
+	readonly callId: string;
+	readonly profileId: string;
+	readonly carrier: StoredReplayCarrier;
 }
 
 export interface ThinkingReplayStats {
@@ -38,8 +61,12 @@ export interface ThinkingReplayStoreOptions {
 
 interface PendingTurn {
 	readonly modelId: string;
+	readonly profileId: string;
+	readonly transport: ModelTransport;
+	readonly carrier: StoredReplayCarrier;
 	readonly callIds: Set<string>;
 	readonly chunks: string[];
+	readonly detailChunks: unknown[];
 	readonly signatureChunks: string[];
 	byteLength: number;
 	invalid: boolean;
@@ -58,20 +85,44 @@ function byteLength(input: string): number {
 	return Buffer.byteLength(input, "utf8");
 }
 
+export function isStoredReplayCarrier(value: ReplayCarrier): value is StoredReplayCarrier {
+	return (
+		value === "reasoning_content" ||
+		value === "reasoning_details" ||
+		value === "think_tag_content" ||
+		value === "anthropic_thinking_block"
+	);
+}
+
 function isReplayEntry(value: unknown): value is ThinkingReplayEntry {
 	const v = value as Partial<ThinkingReplayEntry> | undefined;
 	return (
 		!!v &&
 		typeof v.modelId === "string" &&
 		typeof v.callId === "string" &&
-		typeof v.reasoningContent === "string" &&
+		(v.profileId === undefined || typeof v.profileId === "string") &&
+		(v.transport === undefined || v.transport === "openai" || v.transport === "anthropic" || v.transport === "vertex") &&
+		(v.carrier === undefined || isStoredReplayCarrier(v.carrier)) &&
+		(v.reasoningContent === undefined || typeof v.reasoningContent === "string") &&
+		(v.reasoningDetails === undefined || Array.isArray(v.reasoningDetails)) &&
 		(v.reasoningSignature === undefined || typeof v.reasoningSignature === "string") &&
 		typeof v.capturedAt === "number" &&
 		typeof v.byteLength === "number" &&
 		v.modelId.length > 0 &&
 		v.callId.length > 0 &&
-		v.byteLength >= 0
+		v.byteLength >= 0 &&
+		(typeof v.reasoningContent === "string" || Array.isArray(v.reasoningDetails))
 	);
+}
+
+function normalizeReplayEntry(entry: ThinkingReplayEntry): ThinkingReplayEntry {
+	const carrier = entry.carrier ?? "reasoning_content";
+	return {
+		...entry,
+		profileId: entry.profileId ?? "legacy-reasoning-content",
+		transport: entry.transport ?? "openai",
+		carrier,
+	};
 }
 
 export class MemoryThinkingReplayStorage implements ThinkingReplayStorage {
@@ -143,25 +194,45 @@ export class ThinkingReplayStore {
 		this.entries.clear();
 		const loaded = await storage.load();
 		for (const entry of loaded) {
-			this.entries.set(replayKey(entry.modelId, entry.callId), entry);
+			const normalized = normalizeReplayEntry(entry);
+			this.entries.set(replayKey(normalized.modelId, normalized.callId), normalized);
 		}
 		await this.prune();
 	}
 
-	beginTurn(modelId: string): PendingThinkingTurn {
+	beginTurn(modelId: string): PendingThinkingTurn;
+	beginTurn(input: BeginThinkingReplayTurnInput): PendingThinkingTurn;
+	beginTurn(input: string | BeginThinkingReplayTurnInput): PendingThinkingTurn {
+		const config =
+			typeof input === "string"
+				? {
+						modelId: input,
+						profileId: "legacy-reasoning-content",
+						transport: "openai" as const,
+						carrier: "reasoning_content" as const,
+					}
+				: input;
 		const turnId = randomUUID();
 		this.pending.set(turnId, {
-			modelId,
+			modelId: config.modelId,
+			profileId: config.profileId,
+			transport: config.transport,
+			carrier: config.carrier,
 			callIds: new Set<string>(),
 			chunks: [],
+			detailChunks: [],
 			signatureChunks: [],
 			byteLength: 0,
-			invalid: !modelId,
+			invalid: !config.modelId || !config.profileId,
 		});
-		return { turnId, modelId };
+		return { turnId, modelId: config.modelId };
 	}
 
 	appendReasoning(turnId: string, text: string): void {
+		this.appendReasoningText(turnId, text);
+	}
+
+	appendReasoningText(turnId: string, text: string): void {
 		if (!text) {
 			return;
 		}
@@ -175,6 +246,23 @@ export class ThinkingReplayStore {
 			return;
 		}
 		pending.chunks.push(text);
+	}
+
+	appendReasoningDetails(turnId: string, details: readonly unknown[]): void {
+		if (details.length === 0) {
+			return;
+		}
+		const pending = this.pending.get(turnId);
+		if (!pending) {
+			return;
+		}
+		const serialized = JSON.stringify(details);
+		pending.byteLength += byteLength(serialized);
+		if (pending.byteLength > this.maxPendingTurnBytes) {
+			pending.invalid = true;
+			return;
+		}
+		pending.detailChunks.push(...details);
 	}
 
 	appendReasoningSignature(turnId: string, signature: string): void {
@@ -203,23 +291,31 @@ export class ThinkingReplayStore {
 	async commit(turnId: string): Promise<void> {
 		const pending = this.pending.get(turnId);
 		this.pending.delete(turnId);
-		if (!pending || pending.invalid || pending.callIds.size === 0 || pending.chunks.length === 0) {
+		if (!pending || pending.invalid || pending.callIds.size === 0) {
 			return;
 		}
 
-		const reasoningContent = pending.chunks.join("");
-		if (!reasoningContent) {
+		const reasoningContent = pending.chunks.join("") || undefined;
+		const reasoningDetails = pending.detailChunks.length > 0 ? [...pending.detailChunks] : undefined;
+		if (pending.carrier === "reasoning_details" ? !reasoningDetails : !reasoningContent) {
 			return;
 		}
 		const reasoningSignature = pending.signatureChunks.join("") || undefined;
 
 		const capturedAt = this.now();
-		const entryByteLength = byteLength(reasoningContent) + (reasoningSignature ? byteLength(reasoningSignature) : 0);
+		const entryByteLength =
+			(reasoningContent ? byteLength(reasoningContent) : 0) +
+			(reasoningDetails ? byteLength(JSON.stringify(reasoningDetails)) : 0) +
+			(reasoningSignature ? byteLength(reasoningSignature) : 0);
 		for (const callId of pending.callIds) {
 			const entry: ThinkingReplayEntry = {
 				modelId: pending.modelId,
 				callId,
+				profileId: pending.profileId,
+				transport: pending.transport,
+				carrier: pending.carrier,
 				reasoningContent,
+				reasoningDetails,
 				reasoningSignature,
 				capturedAt,
 				byteLength: entryByteLength,
@@ -233,13 +329,31 @@ export class ThinkingReplayStore {
 		this.pending.delete(turnId);
 	}
 
-	lookup(modelId: string, callId: string): ThinkingReplayEntry | undefined {
-		const entry = this.entries.get(replayKey(modelId, callId));
+	lookup(input: ThinkingReplayLookupInput): ThinkingReplayEntry | undefined;
+	lookup(modelId: string, callId: string): ThinkingReplayEntry | undefined;
+	lookup(inputOrModelId: string | ThinkingReplayLookupInput, callId?: string): ThinkingReplayEntry | undefined {
+		const lookupInput = typeof inputOrModelId === "string" ? undefined : inputOrModelId;
+		const keyModelId = typeof inputOrModelId === "string" ? inputOrModelId : inputOrModelId.modelId;
+		const keyCallId = typeof inputOrModelId === "string" ? (callId ?? "") : inputOrModelId.callId;
+		const entry = this.entries.get(replayKey(keyModelId, keyCallId));
 		if (!entry || !this.isFresh(entry, this.now())) {
 			if (entry) {
-				this.entries.delete(replayKey(modelId, callId));
+				this.entries.delete(replayKey(keyModelId, keyCallId));
 			}
 			return undefined;
+		}
+		if (lookupInput) {
+			const normalized = normalizeReplayEntry(entry);
+			if (normalized.carrier !== lookupInput.carrier) {
+				return undefined;
+			}
+			if (normalized.profileId !== lookupInput.profileId && normalized.profileId !== "legacy-reasoning-content") {
+				return undefined;
+			}
+			if (lookupInput.carrier !== "reasoning_content" && normalized.profileId === "legacy-reasoning-content") {
+				return undefined;
+			}
+			return normalized;
 		}
 		return entry;
 	}

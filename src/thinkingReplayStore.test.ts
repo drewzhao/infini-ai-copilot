@@ -27,6 +27,56 @@ describe("ThinkingReplayStore", () => {
 		assert.equal(entry?.callId, "call_1");
 	});
 
+	it("commits and looks up provider-native reasoning_details entries by carrier", async () => {
+		const store = new ThinkingReplayStore();
+		await store.initialize(new MemoryThinkingReplayStorage());
+
+		const turn = store.beginTurn({
+			modelId: "minimax-m2.7",
+			profileId: "minimax-m2",
+			transport: "openai",
+			carrier: "reasoning_details",
+		});
+		store.appendReasoningDetails(turn.turnId, [
+			{ type: "reasoning.text", text: "inspect files", format: "minimax", id: "r1" },
+		]);
+		store.recordToolCall(turn.turnId, "call_1");
+
+		await store.commit(turn.turnId);
+
+		const entry = store.lookup({
+			modelId: "minimax-m2.7",
+			callId: "call_1",
+			profileId: "minimax-m2",
+			carrier: "reasoning_details",
+		});
+		assert.equal(entry?.carrier, "reasoning_details");
+		assert.deepEqual(entry?.reasoningDetails, [
+			{ type: "reasoning.text", text: "inspect files", format: "minimax", id: "r1" },
+		]);
+		assert.equal(entry?.reasoningContent, undefined);
+	});
+
+	it("does not satisfy a reasoning_details lookup with a legacy reasoning_content entry", async () => {
+		const store = new ThinkingReplayStore();
+		await store.initialize(new MemoryThinkingReplayStorage());
+
+		const turn = store.beginTurn("minimax-m2.7");
+		store.appendReasoning(turn.turnId, "legacy text");
+		store.recordToolCall(turn.turnId, "call_1");
+		await store.commit(turn.turnId);
+
+		assert.equal(
+			store.lookup({
+				modelId: "minimax-m2.7",
+				callId: "call_1",
+				profileId: "minimax-m2",
+				carrier: "reasoning_details",
+			}),
+			undefined
+		);
+	});
+
 	it("does not commit aborted, empty, missing-call, or oversized pending turns", async () => {
 		const store = new ThinkingReplayStore({ maxPendingTurnBytes: 8 });
 		await store.initialize(new MemoryThinkingReplayStorage());

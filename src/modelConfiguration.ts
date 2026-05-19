@@ -1,7 +1,8 @@
 import type { ProvideLanguageModelChatResponseOptions } from "vscode";
 
-import { applyDisableThinking } from "./thinkingMode";
-import type { InfiniAIModelInfo } from "./types";
+import { resolveReasoningDialectProfile, type ReasoningDialectProfile } from "./reasoningDialect";
+import { applyReasoningRequestControls } from "./reasoningRequest";
+import type { InfiniAIModelInfo, ModelTransport } from "./types";
 
 type ModelConfigurationRecord = Record<string, unknown>;
 
@@ -93,9 +94,11 @@ export function resolveInfiniAIModelConfiguration(
 }
 
 export function buildInfiniAIModelConfigurationSchema(
-	_model: InfiniAIModelInfo,
-	maxOutputTokens: number
+	model: InfiniAIModelInfo,
+	maxOutputTokens: number,
+	transport: ModelTransport = "openai"
 ): InfiniAIModelConfigurationSchema {
+	const profile = resolveReasoningDialectProfile({ modelId: model.id, transport });
 	const outputChoices = getMaxOutputTokenChoices(maxOutputTokens);
 	const outputLabels = outputChoices.map((value) => (value === 0 ? "Model default" : formatTokenLabel(value)));
 	const properties: Record<string, InfiniAIModelConfigurationPropertySchema> = {
@@ -128,26 +131,38 @@ export function buildInfiniAIModelConfigurationSchema(
 		group: "navigation",
 	};
 
-	properties.thinkingMode = {
-		type: "string",
-		title: "Thinking mode",
-		description: "Empty sends no thinking parameter. Selected values send thinking controls and may not be accepted by every model.",
-		enum: ["unset", "disabled", "enabled"],
-		enumItemLabels: ["Empty", "Disabled", "Enabled"],
-		enumDescriptions: [
-			"Do not send a thinking parameter.",
-			"Send thinking-disable parameters.",
-			"Send thinking-enable parameters.",
-		],
-		default: "unset",
-	};
+	const thinkingModes: string[] = ["unset"];
+	const thinkingLabels: string[] = ["Unset"];
+	const thinkingDescriptions: string[] = ["Use the provider default for this model profile."];
+	if (profile.canDisableThinking) {
+		thinkingModes.push("disabled");
+		thinkingLabels.push("Disabled");
+		thinkingDescriptions.push("Send the disable-thinking control supported by this model profile.");
+	}
+	if (profile.canEnableThinking) {
+		thinkingModes.push("enabled");
+		thinkingLabels.push("Enabled");
+		thinkingDescriptions.push("Send the enable-thinking control supported by this model profile.");
+	}
+	if (thinkingModes.length > 1) {
+		properties.thinkingMode = {
+			type: "string",
+			title: "Thinking mode",
+			description: "Controls thinking only for model profiles with a confirmed request parameter.",
+			enum: thinkingModes,
+			enumItemLabels: thinkingLabels,
+			enumDescriptions: thinkingDescriptions,
+			default: "unset",
+		};
+	}
 
 	return { properties };
 }
 
 export function applyOpenAIModelConfiguration(
 	body: Record<string, unknown>,
-	configuration: InfiniAIModelConfiguration
+	configuration: InfiniAIModelConfiguration,
+	profile?: ReasoningDialectProfile
 ): void {
 	if (configuration.maxOutputTokens !== undefined) {
 		body.max_tokens = configuration.maxOutputTokens;
@@ -155,12 +170,13 @@ export function applyOpenAIModelConfiguration(
 	if (configuration.reasoningEffort !== undefined) {
 		body.reasoning_effort = configuration.reasoningEffort;
 	}
-	if (configuration.thinkingMode === "disabled") {
-		applyDisableThinking(body);
-	} else if (configuration.thinkingMode === "enabled") {
-		body.enable_thinking = true;
-		body.thinking = { type: "enabled" };
-	}
+	const resolvedProfile =
+		profile ??
+		resolveReasoningDialectProfile({
+			modelId: typeof body.model === "string" ? body.model : "",
+			transport: "openai",
+		});
+	applyReasoningRequestControls(body, resolvedProfile, configuration);
 }
 
 export function applyAnthropicModelConfiguration(
