@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.7] - 2026-05-19
+
+### Added
+
+- Family-specific reasoning replay profiles for OpenAI-compatible GLM, Kimi, Qwen, MiMo V2, DeepSeek V4, MiniMax, and Anthropic Messages routes. Replay now follows the resolved model profile instead of assuming every family uses the same `reasoning_content` shape.
+- Carrier-aware replay for MiniMax split mode: streamed `reasoning_details` are stored and replayed as `assistant.reasoning_details` instead of being collapsed into `reasoning_content`.
+- Family-specific preservation controls for replayed thinking context: GLM uses `thinking.clear_thinking`, Kimi uses `thinking.keep`, and Qwen uses `preserve_thinking`.
+
+### Changed
+
+- MiniMax requests now always include `reasoning_split: true` so split-mode reasoning is requested consistently on OpenAI-compatible and Anthropic-routed paths.
+- `infiniai.enableThinkingRoundTripForModels` now ships with verified replay-capable family defaults: `mimo-v2*`, `deepseek-v4*`, `glm-5*`, `glm-4.7*`, `kimi-k2*`, and `minimax*`. User patterns extend that list.
+- README files now document the profile-based replay design, MiniMax `reasoning_split`, provider-native replay carriers, and the narrower model picker thinking controls.
+
 ## [0.5.6] - 2026-05-16
 
 ### Changed

@@ -11,10 +11,11 @@ InfiniAI Provider for VS Code registers InfiniAI as a stable VS Code language mo
 5. Enter the matching InfiniAI API key. The key is stored in VS Code Secret Storage.
 6. Select an InfiniAI model from the model picker.
 
-For MiMo V2 or DeepSeek V4 thinking models, the default guard keeps thinking disabled to avoid upstream
-`reasoning_content` HTTP 400 errors. If you explicitly opt a model into
-`infiniai.enableThinkingRoundTripForModels`, the extension captures and replays the required thinking context on both
-OpenAI-compatible and Anthropic Messages routes. Start a new chat after changing the opt-in list.
+Thinking replay is resolved through model-family profiles. The built-in round-trip defaults include MiMo V2, DeepSeek
+V4, GLM 5/4.7, Kimi K2, and MiniMax family patterns, so new tool-call chats can preserve thinking by default while stale
+or missing replay context still fails locally before an unsafe upstream request. MiniMax models always request split
+reasoning with `reasoning_split: true` and replay provider-native `reasoning_details`. Start a new chat after changing
+the round-trip list.
 
 You can also use `@infiniai` in Chat for diagnostics:
 
@@ -83,8 +84,8 @@ Common settings:
 - `infiniai.imageInputModels`: Force-enable image input for matching model IDs. Supports `*` wildcards.
 - `infiniai.disableImageInputModels`: Force-disable image input for matching model IDs. Supports `*` wildcards.
 - `infiniai.disableThinkingForModels`: Safety list. Thinking mode is disabled by default for matching model IDs to avoid known `reasoning_content` HTTP 400 errors. The built-in defaults include known Xiaomi MiMo V2 model IDs and the DeepSeek V4 family: `mimo-v2-pro`, `mimo-v2.5-pro`, `mimo-v2.5`, `mimo-v2-omni`, `mimo-v2-flash`, `deepseek-v4*`. See [Thinking mode](#thinking-mode) below.
-- `infiniai.enableThinkingRoundTripForModels`: Experimental opt-in that works with `infiniai.disableThinkingForModels`. If a model matches both settings, this setting can keep thinking enabled only when replay preflight proves the required `reasoning_content` is available; otherwise the extension fails locally to avoid HTTP 400. Supports `*` wildcards.
-- `infiniai.thinkingReplayStore`: Replay storage backend for opted-in thinking models. Defaults to `"localPlaintext"` for restart continuity; set `"memory"` to avoid writing replay data to disk and accept no restart continuity.
+- `infiniai.enableThinkingRoundTripForModels`: Round-trip replay family list. The built-in defaults are `mimo-v2*`, `deepseek-v4*`, `glm-5*`, `glm-4.7*`, `kimi-k2*`, and `minimax*`; user patterns extend that list. Known adapters preserve the provider-native shape: OpenAI `reasoning_content` for MiMo V2, DeepSeek V4, GLM, Kimi, and Qwen profiles; OpenAI `reasoning_details` for MiniMax split mode; and Anthropic `thinking` blocks for Anthropic Messages routes. If replay data is missing, expired, conflicting, or unavailable, the extension fails locally to avoid HTTP 400. Supports `*` wildcards.
+- `infiniai.thinkingReplayStore`: Replay storage backend for profile-enabled or opted-in thinking replay. Defaults to `"localPlaintext"` for restart continuity; set `"memory"` to avoid writing replay data to disk and accept no restart continuity.
 - `infiniai.retry`: Retry policy for retryable network and HTTP failures.
 - `infiniai.delay`: Fixed delay between requests, in milliseconds.
 
@@ -94,7 +95,7 @@ The extension exposes stable-safe model controls in VS Code's model picker:
 
 - **Max output tokens** caps the response length. The model default sends no cap.
 - **Reasoning effort** offers `Unset`, `Low`, `Medium`, and `High`. `Unset` sends no `reasoning_effort`; selected values send `reasoning_effort` only on OpenAI-compatible routes. Some models may ignore or reject this parameter.
-- **Thinking mode** offers `Empty`, `Disabled`, and `Enabled`. `Empty` sends no thinking parameter. `Disabled` sends thinking-disable controls. `Enabled` sends thinking-enable controls. Not every model accepts these parameters.
+- **Thinking mode** appears only for model profiles with a confirmed current-turn thinking control. It offers `Unset` plus the supported `Disabled` and/or `Enabled` choices. Qwen maps to `enable_thinking`, GLM/Kimi/MiMo/DeepSeek map to `thinking.type`, and MiniMax does not expose a disable/enable toggle because no MiniMax disable field is confirmed.
 
 Anthropic routes currently consume only the max-output-token control. Vertex routes map max output tokens into `generationConfig.maxOutputTokens`.
 
@@ -129,7 +130,9 @@ The Models tree tooltip shows the effective transport, route source (`user`, `me
 
 ## Thinking mode
 
-Some InfiniAI models stream a `reasoning_content` chain-of-thought in addition to the regular assistant text. Their APIs (currently known Xiaomi MiMo V2 model IDs and the DeepSeek V4 family) require that `reasoning_content` be **echoed back verbatim** on subsequent turns whenever the conversation contains tool calls. If it is missing, the upstream returns:
+Some InfiniAI thinking models return provider-private reasoning in addition to the regular assistant text. Several
+provider APIs require that prior reasoning be echoed back in the same provider-native shape on subsequent turns whenever
+the conversation contains tool calls. If it is missing, the upstream may return:
 
 ```
 HTTP 400 — reasoning_content is required when the previous assistant message contains tool calls
@@ -137,11 +140,17 @@ HTTP 400 — reasoning_content is required when the previous assistant message c
 
 The stable VS Code language-model API (`vscode.LanguageModelChatMessage`) has no public part type for thinking/reasoning content. The source keeps an optional runtime detector for `LanguageModelThinkingPart`, but the Marketplace build no longer declares `enabledApiProposals`; replay correctness is handled by the extension-owned replay store on both VS Code Stable and Insiders.
 
-To avoid the 400 error out of the box, the extension force-disables thinking mode on the affected model IDs/families by injecting both vendor flavors into the request body:
+Replay is family-specific, not one flat `reasoning_content` switch:
+
+- OpenAI-compatible MiMo V2, DeepSeek V4, GLM, Kimi, and Qwen profiles replay `assistant.reasoning_content`.
+- GLM preservation adds `thinking.clear_thinking: false`, Kimi preservation adds `thinking.keep: true`, and Qwen preservation adds `preserve_thinking: true`.
+- MiniMax split profiles always send `reasoning_split: true`, capture streamed `reasoning_details`, and replay `assistant.reasoning_details` when round-trip replay is enabled.
+- Anthropic Messages routes capture and replay `thinking` blocks, including signatures when present, before the prior `tool_use` block.
+
+To avoid the 400 error out of the box, the extension still force-disables thinking mode for the known unsafe-by-default model IDs/families by injecting the profile-supported disable control into the request body. For the built-in MiMo V2 and DeepSeek V4 safety defaults, that is:
 
 ```jsonc
 {
-  "enable_thinking": false,
   "thinking": { "type": "disabled" }
 }
 ```
@@ -153,7 +162,7 @@ Built-in safety defaults: `mimo-v2-pro`, `mimo-v2.5-pro`, `mimo-v2.5`, `mimo-v2-
 Configure the guard with these settings:
 
 - Add a pattern to `infiniai.disableThinkingForModels` (e.g. `"my-thinker-*"`) to extend the safety list. User patterns are additive; they do not remove the built-in safety defaults. Regular users should usually leave this setting unchanged.
-- Add a pattern to `infiniai.enableThinkingRoundTripForModels` (e.g. `"mimo-v2*"` or `"deepseek-v4*"`) to try thinking replay for a model that would otherwise be disabled by the safety list. If a model matches both settings, this opt-in wins only when replay preflight proves the required `reasoning_content` is available. If replay data is missing, expired, or unavailable, the extension fails locally instead of sending an unsafe request that would return HTTP 400.
+- `infiniai.enableThinkingRoundTripForModels` is pre-populated for the verified replay-capable families: `"mimo-v2*"`, `"deepseek-v4*"`, `"glm-5*"`, `"glm-4.7*"`, `"kimi-k2*"`, and `"minimax*"`. Add patterns only when another family has a verified replay adapter. Replay continues only when preflight proves the required provider-native reasoning shape is available. If replay data is missing, expired, conflicting, or unavailable, the extension fails locally instead of sending an unsafe request that would return HTTP 400.
 - Keep `infiniai.thinkingReplayStore` at the default `"localPlaintext"` if you want opted-in thinking tool-call conversations to survive VS Code reload or restart while cache entries remain valid. Choose `"memory"` only if you do not want replay data written to disk and can tolerate losing restart continuity.
 - Run `InfiniAI: Clear Thinking Replay Cache` to remove the active replay cache.
 
@@ -161,6 +170,8 @@ Replay behavior is transport-aware:
 
 - OpenAI-compatible routes capture streamed `reasoning_content` and inject it into the prior assistant message before
   replay-sensitive follow-up requests.
+- MiniMax OpenAI-compatible routes capture streamed `reasoning_details` and inject it into the prior assistant message as
+  `reasoning_details`.
 - Anthropic Messages routes capture streamed `thinking` blocks, including optional signatures when present, and inject a
   matching `thinking` block before the prior assistant `tool_use` block.
 

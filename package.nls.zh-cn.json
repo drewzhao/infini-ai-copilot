@@ -40,8 +40,8 @@
 	"configuration.imageInputModels.description": "为指定模型 ID 强制启用图片输入。支持 '*' 通配符(例如 'kimi-*'),适用于名称中缺少 '-vision' 等标记的多模态模型。",
 	"configuration.disableImageInputModels.description": "为指定模型 ID 强制禁用图片输入。支持 '*' 通配符。",
 	"configuration.disableThinkingForModels.description": "安全列表。匹配的模型 ID 会被强制关闭思考模式,以避免已知的 reasoning_content HTTP 400 错误。内置安全默认值始终包含已知 Xiaomi MiMo V2 模型 ID 与 DeepSeek V4 系列。通常保持不变;只有当其他模型出现相同问题时再添加模式。支持 '*' 通配符,匹配不区分大小写。",
-	"configuration.enableThinkingRoundTripForModels.description": "实验性显式启用列表,会与 infiniai.disableThinkingForModels 一起生效。disableThinkingForModels 是安全默认值:匹配模型默认关闭思考。若同一模型也匹配本设置,扩展只会在回放预检能证明所需 reasoning_content 可用时才保持思考开启;否则会在本地失败以避免 HTTP 400。适用于尝试 'mimo-v2*' 或 'deepseek-v4*' 等模型。支持 '*' 通配符,匹配不区分大小写。回放存储由 infiniai.thinkingReplayStore 控制。",
-	"configuration.thinkingReplayStore.description": "实验性思考回放的存储后端,仅在模型匹配 infiniai.enableThinkingRoundTripForModels 后使用。'localPlaintext' 会将回放数据以本地明文扩展存储文件保存,以支持重启后继续对话。'memory' 不会将回放数据写入磁盘,但 VS Code 重载或重启后无法继续需要思考回放的工具调用对话。",
+	"configuration.enableThinkingRoundTripForModels.description": "round-trip 回放模型族列表。内置默认值包含 'mimo-v2*'、'deepseek-v4*'、'glm-5*'、'glm-4.7*'、'kimi-k2*' 和 'minimax*';用户模式会追加到该列表。已知适配器会保留提供方原生形态:MiMo V2、DeepSeek V4、GLM、Kimi、Qwen 使用 reasoning_content;MiniMax split 模式使用 reasoning_details;Anthropic Messages 路由使用 Anthropic thinking block。若回放预检无法证明所需上下文可用,扩展会在本地失败以避免 HTTP 400。支持 '*' 通配符,匹配不区分大小写。回放存储由 infiniai.thinkingReplayStore 控制。",
+	"configuration.thinkingReplayStore.description": "当模型 profile 或 infiniai.enableThinkingRoundTripForModels 启用 round-trip 时使用的思考回放存储后端。'localPlaintext' 会将回放数据以本地明文扩展存储文件保存,以支持重启后继续对话。'memory' 不会将回放数据写入磁盘,但 VS Code 重载或重启后无法继续需要思考回放的工具调用对话。",
 	"configuration.thinkingReplayStore.enum.localPlaintext": "默认值。将回放数据保存在本地明文扩展存储文件中,使已启用的思考工具调用对话在缓存仍有效时可在 VS Code 重载或重启后继续。",
 	"configuration.thinkingReplayStore.enum.memory": "仅在进程内存中保存回放数据。不会写入回放缓存文件,但 VS Code 重载或重启后无法恢复需要思考回放的工具调用对话。"
 }

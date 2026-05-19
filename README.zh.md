@@ -11,9 +11,7 @@ InfiniAI Provider for VS Code 将 InfiniAI 注册为稳定的 VS Code 语言模�
 5. 输入对应方案的 InfiniAI API Key。密钥会保存在 VS Code Secret Storage 中。
 6. 在模型选择器中选择 InfiniAI 模型。
 
-对于 MiMo V2 或 DeepSeek V4 这类思考模型，默认安全策略会关闭 thinking，以避免上游
-`reasoning_content` HTTP 400。只有明确把模型加入 `infiniai.enableThinkingRoundTripForModels` 后，扩展才会在
-OpenAI 兼容路由和 Anthropic Messages 路由上捕获并回放必要的思考上下文。修改显式启用列表后，请从新聊天开始。
+思考回放会按模型族 profile 解析。内置 round-trip 默认值已经包含 MiMo V2、DeepSeek V4、GLM 5/4.7、Kimi K2 和 MiniMax 族模式，所以新的工具调用聊天可以默认保留 thinking；如果回放上下文过期或缺失，扩展仍会先在本地失败，避免发送不安全的上游请求。MiniMax 模型始终会用 `reasoning_split: true` 请求 split reasoning，并回放原生 `reasoning_details`。修改 round-trip 列表后，请从新聊天开始。
 
 也可以在 Chat 中使用 `@infiniai` 进行诊断：
 
@@ -82,8 +80,8 @@ npm run build
 - `infiniai.imageInputModels`: 为匹配的模型 ID 强制启用图片输入能力。支持 `*` 通配符。
 - `infiniai.disableImageInputModels`: 为匹配的模型 ID 强制禁用图片输入能力。支持 `*` 通配符。
 - `infiniai.disableThinkingForModels`: 安全列表。匹配的模型 ID 默认关闭思考模式，以避免已知的 `reasoning_content` HTTP 400 错误。内置默认值包含已知 Xiaomi MiMo V2 模型 ID 与 DeepSeek V4 系列：`mimo-v2-pro`、`mimo-v2.5-pro`、`mimo-v2.5`、`mimo-v2-omni`、`mimo-v2-flash`、`deepseek-v4*`。详见下方[为思考模型避免 HTTP 400](#为思考模型避免-http-400)。
-- `infiniai.enableThinkingRoundTripForModels`: 实验性显式启用列表，会与 `infiniai.disableThinkingForModels` 一起生效。它不会删除安全列表；如果同一模型同时匹配两个设置，只有当回放预检证明所需 `reasoning_content` 可用时，扩展才会让思考保持开启。否则扩展会在本地失败，以避免 HTTP 400。支持 `*` 通配符。
-- `infiniai.thinkingReplayStore`: 已启用思考模型的回放存储后端。默认 `"localPlaintext"`，以支持重启后继续对话；设为 `"memory"` 则不把回放数据写入磁盘，但不支持重启后继续对话。
+- `infiniai.enableThinkingRoundTripForModels`: round-trip 回放模型族列表。内置默认值是 `mimo-v2*`、`deepseek-v4*`、`glm-5*`、`glm-4.7*`、`kimi-k2*` 和 `minimax*`；用户模式会追加到该列表。已知适配器会保留提供方原生形态：MiMo V2、DeepSeek V4、GLM、Kimi、Qwen 使用 OpenAI `reasoning_content`；MiniMax split 模式使用 OpenAI `reasoning_details`；Anthropic Messages 路由使用 Anthropic `thinking` block。若回放数据缺失、过期、冲突或不可用，扩展会在本地失败以避免 HTTP 400。支持 `*` 通配符。
+- `infiniai.thinkingReplayStore`: profile 自动启用或显式启用后的思考回放存储后端。默认 `"localPlaintext"`，以支持重启后继续对话；设为 `"memory"` 则不把回放数据写入磁盘，但不支持重启后继续对话。
 - `infiniai.retry`: 可重试网络错误和 HTTP 错误的重试策略。
 - `infiniai.delay`: 请求之间的固定延迟，单位毫秒。
 
@@ -93,7 +91,7 @@ npm run build
 
 - **Max output tokens** 限制回复最多生成的 token 数。选择模型默认值时不会发送上限。
 - **Reasoning effort** 提供 `Unset`、`Low`、`Medium`、`High`。`Unset` 不发送 `reasoning_effort`；选择具体值时，仅在 OpenAI 兼容路由上发送 `reasoning_effort`。有些模型可能忽略或拒绝该参数。
-- **Thinking mode** 提供 `Empty`、`Disabled`、`Enabled`。`Empty` 不发送 thinking 参数。`Disabled` 发送禁用思考的控制参数。`Enabled` 发送启用思考的控制参数。并非所有模型都接受这些参数。
+- **Thinking mode** 只会出现在已确认存在当前轮 thinking 控制参数的模型 profile 上。它提供 `Unset`，以及该 profile 支持的 `Disabled` 和/或 `Enabled` 选项。Qwen 映射到 `enable_thinking`，GLM/Kimi/MiMo/DeepSeek 映射到 `thinking.type`；MiniMax 不暴露禁用/启用开关，因为尚未确认 MiniMax 的禁用字段。
 
 Anthropic 路由目前只使用最大输出 token 控制项。Vertex 路由会把最大输出 token 映射到 `generationConfig.maxOutputTokens`。
 
@@ -128,23 +126,29 @@ Anthropic 路由目前只使用最大输出 token 控制项。Vertex 路由会�
 
 ## 为思考模型避免 HTTP 400
 
-当你使用 Xiaomi MiMo V2 或 DeepSeek V4 系列模型进行工具调用对话时，先使用默认安全策略。只有在需要保留思考质量，并且能接受实验性回放失败时本地中断的情况下，才把模型加入 `infiniai.enableThinkingRoundTripForModels`。
+当你使用思考模型进行工具调用对话时，先使用默认安全策略。只有在需要保留思考质量，并且能接受回放失败时本地中断的情况下，才把受保护或高级模型加入 `infiniai.enableThinkingRoundTripForModels`。
 
-这些模型会在常规回复之外以 `reasoning_content` 返回思考内容。只要对话中出现工具调用，后续轮次就必须**原样回传**上一轮的 `reasoning_content`。如果缺失，上游会返回：
+一些模型会在常规回复之外返回提供方私有的推理内容。只要对话中出现工具调用，后续轮次就必须按同一个提供方原生形态回传上一轮推理内容。如果缺失，上游可能返回：
 
 ```
 HTTP 400 — reasoning_content is required when the previous assistant message contains tool calls
 ```
 
-VS Code 稳定版语言模型 API (`vscode.LanguageModelChatMessage`) 没有公开的思考/推理内容 part 类型。扩展因此不能只依赖 VS Code 聊天历史来恢复 `reasoning_content`。Marketplace 构建不声明 `enabledApiProposals`；稳定版和 Insiders 上的回放正确性都由扩展自有 replay store 负责。
+VS Code 稳定版语言模型 API (`vscode.LanguageModelChatMessage`) 没有公开的思考/推理内容 part 类型。扩展因此不能只依赖 VS Code 聊天历史来恢复推理上下文。Marketplace 构建不声明 `enabledApiProposals`；稳定版和 Insiders 上的回放正确性都由扩展自有 replay store 负责。
+
+回放是按模型族处理的，不是一个扁平的 `reasoning_content` 开关：
+
+- OpenAI 兼容的 MiMo V2、DeepSeek V4、GLM、Kimi、Qwen profile 会回放 `assistant.reasoning_content`。
+- GLM 保持思考状态时会写入 `thinking.clear_thinking: false`，Kimi 会写入 `thinking.keep: true`，Qwen 会写入 `preserve_thinking: true`。
+- MiniMax split profile 会始终发送 `reasoning_split: true`，捕获流式 `reasoning_details`，并在启用 round-trip replay 后回放 `assistant.reasoning_details`。
+- Anthropic Messages 路由会捕获并回放 `thinking` block；如果上游返回 signature，也会一起保存和回放，并插入到上一条 assistant `tool_use` block 之前。
 
 ### 保持默认安全策略
 
-默认情况下，扩展会对受影响的模型 ID/系列强制关闭思考模式，以避免开箱即遇到上述 400 错误。请求体会同时写入两种厂商参数：
+默认情况下，扩展仍会对已知默认不安全的模型 ID/系列强制关闭思考模式，以避免开箱即遇到上述 400 错误。请求体会写入该 profile 支持的禁用参数。对于内置 MiMo V2 与 DeepSeek V4 安全默认值，请求体是：
 
 ```jsonc
 {
-  "enable_thinking": false,
   "thinking": { "type": "disabled" }
 }
 ```
@@ -157,9 +161,9 @@ VS Code 稳定版语言模型 API (`vscode.LanguageModelChatMessage`) 没有公�
 
 ### 为指定模型尝试思考回放
 
-如果你希望 `mimo-v2*` 或 `deepseek-v4*` 这类模型保留思考模式，把对应模式加入 `infiniai.enableThinkingRoundTripForModels`。这个设置不会取消 `infiniai.disableThinkingForModels` 的安全含义；它只是在安全列表之上增加一个实验性条件：
+`infiniai.enableThinkingRoundTripForModels` 已经为已验证的回放族预置：`"mimo-v2*"`、`"deepseek-v4*"`、`"glm-5*"`、`"glm-4.7*"`、`"kimi-k2*"` 和 `"minimax*"`。只有当另一个模型族已经有经过验证的回放适配器时，才向该设置添加模式：
 
-- 如果回放预检确认所需 `reasoning_content` 可用，扩展会保持思考开启并发送请求。
+- 如果回放预检确认所需提供方原生推理形态可用，扩展会保持思考开启并发送请求。
 - 如果回放数据缺失、过期、冲突或不可用，扩展会在本地失败，不会发送可能触发上游 HTTP 400 的请求。
 
 如果希望已启用的思考工具调用对话在 VS Code 重载或重启后仍能继续，保持 `infiniai.thinkingReplayStore` 默认值 `"localPlaintext"`。只有在不希望回放数据写入磁盘，并且可以接受重启后不能继续这类对话时，才选择 `"memory"`。
@@ -169,6 +173,7 @@ VS Code 稳定版语言模型 API (`vscode.LanguageModelChatMessage`) 没有公�
 回放逻辑会按实际传输协议处理：
 
 - OpenAI 兼容路由会捕获流式返回的 `reasoning_content`，并在后续敏感请求前注入到上一条 assistant 消息中。
+- MiniMax OpenAI 兼容路由会捕获流式返回的 `reasoning_details`，并在后续敏感请求前作为 `reasoning_details` 注入到上一条 assistant 消息中。
 - Anthropic Messages 路由会捕获流式返回的 `thinking` block，包括存在时的 signature，并在上一条 assistant
   `tool_use` block 前注入匹配的 `thinking` block。
 

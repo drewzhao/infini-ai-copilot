@@ -24,10 +24,18 @@ export const DEFAULT_DISABLE_THINKING_PATTERNS: readonly string[] = [
 ];
 
 /**
- * Deliberately empty: thinking round-trip is an advanced opt-in and still
- * requires a verified replay backend for the current request path.
+ * Built-in replay-capable families. These profiles have provider-native replay
+ * adapters and strict preflight, so new tool-call chats can keep thinking on by
+ * default while stale or missing replay context still fails locally.
  */
-export const DEFAULT_ENABLE_THINKING_ROUND_TRIP_PATTERNS: readonly string[] = [];
+export const DEFAULT_ENABLE_THINKING_ROUND_TRIP_PATTERNS: readonly string[] = [
+	"mimo-v2*",
+	"deepseek-v4*",
+	"glm-5*",
+	"glm-4.7*",
+	"kimi-k2*",
+	"minimax*",
+];
 
 export type ThinkingReplayStoreMode = "localPlaintext" | "memory";
 
@@ -105,7 +113,8 @@ export function getDisableThinkingPatterns(): string[] {
 }
 
 /**
- * Read the explicit opt-in list for future verified thinking round-trip paths.
+ * Read the effective thinking round-trip list. User patterns extend the
+ * built-in replay-capable family defaults.
  */
 export function getThinkingRoundTripPatterns(): string[] {
 	const cfg = getInfiniAIConfiguration();
@@ -128,9 +137,7 @@ export function shouldEnableThinkingRoundTrip(modelId: string, patterns: readonl
 export function getThinkingReplayStoreMode(): ThinkingReplayStoreMode {
 	const cfg = getInfiniAIConfiguration();
 	const configured = cfg.get<unknown>("thinkingReplayStore", DEFAULT_THINKING_REPLAY_STORE_MODE);
-	return configured === "memory" || configured === "localPlaintext"
-		? configured
-		: DEFAULT_THINKING_REPLAY_STORE_MODE;
+	return configured === "memory" || configured === "localPlaintext" ? configured : DEFAULT_THINKING_REPLAY_STORE_MODE;
 }
 
 /**

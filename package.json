@@ -19,7 +19,7 @@
 		"type": "git",
 		"url": "https://github.com/drewzhao/infini-ai-copilot.git"
 	},
-	"version": "0.5.6",
+	"version": "0.5.7",
 	"engines": {
 		"vscode": "^1.117.0"
 	},
@@ -380,7 +380,14 @@
 				},
 				"infiniai.enableThinkingRoundTripForModels": {
 					"type": "array",
-					"default": [],
+					"default": [
+						"mimo-v2*",
+						"deepseek-v4*",
+						"glm-5*",
+						"glm-4.7*",
+						"kimi-k2*",
+						"minimax*"
+					],
 					"items": {
 						"type": "string"
 					},

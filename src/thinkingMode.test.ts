@@ -1,6 +1,10 @@
 import assert from "assert/strict";
+import { readFileSync } from "fs";
+import path from "path";
 
 const Module = require("module") as any;
+
+const DEFAULT_ROUND_TRIP_PATTERNS = ["mimo-v2*", "deepseek-v4*", "glm-5*", "glm-4.7*", "kimi-k2*", "minimax*"];
 
 function withVscodeMock<T>(configValues: Record<string, unknown>, fn: () => T): T {
 	const originalLoad = Module._load;
@@ -26,23 +30,14 @@ function withVscodeMock<T>(configValues: Record<string, unknown>, fn: () => T): 
 
 function loadThinkingMode(configValues: Record<string, unknown> = {}) {
 	delete require.cache[require.resolve("./thinkingMode")];
-	return withVscodeMock(
-		configValues,
-		() => require("./thinkingMode") as typeof import("./thinkingMode")
-	);
+	return withVscodeMock(configValues, () => require("./thinkingMode") as typeof import("./thinkingMode"));
 }
 
 describe("shouldDisableThinking", () => {
 	const { DEFAULT_DISABLE_THINKING_PATTERNS, shouldDisableThinking } = loadThinkingMode();
 
 	it("matches MiMo V2 default ids exactly", () => {
-		for (const id of [
-			"mimo-v2-pro",
-			"mimo-v2.5-pro",
-			"mimo-v2.5",
-			"mimo-v2-omni",
-			"mimo-v2-flash",
-		]) {
+		for (const id of ["mimo-v2-pro", "mimo-v2.5-pro", "mimo-v2.5", "mimo-v2-omni", "mimo-v2-flash"]) {
 			assert.equal(shouldDisableThinking(id, DEFAULT_DISABLE_THINKING_PATTERNS), true, id);
 		}
 	});
@@ -94,17 +89,38 @@ describe("getDisableThinkingPatterns", () => {
 });
 
 describe("getThinkingRoundTripPatterns", () => {
-	it("reads explicit round-trip opt-in patterns separately from the disable list", () => {
-		const { getThinkingRoundTripPatterns, shouldEnableThinkingRoundTrip } = loadThinkingMode({
-			enableThinkingRoundTripForModels: ["mimo-v2.5-pro"],
-		});
+	it("includes built-in replay-capable model family defaults", () => {
+		const { DEFAULT_ENABLE_THINKING_ROUND_TRIP_PATTERNS, getThinkingRoundTripPatterns, shouldEnableThinkingRoundTrip } =
+			loadThinkingMode();
+
+		assert.deepEqual(DEFAULT_ENABLE_THINKING_ROUND_TRIP_PATTERNS, DEFAULT_ROUND_TRIP_PATTERNS);
+
+		const patterns = withVscodeMock({}, getThinkingRoundTripPatterns);
+		for (const id of ["mimo-v2.5-pro", "deepseek-v4-pro", "glm-5.1", "glm-4.7", "kimi-k2.6", "minimax-m2.7"]) {
+			assert.equal(shouldEnableThinkingRoundTrip(id, patterns), true, id);
+		}
+		assert.equal(shouldEnableThinkingRoundTrip("qwen3-32b", patterns), false);
+	});
+
+	it("matches the manifest setting default", () => {
+		const { DEFAULT_ENABLE_THINKING_ROUND_TRIP_PATTERNS } = loadThinkingMode();
+		const pkg = JSON.parse(readFileSync(path.join(process.cwd(), "package.json"), "utf8"));
+		const manifestDefault =
+			pkg.contributes?.configuration?.properties?.["infiniai.enableThinkingRoundTripForModels"]?.default;
+
+		assert.deepEqual(manifestDefault, DEFAULT_ENABLE_THINKING_ROUND_TRIP_PATTERNS);
+	});
+
+	it("unions user round-trip patterns with the built-in defaults", () => {
+		const { getThinkingRoundTripPatterns, shouldEnableThinkingRoundTrip } = loadThinkingMode();
 
 		const patterns = withVscodeMock(
-			{ enableThinkingRoundTripForModels: ["mimo-v2.5-pro"] },
+			{ enableThinkingRoundTripForModels: ["custom-thinker"] },
 			getThinkingRoundTripPatterns
 		);
 		assert.equal(shouldEnableThinkingRoundTrip("mimo-v2.5-pro", patterns), true);
-		assert.equal(shouldEnableThinkingRoundTrip("deepseek-v4", patterns), false);
+		assert.equal(shouldEnableThinkingRoundTrip("deepseek-v4", patterns), true);
+		assert.equal(shouldEnableThinkingRoundTrip("custom-thinker", patterns), true);
 	});
 });
 
