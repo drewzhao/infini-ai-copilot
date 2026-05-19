@@ -19,7 +19,11 @@ import type {
 import { enrichModelWithBuiltInMetadata, inferModelFamily, isBuiltInNonChatModel } from "./catalogMetadata";
 import { surfaceActionableError } from "./errorActions";
 import { makeUserSelectableLanguageModelInfo } from "./grayLanguageModelMetadata";
-import { buildInfiniAIModelConfigurationSchema, resolveInfiniAIModelConfiguration } from "./modelConfiguration";
+import {
+	appendModelConfigurationSummaryToTooltip,
+	buildInfiniAIModelConfigurationSchema,
+	resolveInfiniAIModelConfiguration,
+} from "./modelConfiguration";
 import { OpenaiApi } from "./openai/openaiApi";
 import type { OpenAIChatMessage } from "./openai/openaiTypes";
 import { prepareTokenCount } from "./provideToken";
@@ -607,11 +611,16 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			{ enablePatterns, disablePatterns }
 		);
 
+		const modelConfigSchema = buildInfiniAIModelConfigurationSchema(model, maxOutput, route.transport);
+
 		return makeUserSelectableLanguageModelInfo(
 			{
 				id: model.id,
 				name: model.displayName ?? model.id,
-				tooltip: model.tooltip ?? `InfiniAI Model ${model.id}`,
+				tooltip: appendModelConfigurationSummaryToTooltip(
+					model.tooltip ?? `InfiniAI Model ${model.id}`,
+					modelConfigSchema
+				),
 				detail: model.detail ?? `InfiniAI ${route.transport}`,
 				family: model.family ?? inferModelFamily(model.id),
 				version: model.version ?? model.created?.toString() ?? "1.0.0",
@@ -623,7 +632,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 					imageInput,
 				},
 			},
-			buildInfiniAIModelConfigurationSchema(model, maxOutput, route.transport)
+			modelConfigSchema
 		);
 	}
 

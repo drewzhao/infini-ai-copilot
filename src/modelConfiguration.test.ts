@@ -4,6 +4,7 @@ import {
 	applyAnthropicModelConfiguration,
 	applyOpenAIModelConfiguration,
 	applyVertexModelConfiguration,
+	appendModelConfigurationSummaryToTooltip,
 	buildInfiniAIModelConfigurationSchema,
 	resolveInfiniAIModelConfiguration,
 } from "./modelConfiguration";
@@ -73,6 +74,16 @@ describe("model configuration schema", () => {
 		assert.ok(schema.properties.maxOutputTokens);
 		assert.equal(schema.properties.thinkingMode, undefined);
 	});
+
+	it("can append a model-picker tooltip summary for configurable controls", () => {
+		const schema = buildInfiniAIModelConfigurationSchema(modelInfo({ id: "glm-5.1" }), 8192);
+
+		const tooltip = appendModelConfigurationSummaryToTooltip("GLM model", schema);
+
+		assert.match(tooltip, /GLM model/);
+		assert.match(tooltip, /Configurable: Max output tokens, Reasoning effort, Thinking mode/);
+		assert.equal(appendModelConfigurationSummaryToTooltip(tooltip, schema), tooltip);
+	});
 });
 
 describe("model configuration resolution", () => {
@@ -138,14 +149,11 @@ describe("model configuration request mapping", () => {
 	it("maps OpenAI-compatible configuration fields without raw passthrough", () => {
 		const body: Record<string, unknown> = { model: "qwen3-32b" };
 
-		applyOpenAIModelConfiguration(
-			body,
-			{
-				maxOutputTokens: 2048,
-				reasoningEffort: "high",
-				thinkingMode: "disabled",
-			}
-		);
+		applyOpenAIModelConfiguration(body, {
+			maxOutputTokens: 2048,
+			reasoningEffort: "high",
+			thinkingMode: "disabled",
+		});
 
 		const rawBody: Record<string, unknown> = body;
 		assert.deepEqual(body, {

@@ -32,6 +32,13 @@ export interface InfiniAIModelConfigurationSchema {
 	readonly properties: Record<string, InfiniAIModelConfigurationPropertySchema>;
 }
 
+function getConfigurableControlLabels(schema: InfiniAIModelConfigurationSchema): string[] {
+	return Object.values(schema.properties)
+		.filter((property) => Array.isArray(property.enum) && property.enum.length >= 2)
+		.map((property) => property.title ?? property.description)
+		.filter((label): label is string => typeof label === "string" && label.length > 0);
+}
+
 function isRecord(value: unknown): value is ModelConfigurationRecord {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -157,6 +164,21 @@ export function buildInfiniAIModelConfigurationSchema(
 	}
 
 	return { properties };
+}
+
+export function appendModelConfigurationSummaryToTooltip(
+	tooltip: string,
+	schema: InfiniAIModelConfigurationSchema
+): string {
+	const labels = getConfigurableControlLabels(schema);
+	if (labels.length === 0) {
+		return tooltip;
+	}
+	const summary = `Configurable: ${labels.join(", ")}`;
+	if (tooltip.includes(summary)) {
+		return tooltip;
+	}
+	return tooltip ? `${tooltip}\n\n${summary}` : summary;
 }
 
 export function applyOpenAIModelConfiguration(

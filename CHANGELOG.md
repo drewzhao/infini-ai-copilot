@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.8] - 2026-05-19
+
+### Fixed
+
+- InfiniAI model hover text now includes the configurable model controls directly, so `Reasoning effort` and `Thinking mode` are visible before VS Code refreshes its own gated configuration-tag display.
+
 ## [0.5.7] - 2026-05-19
 
 ### Added
