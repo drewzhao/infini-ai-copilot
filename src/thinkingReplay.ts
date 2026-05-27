@@ -23,11 +23,52 @@ export interface ThinkingReplayRequestDecision {
 	readonly failLocalReason: string | undefined;
 }
 
+export interface ThinkingReplayFailureContext {
+	readonly modelId?: string;
+	readonly transport?: string;
+	readonly profileId?: string;
+	readonly carrier?: string;
+}
+
 export const THINKING_REPLAY_MISS_ERROR =
 	"Reasoning cannot be resumed for this conversation because prior tool-call reasoning context is not available. " +
 	"This can happen after cache expiry, clearing the replay cache, switching models, switching storage scopes, " +
 	"or enabling reasoning mid-chat. Start a new chat to use reasoning with this model, or remove the reasoning " +
 	"opt-in to continue this chat without thinking.";
+
+function formatShortList(values: readonly string[], maxItems = 5): string {
+	if (values.length <= maxItems) {
+		return values.join(",");
+	}
+	return `${values.slice(0, maxItems).join(",")},+${values.length - maxItems} more`;
+}
+
+export function buildThinkingReplayMissError(
+	preflight: ThinkingReplayPreflight<unknown>,
+	context: ThinkingReplayFailureContext = {}
+): string {
+	const details: string[] = [];
+	if (context.modelId) {
+		details.push(`model=${context.modelId}`);
+	}
+	if (context.transport) {
+		details.push(`transport=${context.transport}`);
+	}
+	if (context.profileId) {
+		details.push(`profile=${context.profileId}`);
+	}
+	if (context.carrier) {
+		details.push(`carrier=${context.carrier}`);
+	}
+	if (preflight.missingCallIds.length > 0) {
+		details.push(`missingToolCallIds=${formatShortList(preflight.missingCallIds)}`);
+	}
+	if (preflight.conflictingCallIds.length > 0) {
+		details.push(`conflictingToolCallIds=${formatShortList(preflight.conflictingCallIds)}`);
+	}
+
+	return details.length > 0 ? `${THINKING_REPLAY_MISS_ERROR} Details: ${details.join("; ")}.` : THINKING_REPLAY_MISS_ERROR;
+}
 
 function resolveReplayCarrier(profile: ReasoningDialectProfile | undefined): StoredReplayCarrier {
 	const carrier = profile?.replayCarrier ?? "reasoning_content";
@@ -267,13 +308,17 @@ export function decideThinkingReplayRequest(input: {
 	readonly userOptedIntoRoundTrip: boolean;
 	readonly replayRequiredByProfile?: boolean;
 	readonly preflight: ThinkingReplayPreflight<unknown>;
+	readonly failureContext?: ThinkingReplayFailureContext;
 }): ThinkingReplayRequestDecision {
 	const shouldRoundTrip = input.userOptedIntoRoundTrip || input.replayRequiredByProfile === true;
 	if (!shouldRoundTrip) {
 		return { allowThinkingRoundTrip: false, failLocalReason: undefined };
 	}
 	if (!input.preflight.allRequiredReasoningReplayed && input.preflight.hasAssistantToolCalls) {
-		return { allowThinkingRoundTrip: false, failLocalReason: THINKING_REPLAY_MISS_ERROR };
+		return {
+			allowThinkingRoundTrip: false,
+			failLocalReason: buildThinkingReplayMissError(input.preflight, input.failureContext),
+		};
 	}
 	return { allowThinkingRoundTrip: true, failLocalReason: undefined };
 }

@@ -1,6 +1,10 @@
 import assert from "assert/strict";
 
-import { applyReasoningRequestControls } from "./reasoningRequest";
+import {
+	applyReasoningRequestControls,
+	buildReplayPreservationRequestControls,
+	shouldApplyReplayPreservationControl,
+} from "./reasoningRequest";
 import { resolveReasoningDialectProfile } from "./reasoningDialect";
 
 describe("reasoning request controls", () => {
@@ -64,6 +68,51 @@ describe("reasoning request controls", () => {
 			model: "glm-5.1",
 			thinking: { clear_thinking: false },
 		});
+	});
+
+	it("applies GLM preservation as soon as thinking round-trip is allowed", () => {
+		const body: Record<string, unknown> = { model: "glm-5.1" };
+		const profile = resolveReasoningDialectProfile({ modelId: "glm-5.1", transport: "openai" });
+		const controls = buildReplayPreservationRequestControls({ allowThinkingRoundTrip: true, profile });
+
+		assert.equal(shouldApplyReplayPreservationControl({ allowThinkingRoundTrip: true, profile }), true);
+		assert.equal(shouldApplyReplayPreservationControl({ allowThinkingRoundTrip: false, profile }), false);
+		assert.deepEqual(controls, {
+			thinkingMode: "enabled",
+			preserveThinking: true,
+		});
+		assert.ok(controls);
+		applyReasoningRequestControls(body, profile, controls);
+		assert.deepEqual(body, {
+			model: "glm-5.1",
+			thinking: {
+				type: "enabled",
+				clear_thinking: false,
+			},
+		});
+	});
+
+	it("does not apply preservation when a profile has no preservation control", () => {
+		const profile = resolveReasoningDialectProfile({ modelId: "deepseek-v4-pro", transport: "openai" });
+
+		assert.equal(shouldApplyReplayPreservationControl({ allowThinkingRoundTrip: true, profile }), false);
+		assert.equal(buildReplayPreservationRequestControls({ allowThinkingRoundTrip: true, profile }), undefined);
+	});
+
+	it("does not re-enable current-turn thinking when the user disables it", () => {
+		const profile = resolveReasoningDialectProfile({ modelId: "glm-5.1", transport: "openai" });
+
+		assert.deepEqual(
+			buildReplayPreservationRequestControls({
+				allowThinkingRoundTrip: true,
+				profile,
+				configuredThinkingMode: "disabled",
+			}),
+			{
+				thinkingMode: undefined,
+				preserveThinking: true,
+			}
+		);
 	});
 
 	it("sets Qwen preserve_thinking without thinking.type", () => {

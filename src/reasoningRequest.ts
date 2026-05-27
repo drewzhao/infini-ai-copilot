@@ -13,6 +13,28 @@ export interface ReasoningRequestControlResult {
 	readonly writtenFields: readonly string[];
 }
 
+export function shouldApplyReplayPreservationControl(input: {
+	readonly allowThinkingRoundTrip: boolean;
+	readonly profile: ReasoningDialectProfile;
+}): boolean {
+	return input.allowThinkingRoundTrip && input.profile.preservationControl.kind !== "none";
+}
+
+export function buildReplayPreservationRequestControls(input: {
+	readonly allowThinkingRoundTrip: boolean;
+	readonly profile: ReasoningDialectProfile;
+	readonly configuredThinkingMode?: InfiniAIModelConfiguration["thinkingMode"];
+}): ReasoningRequestControlOptions | undefined {
+	if (!shouldApplyReplayPreservationControl(input)) {
+		return undefined;
+	}
+	return {
+		thinkingMode:
+			input.configuredThinkingMode === "disabled" || !input.profile.canEnableThinking ? undefined : "enabled",
+		preserveThinking: true,
+	};
+}
+
 function getThinkingObject(body: Record<string, unknown>): Record<string, unknown> {
 	const existing = body.thinking;
 	return typeof existing === "object" && existing !== null && !Array.isArray(existing)

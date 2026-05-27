@@ -29,7 +29,7 @@ import type { OpenAIChatMessage } from "./openai/openaiTypes";
 import { prepareTokenCount } from "./provideToken";
 import { hasThinkingPartApi } from "./proposedApi";
 import { resolveReasoningDialectProfile } from "./reasoningDialect";
-import { applyReasoningRequestControls } from "./reasoningRequest";
+import { applyReasoningRequestControls, buildReplayPreservationRequestControls } from "./reasoningRequest";
 import { applyAnthropicThinkingReplay, applyThinkingReplay, decideThinkingReplayRequest } from "./thinkingReplay";
 import { isStoredReplayCarrier, thinkingReplayStore } from "./thinkingReplayStore";
 import { countModelRouteOverrides, resolveModelRoute } from "./route";
@@ -687,18 +687,25 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			messages: openaiMessages,
 			store: thinkingReplayStore,
 		});
+		const replayCarrier = isStoredReplayCarrier(reasoningProfile.replayCarrier)
+			? reasoningProfile.replayCarrier
+			: "reasoning_content";
 		const replayDecision = decideThinkingReplayRequest({
 			userOptedIntoRoundTrip,
 			replayRequiredByProfile,
 			preflight: replayPreflight,
+			failureContext: {
+				modelId: model.id,
+				transport: route.transport,
+				profileId: reasoningProfile.id,
+				carrier: replayCarrier,
+			},
 		});
 		if (replayDecision.failLocalReason) {
+			logWarn(this.output, sanitizeForLog(replayDecision.failLocalReason, 600));
 			throw new Error(replayDecision.failLocalReason);
 		}
 		const requestMessages = replayDecision.allowThinkingRoundTrip ? replayPreflight.messages : openaiMessages;
-		const replayCarrier = isStoredReplayCarrier(reasoningProfile.replayCarrier)
-			? reasoningProfile.replayCarrier
-			: "reasoning_content";
 		const pendingThinkingTurn = replayDecision.allowThinkingRoundTrip
 			? thinkingReplayStore.beginTurn({
 					modelId: model.id,
@@ -731,8 +738,13 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		if (forceDisableThinking && !replayDecision.allowThinkingRoundTrip) {
 			applyReasoningRequestControls(requestBody, reasoningProfile, { thinkingMode: "disabled" });
 		}
-		if (replayDecision.allowThinkingRoundTrip && replayPreflight.replayedCount > 0) {
-			applyReasoningRequestControls(requestBody, reasoningProfile, { preserveThinking: true });
+		const replayPreservationControls = buildReplayPreservationRequestControls({
+			allowThinkingRoundTrip: replayDecision.allowThinkingRoundTrip,
+			profile: reasoningProfile,
+			configuredThinkingMode: modelConfiguration.thinkingMode,
+		});
+		if (replayPreservationControls) {
+			applyReasoningRequestControls(requestBody, reasoningProfile, replayPreservationControls);
 		}
 		const thinkingSummary = summarizeThinkingMessages(requestMessages);
 		const requestInitiator = (options as { requestInitiator?: unknown }).requestInitiator;
@@ -818,18 +830,25 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			messages: anthropicMessages,
 			store: thinkingReplayStore,
 		});
+		const replayCarrier = isStoredReplayCarrier(reasoningProfile.replayCarrier)
+			? reasoningProfile.replayCarrier
+			: "anthropic_thinking_block";
 		const replayDecision = decideThinkingReplayRequest({
 			userOptedIntoRoundTrip,
 			replayRequiredByProfile,
 			preflight: replayPreflight,
+			failureContext: {
+				modelId: model.id,
+				transport: route.transport,
+				profileId: reasoningProfile.id,
+				carrier: replayCarrier,
+			},
 		});
 		if (replayDecision.failLocalReason) {
+			logWarn(this.output, sanitizeForLog(replayDecision.failLocalReason, 600));
 			throw new Error(replayDecision.failLocalReason);
 		}
 		const requestMessages = replayDecision.allowThinkingRoundTrip ? replayPreflight.messages : anthropicMessages;
-		const replayCarrier = isStoredReplayCarrier(reasoningProfile.replayCarrier)
-			? reasoningProfile.replayCarrier
-			: "anthropic_thinking_block";
 		const pendingThinkingTurn = replayDecision.allowThinkingRoundTrip
 			? thinkingReplayStore.beginTurn({
 					modelId: model.id,
@@ -858,9 +877,14 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 				thinkingMode: "disabled",
 			});
 		}
-		if (replayDecision.allowThinkingRoundTrip && replayPreflight.replayedCount > 0) {
+		const replayPreservationControls = buildReplayPreservationRequestControls({
+			allowThinkingRoundTrip: replayDecision.allowThinkingRoundTrip,
+			profile: reasoningProfile,
+			configuredThinkingMode: modelConfiguration.thinkingMode,
+		});
+		if (replayPreservationControls) {
 			applyReasoningRequestControls(requestBody as unknown as Record<string, unknown>, reasoningProfile, {
-				preserveThinking: true,
+				...replayPreservationControls,
 			});
 		}
 		const thinkingSummary = summarizeAnthropicThinkingMessages(requestMessages);

@@ -3,7 +3,12 @@ import assert from "assert/strict";
 import type { AnthropicMessage } from "./anthropic/anthropicTypes";
 import type { OpenAIChatMessage } from "./openai/openaiTypes";
 import { resolveReasoningDialectProfile } from "./reasoningDialect";
-import { applyAnthropicThinkingReplay, applyThinkingReplay, decideThinkingReplayRequest } from "./thinkingReplay";
+import {
+	applyAnthropicThinkingReplay,
+	applyThinkingReplay,
+	buildThinkingReplayMissError,
+	decideThinkingReplayRequest,
+} from "./thinkingReplay";
 import { MemoryThinkingReplayStorage, ThinkingReplayStore } from "./thinkingReplayStore";
 
 async function storeWithEntries(
@@ -335,10 +340,43 @@ describe("decideThinkingReplayRequest", () => {
 			userOptedIntoRoundTrip: false,
 			replayRequiredByProfile: true,
 			preflight: miss,
+			failureContext: {
+				modelId: "glm-5.1",
+				transport: "openai",
+				profileId: "glm-5-default-thinking",
+				carrier: "reasoning_content",
+			},
 		});
 
 		assert.equal(decision.allowThinkingRoundTrip, false);
 		assert.equal(decision.failLocalReason?.includes("Reasoning cannot be resumed"), true);
+		assert.equal(decision.failLocalReason?.includes("model=glm-5.1"), true);
+		assert.equal(decision.failLocalReason?.includes("transport=openai"), true);
+		assert.equal(decision.failLocalReason?.includes("carrier=reasoning_content"), true);
+		assert.equal(decision.failLocalReason?.includes("missingToolCallIds=call_missing"), true);
+	});
+
+	it("formats replay-miss diagnostics without dumping unlimited tool call ids", () => {
+		const error = buildThinkingReplayMissError(
+			{
+				messages: [],
+				allRequiredReasoningReplayed: false,
+				hasAssistantToolCalls: true,
+				replayedCount: 0,
+				missingCallIds: ["call_1", "call_2", "call_3", "call_4", "call_5", "call_6"],
+				conflictingCallIds: [],
+			},
+			{
+				modelId: "glm-5.1",
+				transport: "openai",
+				profileId: "glm-5-default-thinking",
+				carrier: "reasoning_content",
+			}
+		);
+
+		assert.match(error, /model=glm-5\.1/);
+		assert.match(error, /profile=glm-5-default-thinking/);
+		assert.match(error, /missingToolCallIds=call_1,call_2,call_3,call_4,call_5,\+1 more/);
 	});
 
 	it("allows automatic round-trip capture for replay-required new chats", async () => {
