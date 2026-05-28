@@ -134,25 +134,25 @@ The `scene` tags are the best capability source:
 
 17 models carry `tag_type: "endpoint_type"` with `tag_name: "Claude兼容"`.
 
-This is a strong route hint. It should map to:
+This is a strong route hint, but it is no longer an unconditional route default.
+Most of these models should map to:
 
 ```ts
 apiMode: "anthropic"
 endpointKind: "messages"
 ```
 
-Affected models:
+OpenClaw `v2026.5.22` is the exception source for GLM: its bundled Z.AI
+provider registers GLM 4.5+ and GLM 5+ models as `openai-completions` and
+calls `/chat/completions`, so InfiniAI GLM defaults should align with that
+provider instead of using Anthropic Messages.
+
+Anthropic/default Messages models:
 
 - `deepseek-v3.2`
 - `deepseek-v3.2-thinking`
 - `deepseek-v4-flash`
 - `deepseek-v4-pro`
-- `glm-4.5`
-- `glm-4.5-air`
-- `glm-4.6`
-- `glm-4.7`
-- `glm-5`
-- `glm-5.1`
 - `kimi-k2.5`
 - `kimi-k2.6`
 - `mimo-v2-pro`
@@ -160,6 +160,15 @@ Affected models:
 - `minimax-m2.1`
 - `minimax-m2.5`
 - `minimax-m2.7`
+
+GLM OpenAI/default Chat Completions overrides:
+
+- `glm-4.5`
+- `glm-4.5-air`
+- `glm-4.6`
+- `glm-4.7`
+- `glm-5`
+- `glm-5.1`
 
 This is better than inferring Anthropic transport from `family`; `family` should remain model lineage, not endpoint shape.
 
@@ -295,6 +304,9 @@ function normalizeCatalogModel(raw: CatalogModel): InfiniAICatalogModelInfo | un
   }
 
   const isClaudeCompatible = endpointType === "Claude兼容";
+  const protocolOverride = getProtocolOverride(raw.name);
+  const apiMode = protocolOverride?.apiMode ?? (isClaudeCompatible ? "anthropic" : "openai");
+  const endpointKind = protocolOverride?.endpointKind ?? (isClaudeCompatible ? "messages" : "chat.completions");
   const maxOutput = typeof raw.max_completion_tokens === "number"
     ? raw.max_completion_tokens
     : undefined;
@@ -306,8 +318,8 @@ function normalizeCatalogModel(raw: CatalogModel): InfiniAICatalogModelInfo | un
     owned_by: raw.manufacturer || provider || "InfiniAI",
     displayName: raw.display_name || raw.name,
     family: inferFamily(raw.name, raw.manufacturer),
-    apiMode: isClaudeCompatible ? "anthropic" : "openai",
-    endpointKind: isClaudeCompatible ? "messages" : "chat.completions",
+    apiMode,
+    endpointKind,
     context_length: raw.context_length || undefined,
     max_tokens: maxOutput,
     vision: scenes.includes("视觉理解"),
@@ -373,6 +385,6 @@ Create a PR for catalog normalization before model picker polish:
 - Unit test: non-chat models are excluded from `LanguageModelChatInformation`.
 - Unit test: 28 models with `工具调用` set `capabilities.toolCalling = true`.
 - Unit test: 7 models with `视觉理解` set `capabilities.imageInput = true`.
-- Unit test: 17 `Claude兼容` models route to Anthropic/messages.
+- Unit test: 11 `Claude兼容` models route to Anthropic/messages, while GLM 4.5+/5+ defaults route to OpenAI/chat.completions to match OpenClaw Z.AI.
 - Unit test: `deepseek-v4-pro` gets `maxOutputTokens = 393216`, not the default.
 - Extension Development Host smoke test: model picker shows display names, useful detail, and no embedding/reranker/video/image-generation entries.

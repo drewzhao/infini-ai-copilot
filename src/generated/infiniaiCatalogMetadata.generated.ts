@@ -39,7 +39,7 @@ export const BUILT_IN_INFINIAI_CATALOG_COUNTS = {
 	"nonChat": 9,
 	"toolCalling": 28,
 	"imageInput": 7,
-	"claudeCompatible": 17
+	"claudeCompatible": 11
 } as const;
 
 export const BUILT_IN_INFINIAI_MODEL_METADATA = {
@@ -270,10 +270,10 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"manufacturer": "智谱",
 		"maxContextTokens": 131072,
 		"maxInputTokens": 131072,
-		"apiMode": "anthropic",
-		"endpointKind": "messages",
-		"detail": "智谱 · Claude-compatible · 最新开源",
-		"tooltip": "glm-4.5\nProvider: 智谱 · 大语言模型\nCapabilities: Text\nContext: 131,072 tokens\nEndpoint: Claude兼容\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
+		"apiMode": "openai",
+		"endpointKind": "chat.completions",
+		"detail": "智谱 · 最新开源",
+		"tooltip": "glm-4.5\nProvider: 智谱 · 大语言模型\nCapabilities: Text\nContext: 131,072 tokens\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"imageInput": false,
 			"codeGeneration": false
@@ -287,10 +287,10 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"manufacturer": "智谱",
 		"maxContextTokens": 131072,
 		"maxInputTokens": 131072,
-		"apiMode": "anthropic",
-		"endpointKind": "messages",
-		"detail": "智谱 · Claude-compatible · 最新开源",
-		"tooltip": "glm-4.5-air\nProvider: 智谱 · 大语言模型\nCapabilities: Text\nContext: 131,072 tokens\nEndpoint: Claude兼容\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
+		"apiMode": "openai",
+		"endpointKind": "chat.completions",
+		"detail": "智谱 · 最新开源",
+		"tooltip": "glm-4.5-air\nProvider: 智谱 · 大语言模型\nCapabilities: Text\nContext: 131,072 tokens\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"imageInput": false,
 			"codeGeneration": false
@@ -322,10 +322,10 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"manufacturer": "智谱",
 		"maxContextTokens": 204800,
 		"maxInputTokens": 204800,
-		"apiMode": "anthropic",
-		"endpointKind": "messages",
-		"detail": "智谱 · Code · Tools · Claude-compatible",
-		"tooltip": "glm-4.6\nProvider: 智谱 · 大语言模型\nCapabilities: Text, Code, Tools\nContext: 204,800 tokens\nEndpoint: Claude兼容\nBilling: 限免 · 后付费 · 按小时结算",
+		"apiMode": "openai",
+		"endpointKind": "chat.completions",
+		"detail": "智谱 · Code · Tools",
+		"tooltip": "glm-4.6\nProvider: 智谱 · 大语言模型\nCapabilities: Text, Code, Tools\nContext: 204,800 tokens\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
@@ -358,10 +358,10 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"manufacturer": "智谱",
 		"maxContextTokens": 204800,
 		"maxInputTokens": 204800,
-		"apiMode": "anthropic",
-		"endpointKind": "messages",
-		"detail": "智谱 · Code · Tools · Claude-compatible",
-		"tooltip": "glm-4.7\nProvider: 智谱 · 大语言模型\nCapabilities: Text, Code, Tools\nContext: 204,800 tokens\nEndpoint: Claude兼容\nBilling: 限免 · 后付费 · 按小时结算",
+		"apiMode": "openai",
+		"endpointKind": "chat.completions",
+		"detail": "智谱 · Code · Tools",
+		"tooltip": "glm-4.7\nProvider: 智谱 · 大语言模型\nCapabilities: Text, Code, Tools\nContext: 204,800 tokens\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
@@ -377,10 +377,10 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxContextTokens": 204800,
 		"maxInputTokens": 73728,
 		"maxOutputTokens": 131072,
-		"apiMode": "anthropic",
-		"endpointKind": "messages",
-		"detail": "智谱 · Code · Tools · Claude-compatible",
-		"tooltip": "glm-5\nProvider: 智谱 · 大语言模型\nCapabilities: Text, Code, Tools\nContext: 204,800 tokens\nMax output: 131,072 tokens\nEndpoint: Claude兼容\nBilling: 限免 · 后付费 · 按小时结算",
+		"apiMode": "openai",
+		"endpointKind": "chat.completions",
+		"detail": "智谱 · Code · Tools",
+		"tooltip": "glm-5\nProvider: 智谱 · 大语言模型\nCapabilities: Text, Code, Tools\nContext: 204,800 tokens\nMax output: 131,072 tokens\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,
@@ -396,10 +396,10 @@ export const BUILT_IN_INFINIAI_MODEL_METADATA = {
 		"maxContextTokens": 204800,
 		"maxInputTokens": 73728,
 		"maxOutputTokens": 131072,
-		"apiMode": "anthropic",
-		"endpointKind": "messages",
-		"detail": "智谱 · Code · Tools · Claude-compatible · 最新开源",
-		"tooltip": "glm-5.1\nProvider: 智谱 · 大语言模型\nCapabilities: Text, Code, Tools\nContext: 204,800 tokens\nMax output: 131,072 tokens\nEndpoint: Claude兼容\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
+		"apiMode": "openai",
+		"endpointKind": "chat.completions",
+		"detail": "智谱 · Code · Tools · 最新开源",
+		"tooltip": "glm-5.1\nProvider: 智谱 · 大语言模型\nCapabilities: Text, Code, Tools\nContext: 204,800 tokens\nMax output: 131,072 tokens\nPromotion: 最新开源\nBilling: 限免 · 后付费 · 按小时结算",
 		"capabilities": {
 			"toolCalling": true,
 			"imageInput": false,

@@ -216,6 +216,16 @@ function cleanDescription(description, modelId) {
 	return text.length > 160 ? undefined : text;
 }
 
+function getProtocolOverride(modelId) {
+	const id = modelId.toLowerCase();
+	// Match OpenClaw's bundled Z.AI provider: GLM 4.5+ / 5+ models are
+	// registered as openai-completions and called through /chat/completions.
+	if (/^glm-(5|4\.(7|6|5))/.test(id)) {
+		return { apiMode: "openai", endpointKind: "chat.completions" };
+	}
+	return undefined;
+}
+
 function buildDetail({ manufacturer, labels, isClaudeCompatible, promotion }) {
 	const parts = [manufacturer, ...labels.filter((label) => label !== "Text")];
 	if (isClaudeCompatible) {
@@ -314,15 +324,21 @@ function normalizeModel(rawModel) {
 		};
 	}
 
+	const protocolOverride = getProtocolOverride(id);
+	const apiMode = protocolOverride?.apiMode ?? (isClaudeCompatible ? "anthropic" : "openai");
+	const endpointKind = protocolOverride?.endpointKind ?? (isClaudeCompatible ? "messages" : "chat.completions");
+	const isDefaultClaudeCompatible = endpointKind === "messages" && isClaudeCompatible;
+	const displayEndpointType = isDefaultClaudeCompatible ? endpointType : undefined;
+
 	return {
 		kind: "chat",
 		...common,
 		maxContextTokens: contextLength,
 		maxInputTokens: maxInput,
 		maxOutputTokens: maxOutput,
-		apiMode: isClaudeCompatible ? "anthropic" : "openai",
-		endpointKind: isClaudeCompatible ? "messages" : "chat.completions",
-		detail: buildDetail({ manufacturer, labels, isClaudeCompatible, promotion }),
+		apiMode,
+		endpointKind,
+		detail: buildDetail({ manufacturer, labels, isClaudeCompatible: isDefaultClaudeCompatible, promotion }),
 		tooltip: buildTooltip({
 			displayName,
 			manufacturer,
@@ -330,7 +346,7 @@ function normalizeModel(rawModel) {
 			scenes: trustedScenes,
 			contextLength,
 			maxOutput,
-			endpointType,
+			endpointType: displayEndpointType,
 			billing,
 			promotion,
 			description,

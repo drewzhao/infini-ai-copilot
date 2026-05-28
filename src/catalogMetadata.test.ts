@@ -51,6 +51,17 @@ describe("built-in InfiniAI catalog metadata", () => {
 		assert.equal(enriched.capabilities?.imageInput, true);
 	});
 
+	it("defaults GLM models to the OpenClaw Z.AI OpenAI-compatible protocol", () => {
+		for (const id of ["glm-4.5", "glm-4.5-air", "glm-4.6", "glm-4.7", "glm-5", "glm-5.1"]) {
+			const enriched = enrichModelWithBuiltInMetadata(liveModel(id));
+
+			assert.equal(enriched.apiMode, "openai", id);
+			assert.equal(enriched.endpointKind, "chat.completions", id);
+			assert.doesNotMatch(enriched.detail ?? "", /Claude-compatible/, id);
+			assert.doesNotMatch(enriched.tooltip ?? "", /Endpoint: Claude兼容/, id);
+		}
+	});
+
 	it("marks built-in non-chat catalog entries", () => {
 		assert.equal(isBuiltInNonChatModel("bge-m3"), true);
 		assert.equal(isBuiltInNonChatModel("bge-reranker-v2-m3"), true);
