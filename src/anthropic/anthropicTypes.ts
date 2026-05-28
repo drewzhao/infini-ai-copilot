@@ -79,9 +79,9 @@ export interface AnthropicRequestBody {
 		user_id?: string;
 	};
 	service_tier?: "auto" | "standard_only";
-	thinking?: {
-		type: "enabled";
-		budget_tokens: number;
+	thinking?: { type: "enabled"; budget_tokens: number } | { type: "disabled" };
+	output_config?: {
+		effort?: "low" | "medium" | "high";
 	};
 	tools?: AnthropicToolDefinition[];
 	tool_choice?: AnthropicToolChoice;

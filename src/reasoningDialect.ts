@@ -23,6 +23,8 @@ export type ReplayPreservationControlSpec =
 	| { readonly kind: "qwen-preserve-thinking" };
 
 export type ReplayRisk = "none" | "reasoning-content-required-after-tool-call" | "unknown";
+export type ReasoningEffortControl = "none" | "openai-reasoning-effort" | "anthropic-output-config-effort";
+export type ReasoningEffortLevel = "low" | "medium" | "high";
 
 export interface ReasoningDialectProfile {
 	readonly id: string;
@@ -35,6 +37,8 @@ export interface ReasoningDialectProfile {
 	readonly canDisableThinking: boolean;
 	readonly canEnableThinking: boolean;
 	readonly replayRisk: ReplayRisk;
+	readonly reasoningEffortControl: ReasoningEffortControl;
+	readonly defaultReasoningEffort?: ReasoningEffortLevel;
 }
 
 export interface ResolveReasoningDialectProfileInput {
@@ -46,11 +50,70 @@ function normalizedModelId(modelId: string): string {
 	return modelId.trim().toLowerCase();
 }
 
+type ReasoningDialectProfileInput = Omit<ReasoningDialectProfile, "reasoningEffortControl"> &
+	Partial<Pick<ReasoningDialectProfile, "reasoningEffortControl">>;
+
+function profile(input: ReasoningDialectProfileInput): ReasoningDialectProfile {
+	return {
+		reasoningEffortControl: "none",
+		...input,
+	};
+}
+
 function anthropicProfile(modelId: string): ReasoningDialectProfile {
+	if (modelId.startsWith("deepseek-v3.2-thinking")) {
+		return profile({
+			id: "deepseek-v3.2-thinking-anthropic",
+			transport: "anthropic",
+			family: "deepseek",
+			defaultThinking: "forced",
+			currentTurnControl: { kind: "none" },
+			replayCarrier: "anthropic_thinking_block",
+			preservationControl: { kind: "none" },
+			canDisableThinking: false,
+			canEnableThinking: false,
+			replayRisk: "reasoning-content-required-after-tool-call",
+			reasoningEffortControl: "anthropic-output-config-effort",
+		});
+	}
+
+	if (modelId.startsWith("deepseek-v3.2")) {
+		return profile({
+			id: "deepseek-v3.2-anthropic",
+			transport: "anthropic",
+			family: "deepseek",
+			defaultThinking: "off",
+			currentTurnControl: { kind: "anthropic-thinking" },
+			replayCarrier: "anthropic_thinking_block",
+			preservationControl: { kind: "none" },
+			canDisableThinking: true,
+			canEnableThinking: true,
+			replayRisk: "reasoning-content-required-after-tool-call",
+			reasoningEffortControl: "anthropic-output-config-effort",
+		});
+	}
+
+	if (modelId.startsWith("deepseek-v4")) {
+		return profile({
+			id: "deepseek-v4-anthropic",
+			transport: "anthropic",
+			family: "deepseek",
+			defaultThinking: "unknown",
+			currentTurnControl: { kind: "anthropic-thinking" },
+			replayCarrier: "anthropic_thinking_block",
+			preservationControl: { kind: "none" },
+			canDisableThinking: true,
+			canEnableThinking: true,
+			replayRisk: "reasoning-content-required-after-tool-call",
+			reasoningEffortControl: "anthropic-output-config-effort",
+			defaultReasoningEffort: "high",
+		});
+	}
+
 	const isGlmDefaultThinking = /^glm-(5|4\.7)(\.|$|-)/.test(modelId) || modelId === "glm-5" || modelId === "glm-4.7";
 	const isKimiForcedThinking = modelId.includes("kimi-k2-thinking");
 	const isKimiDefaultThinking = !isKimiForcedThinking && modelId.includes("kimi-k2");
-	return {
+	return profile({
 		id: modelId.includes("claude")
 			? "anthropic-claude-compatible"
 			: isGlmDefaultThinking
@@ -69,12 +132,27 @@ function anthropicProfile(modelId: string): ReasoningDialectProfile {
 		canDisableThinking: false,
 		canEnableThinking: false,
 		replayRisk: "reasoning-content-required-after-tool-call",
-	};
+	});
 }
 
 function openAIProfile(modelId: string): ReasoningDialectProfile {
+	if (modelId === "deepseek-r1") {
+		return profile({
+			id: "deepseek-r1-forced-reasoning",
+			transport: "openai",
+			family: "deepseek",
+			defaultThinking: "forced",
+			currentTurnControl: { kind: "none" },
+			replayCarrier: "reasoning_content",
+			preservationControl: { kind: "none" },
+			canDisableThinking: false,
+			canEnableThinking: false,
+			replayRisk: "reasoning-content-required-after-tool-call",
+		});
+	}
+
 	if (modelId.includes("minimax")) {
-		return {
+		return profile({
 			id: modelId.includes("minimax-m2") ? "minimax-m2" : "minimax-reasoning-split",
 			transport: "openai",
 			family: "minimax",
@@ -85,11 +163,11 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 			canDisableThinking: false,
 			canEnableThinking: false,
 			replayRisk: "reasoning-content-required-after-tool-call",
-		};
+		});
 	}
 
 	if (modelId.includes("kimi-k2-thinking")) {
-		return {
+		return profile({
 			id: "kimi-k2-forced-thinking",
 			transport: "openai",
 			family: "kimi",
@@ -100,11 +178,11 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 			canDisableThinking: false,
 			canEnableThinking: false,
 			replayRisk: "reasoning-content-required-after-tool-call",
-		};
+		});
 	}
 
 	if (modelId.includes("kimi-k2")) {
-		return {
+		return profile({
 			id: "kimi-k2-toggleable",
 			transport: "openai",
 			family: "kimi",
@@ -115,11 +193,11 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 			canDisableThinking: true,
 			canEnableThinking: true,
 			replayRisk: "reasoning-content-required-after-tool-call",
-		};
+		});
 	}
 
 	if (/^glm-(5|4\.7)(\.|$|-)/.test(modelId) || modelId === "glm-5" || modelId === "glm-4.7") {
-		return {
+		return profile({
 			id: "glm-5-default-thinking",
 			transport: "openai",
 			family: "glm",
@@ -130,11 +208,11 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 			canDisableThinking: true,
 			canEnableThinking: true,
 			replayRisk: "reasoning-content-required-after-tool-call",
-		};
+		});
 	}
 
 	if (/^glm-4\.6(\.|$|-)/.test(modelId) || modelId === "glm-4.6") {
-		return {
+		return profile({
 			id: "glm-4-6-auto-thinking",
 			transport: "openai",
 			family: "glm",
@@ -145,11 +223,11 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 			canDisableThinking: true,
 			canEnableThinking: true,
 			replayRisk: "reasoning-content-required-after-tool-call",
-		};
+		});
 	}
 
 	if (modelId.startsWith("mimo-v2")) {
-		return {
+		return profile({
 			id: "mimo-v2",
 			transport: "openai",
 			family: "mimo",
@@ -160,12 +238,12 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 			canDisableThinking: true,
 			canEnableThinking: true,
 			replayRisk: "reasoning-content-required-after-tool-call",
-		};
+		});
 	}
 
 	if (modelId.startsWith("deepseek-v4")) {
-		return {
-			id: "deepseek-v4",
+		return profile({
+			id: "deepseek-v4-openai",
 			transport: "openai",
 			family: "deepseek",
 			defaultThinking: "unknown",
@@ -175,11 +253,13 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 			canDisableThinking: true,
 			canEnableThinking: true,
 			replayRisk: "reasoning-content-required-after-tool-call",
-		};
+			reasoningEffortControl: "openai-reasoning-effort",
+			defaultReasoningEffort: "high",
+		});
 	}
 
 	if (modelId.includes("qwen") && modelId.includes("vl")) {
-		return {
+		return profile({
 			id: modelId.includes("thinking") ? "qwen3-vl-forced-thinking" : "qwen3-vl-hybrid",
 			transport: "openai",
 			family: "qwen-vl",
@@ -190,12 +270,12 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 			canDisableThinking: !modelId.includes("thinking"),
 			canEnableThinking: !modelId.includes("thinking"),
 			replayRisk: "reasoning-content-required-after-tool-call",
-		};
+		});
 	}
 
 	if (modelId.includes("qwen")) {
 		const forcedThinking = modelId.includes("thinking") || modelId.includes("qwq");
-		return {
+		return profile({
 			id: forcedThinking ? "qwen3-forced-thinking" : modelId.includes("instruct") ? "qwen3-instruct" : "qwen3-open-hybrid",
 			transport: "openai",
 			family: "qwen",
@@ -206,10 +286,10 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 			canDisableThinking: !forcedThinking,
 			canEnableThinking: !forcedThinking,
 			replayRisk: "reasoning-content-required-after-tool-call",
-		};
+		});
 	}
 
-	return {
+	return profile({
 		id: "unknown",
 		transport: "openai",
 		family: "unknown",
@@ -220,7 +300,7 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 		canDisableThinking: false,
 		canEnableThinking: false,
 		replayRisk: "unknown",
-	};
+	});
 }
 
 export function resolveReasoningDialectProfile(
@@ -231,7 +311,7 @@ export function resolveReasoningDialectProfile(
 		return anthropicProfile(modelId);
 	}
 	if (input.transport === "vertex") {
-		return {
+		return profile({
 			id: "vertex-generate-content",
 			transport: "vertex",
 			family: "vertex",
@@ -242,7 +322,7 @@ export function resolveReasoningDialectProfile(
 			canDisableThinking: false,
 			canEnableThinking: false,
 			replayRisk: "unknown",
-		};
+		});
 	}
 	return openAIProfile(modelId);
 }

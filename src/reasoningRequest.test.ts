@@ -40,6 +40,78 @@ describe("reasoning request controls", () => {
 		assert.equal((body as Record<string, unknown>).enable_thinking, undefined);
 	});
 
+	it("removes OpenAI reasoning effort when thinking is disabled", () => {
+		const body: Record<string, unknown> = {
+			model: "deepseek-v4-pro",
+			reasoning_effort: "high",
+		};
+		const profile = resolveReasoningDialectProfile({ modelId: "deepseek-v4-pro", transport: "openai" });
+
+		applyReasoningRequestControls(body, profile, {
+			thinkingMode: "disabled",
+		});
+
+		assert.deepEqual(body, {
+			model: "deepseek-v4-pro",
+			thinking: { type: "disabled" },
+		});
+	});
+
+	it("enables Anthropic thinking with a bounded budget", () => {
+		const body: Record<string, unknown> = {
+			model: "deepseek-v3.2",
+			max_tokens: 4096,
+		};
+		const profile = resolveReasoningDialectProfile({ modelId: "deepseek-v3.2", transport: "anthropic" });
+
+		applyReasoningRequestControls(body, profile, {
+			thinkingMode: "enabled",
+		});
+
+		assert.deepEqual(body, {
+			model: "deepseek-v3.2",
+			max_tokens: 4096,
+			thinking: { type: "enabled", budget_tokens: 1024 },
+		});
+	});
+
+	it("keeps Anthropic thinking budget below max_tokens", () => {
+		const body: Record<string, unknown> = {
+			model: "deepseek-v3.2",
+			max_tokens: 512,
+		};
+		const profile = resolveReasoningDialectProfile({ modelId: "deepseek-v3.2", transport: "anthropic" });
+
+		applyReasoningRequestControls(body, profile, {
+			thinkingMode: "enabled",
+		});
+
+		assert.deepEqual(body, {
+			model: "deepseek-v3.2",
+			max_tokens: 512,
+			thinking: { type: "enabled", budget_tokens: 511 },
+		});
+	});
+
+	it("disables Anthropic thinking with the provider control shape", () => {
+		const body: Record<string, unknown> = {
+			model: "deepseek-v3.2",
+			max_tokens: 4096,
+			output_config: { effort: "high" },
+		};
+		const profile = resolveReasoningDialectProfile({ modelId: "deepseek-v3.2", transport: "anthropic" });
+
+		applyReasoningRequestControls(body, profile, {
+			thinkingMode: "disabled",
+		});
+
+		assert.deepEqual(body, {
+			model: "deepseek-v3.2",
+			max_tokens: 4096,
+			thinking: { type: "disabled" },
+		});
+	});
+
 	it("sets Kimi keep preservation without inventing Qwen fields", () => {
 		const body: Record<string, unknown> = { model: "kimi-k2.6" };
 		const profile = resolveReasoningDialectProfile({ modelId: "kimi-k2.6", transport: "openai" });
@@ -92,11 +164,13 @@ describe("reasoning request controls", () => {
 		});
 	});
 
-	it("does not apply preservation when a profile has no preservation control", () => {
+	it("activates current-turn thinking during round-trip even without preservation controls", () => {
 		const profile = resolveReasoningDialectProfile({ modelId: "deepseek-v4-pro", transport: "openai" });
 
 		assert.equal(shouldApplyReplayPreservationControl({ allowThinkingRoundTrip: true, profile }), false);
-		assert.equal(buildReplayPreservationRequestControls({ allowThinkingRoundTrip: true, profile }), undefined);
+		assert.deepEqual(buildReplayPreservationRequestControls({ allowThinkingRoundTrip: true, profile }), {
+			thinkingMode: "enabled",
+		});
 	});
 
 	it("does not re-enable current-turn thinking when the user disables it", () => {
@@ -109,7 +183,6 @@ describe("reasoning request controls", () => {
 				configuredThinkingMode: "disabled",
 			}),
 			{
-				thinkingMode: undefined,
 				preserveThinking: true,
 			}
 		);

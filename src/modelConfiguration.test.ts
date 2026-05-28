@@ -25,22 +25,14 @@ function modelInfo(overrides: Partial<InfiniAIModelInfo> = {}): InfiniAIModelInf
 }
 
 describe("model configuration schema", () => {
-	it("creates token and unset-safe reasoning controls for every model", () => {
+	it("creates token and unset-safe thinking controls without unsupported effort", () => {
 		const schema = buildInfiniAIModelConfigurationSchema(modelInfo(), 8192);
 
 		assert.deepEqual(schema.properties.maxOutputTokens.enum, [0, 1024, 4096, 8192]);
 		assert.deepEqual(schema.properties.maxOutputTokens.enumItemLabels, ["Model default", "1K", "4K", "8K"]);
 		assert.equal(schema.properties.maxOutputTokens.default, 0);
 		assert.equal(schema.properties.maxOutputTokens.group, "tokens");
-		assert.deepEqual(schema.properties.reasoningEffort.enum, ["unset", "low", "medium", "high"]);
-		assert.deepEqual(schema.properties.reasoningEffort.enumItemLabels, ["Unset", "Low", "Medium", "High"]);
-		assert.match(schema.properties.reasoningEffort.description ?? "", /Selected values send reasoning_effort/);
-		assert.doesNotMatch(schema.properties.reasoningEffort.description ?? "", /Best[- ]effort/i);
-		assert.match(schema.properties.reasoningEffort.enumDescriptions?.[0] ?? "", /Do not send reasoning_effort/);
-		assert.match(schema.properties.reasoningEffort.enumDescriptions?.[1] ?? "", /may ignore or reject/);
-		assert.doesNotMatch(schema.properties.reasoningEffort.enumDescriptions?.join("\n") ?? "", /Best[- ]effort/i);
-		assert.equal(schema.properties.reasoningEffort.default, "unset");
-		assert.equal(schema.properties.reasoningEffort.group, "navigation");
+		assert.equal(schema.properties.reasoningEffort, undefined);
 		assert.deepEqual(schema.properties.thinkingMode.enum, ["unset", "disabled", "enabled"]);
 		assert.deepEqual(schema.properties.thinkingMode.enumItemLabels, ["Unset", "Disabled", "Enabled"]);
 		assert.match(schema.properties.thinkingMode.description ?? "", /confirmed request parameter/);
@@ -48,19 +40,35 @@ describe("model configuration schema", () => {
 		assert.equal(schema.properties.thinkingMode.default, "unset");
 	});
 
-	it("uses the built-in reasoning profile to expose supported controls", () => {
+	it("uses the built-in DeepSeek Anthropic profile to expose supported controls", () => {
 		const schema = buildInfiniAIModelConfigurationSchema(
 			modelInfo({
+				id: "deepseek-v3.2",
 				capabilities: {
 					toolCalling: true,
 				},
 			}),
-			4096
+			4096,
+			"anthropic"
 		);
 
 		assert.ok(schema.properties.maxOutputTokens);
 		assert.deepEqual(schema.properties.reasoningEffort.enum, ["unset", "low", "medium", "high"]);
 		assert.deepEqual(schema.properties.thinkingMode.enum, ["unset", "disabled", "enabled"]);
+	});
+
+	it("does not expose thinking or effort controls for forced DeepSeek R1", () => {
+		const schema = buildInfiniAIModelConfigurationSchema(
+			modelInfo({
+				id: "deepseek-r1",
+			}),
+			4096,
+			"openai"
+		);
+
+		assert.ok(schema.properties.maxOutputTokens);
+		assert.equal(schema.properties.reasoningEffort, undefined);
+		assert.equal(schema.properties.thinkingMode, undefined);
 	});
 
 	it("does not expose thinking controls for unknown profiles", () => {
@@ -76,11 +84,11 @@ describe("model configuration schema", () => {
 	});
 
 	it("can append a model-picker tooltip summary for configurable controls", () => {
-		const schema = buildInfiniAIModelConfigurationSchema(modelInfo({ id: "glm-5.1" }), 8192);
+		const schema = buildInfiniAIModelConfigurationSchema(modelInfo({ id: "deepseek-v3.2" }), 8192, "anthropic");
 
-		const tooltip = appendModelConfigurationSummaryToTooltip("GLM model", schema);
+		const tooltip = appendModelConfigurationSummaryToTooltip("DeepSeek model", schema);
 
-		assert.match(tooltip, /GLM model/);
+		assert.match(tooltip, /DeepSeek model/);
 		assert.match(tooltip, /Configurable: Max output tokens, Reasoning effort, Thinking mode/);
 		assert.equal(appendModelConfigurationSummaryToTooltip(tooltip, schema), tooltip);
 	});
@@ -147,7 +155,7 @@ describe("model configuration resolution", () => {
 
 describe("model configuration request mapping", () => {
 	it("maps OpenAI-compatible configuration fields without raw passthrough", () => {
-		const body: Record<string, unknown> = { model: "qwen3-32b" };
+		const body: Record<string, unknown> = { model: "deepseek-v4-pro" };
 
 		applyOpenAIModelConfiguration(body, {
 			maxOutputTokens: 2048,
@@ -157,14 +165,40 @@ describe("model configuration request mapping", () => {
 
 		const rawBody: Record<string, unknown> = body;
 		assert.deepEqual(body, {
-			model: "qwen3-32b",
+			model: "deepseek-v4-pro",
 			max_tokens: 2048,
-			reasoning_effort: "high",
-			enable_thinking: false,
+			thinking: { type: "disabled" },
 		});
 		assert.equal(rawBody.maxOutputTokens, undefined);
 		assert.equal(rawBody.reasoningEffort, undefined);
 		assert.equal(rawBody.thinkingMode, undefined);
+	});
+
+	it("applies DeepSeek V4 default reasoning effort on replay-enabled OpenAI requests", () => {
+		const body: Record<string, unknown> = { model: "deepseek-v4-pro" };
+
+		applyOpenAIModelConfiguration(body, {}, undefined, {
+			useDefaultReasoningEffort: true,
+		});
+
+		assert.deepEqual(body, {
+			model: "deepseek-v4-pro",
+			reasoning_effort: "high",
+		});
+	});
+
+	it("ignores unsupported OpenAI reasoning effort controls", () => {
+		const body: Record<string, unknown> = { model: "qwen3-32b" };
+
+		applyOpenAIModelConfiguration(body, {
+			reasoningEffort: "high",
+			thinkingMode: "disabled",
+		});
+
+		assert.deepEqual(body, {
+			model: "qwen3-32b",
+			enable_thinking: false,
+		});
 	});
 
 	it("maps explicit thinking enablement when selected", () => {
@@ -202,16 +236,23 @@ describe("model configuration request mapping", () => {
 		});
 	});
 
-	it("maps Anthropic configuration to max_tokens only", () => {
-		const body: { max_tokens?: number } = {};
+	it("maps Anthropic DeepSeek effort and thinking controls", () => {
+		const body: { model: string; max_tokens?: number; output_config?: { effort: string }; thinking?: unknown } = {
+			model: "deepseek-v3.2",
+			max_tokens: 2048,
+		};
 
 		applyAnthropicModelConfiguration(body, {
 			maxOutputTokens: 4096,
 			reasoningEffort: "high",
-			thinkingMode: "disabled",
-		});
+			thinkingMode: "enabled",
+		}, "deepseek-v3.2");
 
-		assert.deepEqual(body, { max_tokens: 4096 });
+		assert.deepEqual(body, {
+			model: "deepseek-v3.2",
+			max_tokens: 4096,
+			output_config: { effort: "high" },
+		});
 	});
 
 	it("maps Vertex configuration under generationConfig only", () => {

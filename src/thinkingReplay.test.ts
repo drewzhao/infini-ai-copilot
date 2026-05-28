@@ -356,6 +356,54 @@ describe("decideThinkingReplayRequest", () => {
 		assert.equal(decision.failLocalReason?.includes("missingToolCallIds=call_missing"), true);
 	});
 
+	it("requires replay for DeepSeek R1 forced reasoning profiles without exposing a toggle", async () => {
+		const profile = resolveReasoningDialectProfile({ modelId: "deepseek-r1", transport: "openai" });
+		const empty = applyThinkingReplay({
+			modelId: "deepseek-r1",
+			profile,
+			messages: [{ role: "user", content: "hello" }],
+			store: await storeWithEntries([]),
+		});
+
+		assert.deepEqual(
+			decideThinkingReplayRequest({
+				userOptedIntoRoundTrip: false,
+				replayRequiredByProfile: profile.defaultThinking === "forced",
+				preflight: empty,
+			}),
+			{ allowThinkingRoundTrip: true, failLocalReason: undefined }
+		);
+
+		const miss = applyThinkingReplay({
+			modelId: "deepseek-r1",
+			profile,
+			messages: [
+				{
+					role: "assistant",
+					tool_calls: [{ id: "call_missing", type: "function", function: { name: "a", arguments: "{}" } }],
+				},
+			],
+			store: await storeWithEntries([]),
+		});
+		const decision = decideThinkingReplayRequest({
+			userOptedIntoRoundTrip: false,
+			replayRequiredByProfile: profile.defaultThinking === "forced",
+			preflight: miss,
+			failureContext: {
+				modelId: "deepseek-r1",
+				transport: profile.transport,
+				profileId: profile.id,
+				carrier: "reasoning_content",
+			},
+		});
+
+		assert.equal(decision.allowThinkingRoundTrip, false);
+		assert.equal(decision.failLocalReason?.includes("model=deepseek-r1"), true);
+		assert.equal(decision.failLocalReason?.includes("profile=deepseek-r1-forced-reasoning"), true);
+		assert.equal(decision.failLocalReason?.includes("carrier=reasoning_content"), true);
+		assert.equal(decision.failLocalReason?.includes("missingToolCallIds=call_missing"), true);
+	});
+
 	it("formats replay-miss diagnostics without dumping unlimited tool call ids", () => {
 		const error = buildThinkingReplayMissError(
 			{

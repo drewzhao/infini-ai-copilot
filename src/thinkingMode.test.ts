@@ -4,7 +4,16 @@ import path from "path";
 
 const Module = require("module") as any;
 
-const DEFAULT_ROUND_TRIP_PATTERNS = ["mimo-v2*", "deepseek-v4*", "glm-5*", "glm-4.7*", "kimi-k2*", "minimax*"];
+const DEFAULT_ROUND_TRIP_PATTERNS = [
+	"mimo-v2*",
+	"deepseek-v4*",
+	"deepseek-r1",
+	"deepseek-v3.2-thinking",
+	"glm-5*",
+	"glm-4.7*",
+	"kimi-k2*",
+	"minimax*",
+];
 
 function withVscodeMock<T>(configValues: Record<string, unknown>, fn: () => T): T {
 	const originalLoad = Module._load;
@@ -96,9 +105,21 @@ describe("getThinkingRoundTripPatterns", () => {
 		assert.deepEqual(DEFAULT_ENABLE_THINKING_ROUND_TRIP_PATTERNS, DEFAULT_ROUND_TRIP_PATTERNS);
 
 		const patterns = withVscodeMock({}, getThinkingRoundTripPatterns);
-		for (const id of ["mimo-v2.5-pro", "deepseek-v4-pro", "glm-5.1", "glm-4.7", "kimi-k2.6", "minimax-m2.7"]) {
+		for (const id of [
+			"mimo-v2.5-pro",
+			"deepseek-v4-pro",
+			"deepseek-r1",
+			"deepseek-v3.2-thinking",
+			"glm-5.1",
+			"glm-4.7",
+			"kimi-k2.6",
+			"minimax-m2.7",
+		]) {
 			assert.equal(shouldEnableThinkingRoundTrip(id, patterns), true, id);
 		}
+		assert.equal(shouldEnableThinkingRoundTrip("deepseek-v3.2", patterns), false);
+		assert.equal(shouldEnableThinkingRoundTrip("deepseek-r1-distill-qwen-32b", patterns), false);
+		assert.equal(shouldEnableThinkingRoundTrip("pro-deepseek-r1", patterns), false);
 		assert.equal(shouldEnableThinkingRoundTrip("qwen3-32b", patterns), false);
 	});
 

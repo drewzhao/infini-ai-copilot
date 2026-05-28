@@ -318,7 +318,9 @@ export class OpenaiApi extends CommonApi {
 
 		const modelId = um?.id ?? (typeof orb.model === "string" ? orb.model : "");
 		const reasoningProfile = resolveReasoningDialectProfile({ modelId, transport: "openai" });
-		applyOpenAIModelConfiguration(orb, resolveInfiniAIModelConfiguration(options), reasoningProfile);
+		applyOpenAIModelConfiguration(orb, resolveInfiniAIModelConfiguration(options), reasoningProfile, {
+			useDefaultReasoningEffort: replayPreflightSafe,
+		});
 
 		// // Configure user-defined additional parameters
 		// if (um?.top_k !== undefined) {

@@ -31,6 +31,8 @@ export const DEFAULT_DISABLE_THINKING_PATTERNS: readonly string[] = [
 export const DEFAULT_ENABLE_THINKING_ROUND_TRIP_PATTERNS: readonly string[] = [
 	"mimo-v2*",
 	"deepseek-v4*",
+	"deepseek-r1",
+	"deepseek-v3.2-thinking",
 	"glm-5*",
 	"glm-4.7*",
 	"kimi-k2*",

@@ -290,10 +290,11 @@ export class AnthropicApi extends CommonApi {
 			}
 		}
 
-		applyAnthropicModelConfiguration(arb, resolveInfiniAIModelConfiguration(options));
 		const modelId = um?.id ?? (typeof arb.model === "string" ? arb.model : "");
 		const reasoningProfile = resolveReasoningDialectProfile({ modelId, transport: "anthropic" });
-		applyReasoningRequestControls(arb as unknown as Record<string, unknown>, reasoningProfile, {});
+		const modelConfiguration = resolveInfiniAIModelConfiguration(options);
+		applyAnthropicModelConfiguration(arb as unknown as Record<string, unknown>, modelConfiguration, reasoningProfile);
+		applyReasoningRequestControls(arb as unknown as Record<string, unknown>, reasoningProfile, modelConfiguration);
 
 		// Process extra configuration parameters
 		// if (um?.extra && typeof um.extra === "object") {

@@ -52,4 +52,86 @@ describe("reasoning dialect profiles", () => {
 		assert.equal(profile.replayCarrier, "reasoning_details");
 		assert.equal(profile.canDisableThinking, false);
 	});
+
+	it("resolves DeepSeek R1 OpenAI routes as forced reasoning replay without toggle controls", () => {
+		const profile = resolveReasoningDialectProfile({
+			modelId: "deepseek-r1",
+			transport: "openai",
+		});
+
+		assert.equal(profile.id, "deepseek-r1-forced-reasoning");
+		assert.equal(profile.transport, "openai");
+		assert.equal(profile.defaultThinking, "forced");
+		assert.equal(profile.currentTurnControl.kind, "none");
+		assert.equal(profile.replayCarrier, "reasoning_content");
+		assert.equal(profile.canDisableThinking, false);
+		assert.equal(profile.canEnableThinking, false);
+		assert.equal(profile.reasoningEffortControl, "none");
+		assert.equal(profile.replayRisk, "reasoning-content-required-after-tool-call");
+	});
+
+	it("resolves DeepSeek V4 OpenAI routes as toggleable reasoning with default high effort", () => {
+		const profile = resolveReasoningDialectProfile({
+			modelId: "deepseek-v4-pro",
+			transport: "openai",
+		});
+
+		assert.equal(profile.id, "deepseek-v4-openai");
+		assert.equal(profile.transport, "openai");
+		assert.equal(profile.defaultThinking, "unknown");
+		assert.equal(profile.currentTurnControl.kind, "thinking-type");
+		assert.equal(profile.replayCarrier, "reasoning_content");
+		assert.equal(profile.canDisableThinking, true);
+		assert.equal(profile.canEnableThinking, true);
+		assert.equal(profile.reasoningEffortControl, "openai-reasoning-effort");
+		assert.equal(profile.defaultReasoningEffort, "high");
+	});
+
+	it("resolves DeepSeek V3.2 Anthropic routes as toggleable default-off thinking", () => {
+		const profile = resolveReasoningDialectProfile({
+			modelId: "deepseek-v3.2",
+			transport: "anthropic",
+		});
+
+		assert.equal(profile.id, "deepseek-v3.2-anthropic");
+		assert.equal(profile.transport, "anthropic");
+		assert.equal(profile.defaultThinking, "off");
+		assert.equal(profile.currentTurnControl.kind, "anthropic-thinking");
+		assert.equal(profile.replayCarrier, "anthropic_thinking_block");
+		assert.equal(profile.canDisableThinking, true);
+		assert.equal(profile.canEnableThinking, true);
+		assert.equal(profile.reasoningEffortControl, "anthropic-output-config-effort");
+		assert.equal(profile.replayRisk, "reasoning-content-required-after-tool-call");
+	});
+
+	it("resolves DeepSeek V3.2 thinking Anthropic routes as forced thinking without disable controls", () => {
+		const profile = resolveReasoningDialectProfile({
+			modelId: "deepseek-v3.2-thinking",
+			transport: "anthropic",
+		});
+
+		assert.equal(profile.id, "deepseek-v3.2-thinking-anthropic");
+		assert.equal(profile.defaultThinking, "forced");
+		assert.equal(profile.currentTurnControl.kind, "none");
+		assert.equal(profile.replayCarrier, "anthropic_thinking_block");
+		assert.equal(profile.canDisableThinking, false);
+		assert.equal(profile.canEnableThinking, false);
+		assert.equal(profile.reasoningEffortControl, "anthropic-output-config-effort");
+	});
+
+	it("resolves DeepSeek V4 Anthropic routes as toggleable reasoning for catalog-default routes", () => {
+		const profile = resolveReasoningDialectProfile({
+			modelId: "deepseek-v4-flash",
+			transport: "anthropic",
+		});
+
+		assert.equal(profile.id, "deepseek-v4-anthropic");
+		assert.equal(profile.defaultThinking, "unknown");
+		assert.equal(profile.currentTurnControl.kind, "anthropic-thinking");
+		assert.equal(profile.replayCarrier, "anthropic_thinking_block");
+		assert.equal(profile.canDisableThinking, true);
+		assert.equal(profile.canEnableThinking, true);
+		assert.equal(profile.reasoningEffortControl, "anthropic-output-config-effort");
+		assert.equal(profile.defaultReasoningEffort, "high");
+	});
 });

@@ -25,14 +25,26 @@ export function buildReplayPreservationRequestControls(input: {
 	readonly profile: ReasoningDialectProfile;
 	readonly configuredThinkingMode?: InfiniAIModelConfiguration["thinkingMode"];
 }): ReasoningRequestControlOptions | undefined {
-	if (!shouldApplyReplayPreservationControl(input)) {
+	if (!input.allowThinkingRoundTrip) {
 		return undefined;
 	}
-	return {
-		thinkingMode:
-			input.configuredThinkingMode === "disabled" || !input.profile.canEnableThinking ? undefined : "enabled",
-		preserveThinking: true,
-	};
+	const thinkingMode =
+		input.configuredThinkingMode === "disabled" || !input.profile.canEnableThinking ? undefined : "enabled";
+	const preserveThinking = shouldApplyReplayPreservationControl(input) ? true : undefined;
+	if (thinkingMode === undefined && preserveThinking === undefined) {
+		return undefined;
+	}
+	const controls: {
+		thinkingMode?: InfiniAIModelConfiguration["thinkingMode"];
+		preserveThinking?: boolean;
+	} = {};
+	if (thinkingMode !== undefined) {
+		controls.thinkingMode = thinkingMode;
+	}
+	if (preserveThinking !== undefined) {
+		controls.preserveThinking = preserveThinking;
+	}
+	return controls;
 }
 
 function getThinkingObject(body: Record<string, unknown>): Record<string, unknown> {
@@ -40,6 +52,16 @@ function getThinkingObject(body: Record<string, unknown>): Record<string, unknow
 	return typeof existing === "object" && existing !== null && !Array.isArray(existing)
 		? { ...(existing as Record<string, unknown>) }
 		: {};
+}
+
+function getAnthropicThinkingBudget(body: Record<string, unknown>): number {
+	const maxTokens = typeof body.max_tokens === "number" && Number.isFinite(body.max_tokens)
+		? Math.floor(body.max_tokens)
+		: undefined;
+	if (maxTokens === undefined || maxTokens <= 1) {
+		return 1024;
+	}
+	return Math.max(1, Math.min(1024, maxTokens - 1));
 }
 
 function applyCurrentTurnControl(
@@ -60,6 +82,11 @@ function applyCurrentTurnControl(
 		ignoredControls.push("thinkingMode");
 		return;
 	}
+	if (thinkingMode === "disabled") {
+		delete body.reasoning_effort;
+		delete body.reasoning;
+		delete body.output_config;
+	}
 
 	switch (profile.currentTurnControl.kind) {
 		case "qwen-enable-thinking":
@@ -76,10 +103,16 @@ function applyCurrentTurnControl(
 			writtenFields.push("thinking.type");
 			return;
 		case "anthropic-thinking":
-			body.thinking = {
-				...getThinkingObject(body),
-				type: thinkingMode,
-			};
+			body.thinking =
+				thinkingMode === "enabled"
+					? {
+							...getThinkingObject(body),
+							type: "enabled",
+							budget_tokens: getAnthropicThinkingBudget(body),
+						}
+					: {
+							type: "disabled",
+						};
 			delete body.enable_thinking;
 			writtenFields.push("thinking.type");
 			return;
