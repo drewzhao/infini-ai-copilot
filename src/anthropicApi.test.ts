@@ -14,6 +14,9 @@ function withVscodeMock<T>(fn: () => T): T {
 			User: 1,
 			Assistant: 2,
 		},
+		LanguageModelChatToolMode: {
+			Required: 1,
+		},
 		LanguageModelTextPart: class LanguageModelTextPart {
 			constructor(readonly value: string) {}
 		},
@@ -100,6 +103,65 @@ describe("AnthropicApi.prepareRequestBody MiniMax request controls", () => {
 
 		assert.equal(body.reasoning_split, true);
 	});
+
+	it("keeps manually routed Kimi Anthropic requests in safe-off thinking mode", () => {
+		const { anthropic } = loadAnthropicApi();
+		const api = new anthropic.AnthropicApi();
+
+		const body = api.prepareRequestBody(
+			{
+				model: "kimi-k2.6",
+				messages: [],
+				stream: true,
+				max_tokens: 1024,
+			},
+			{ id: "kimi-k2.6" } as any,
+			{ modelOptions: {}, tools: [] } as any
+		);
+
+		assert.deepEqual(body.thinking, { type: "disabled" });
+		assert.equal(body.output_config, undefined);
+	});
+
+	it("sanitizes Kimi tool schemas before sending Anthropic Messages requests", () => {
+		const { anthropic } = loadAnthropicApi();
+		const api = new anthropic.AnthropicApi();
+
+		const body = api.prepareRequestBody(
+			{
+				model: "kimi-k2.6",
+				messages: [],
+				stream: true,
+				max_tokens: 1024,
+			},
+			{ id: "kimi-k2.6" } as any,
+			{
+				modelOptions: {},
+				tools: [
+					{
+						name: "search",
+						description: "Search",
+						inputSchema: {
+							type: "object",
+							properties: {
+								query: { enum: ["", "code"] },
+							},
+						},
+					},
+				],
+			} as any
+		);
+
+		assert.deepEqual(body.tools?.[0]?.input_schema, {
+			type: "object",
+			properties: {
+				query: {
+					type: "string",
+					enum: ["code"],
+				},
+			},
+		});
+	});
 });
 
 describe("AnthropicApi thinking replay streaming capture", () => {
@@ -148,5 +210,23 @@ describe("AnthropicApi thinking replay streaming capture", () => {
 		);
 
 		assert.equal(store.stats().entryCount, 0);
+	});
+
+	it("fails clearly when input_json_delta arrives without a matching tool_use block", async () => {
+		const { anthropic } = loadAnthropicApi();
+		const api = new anthropic.AnthropicApi();
+
+		await assert.rejects(
+			api.processStreamingResponse(
+				streamFromChunks([
+					'data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"because "}}\n\n',
+					'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{}"}}\n\n',
+					'data: {"type":"message_stop"}\n\n',
+				]),
+				{ report() {} },
+				token() as any
+			),
+			/Anthropic stream input_json_delta without active tool_use block/
+		);
 	});
 });

@@ -81,6 +81,43 @@ function token() {
 }
 
 describe("OpenaiApi.prepareRequestBody thinking-mode guard", () => {
+	it("sanitizes Kimi tool schemas before sending OpenAI-compatible requests", () => {
+		const { openai, withVscode } = loadOpenaiApi();
+
+		const api = new openai.OpenaiApi();
+		const rb = withVscode(() =>
+			api.prepareRequestBody(
+				{ model: "kimi-k2.6" },
+				{ id: "kimi-k2.6" } as any,
+				{
+					modelOptions: {},
+					tools: [
+						{
+							name: "search",
+							description: "Search",
+							inputSchema: {
+								type: "object",
+								properties: {
+									query: { enum: ["", "code"] },
+								},
+							},
+						},
+					],
+				} as any
+			)
+		);
+
+		assert.deepEqual(rb.tools?.[0]?.function?.parameters, {
+			type: "object",
+			properties: {
+				query: {
+					type: "string",
+					enum: ["code"],
+				},
+			},
+		});
+	});
+
 	it("force-disables affected models even when LanguageModelThinkingPart exists", () => {
 		const { openai, proposedApi, withVscode } = loadOpenaiApi();
 		class FakeThinkingPart {

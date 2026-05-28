@@ -41,6 +41,7 @@ import {
 	shouldDisableThinking,
 	shouldEnableThinkingRoundTrip,
 } from "./thinkingMode";
+import { getDefaultRequestThinkingMode, shouldHonorThinkingRoundTripForProfile } from "./thinkingPolicy";
 import { InfiniAIModelInfo, ModelRoute, ModelRouteConfig } from "./types";
 import {
 	cancellableDelay,
@@ -667,18 +668,29 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		const openaiMessages = converter.convertMessages(messages, { includeReasoningInRequest: false });
 		const disableThinkingPatterns = getDisableThinkingPatterns();
 		const roundTripPatterns = getThinkingRoundTripPatterns();
-		const userOptedIntoRoundTrip = shouldEnableThinkingRoundTrip(model.id, roundTripPatterns);
 		const modelConfiguration = resolveInfiniAIModelConfiguration(options);
 		const reasoningProfile = resolveReasoningDialectProfile({
 			modelId: model.id,
 			transport: route.transport,
 		});
+		const defaultRequestThinkingMode = getDefaultRequestThinkingMode({
+			profile: reasoningProfile,
+			configuredThinkingMode: modelConfiguration.thinkingMode,
+		});
+		const profileDefaultDisablesThinking = defaultRequestThinkingMode === "disabled";
+		const userOptedIntoRoundTrip =
+			shouldEnableThinkingRoundTrip(model.id, roundTripPatterns) &&
+			shouldHonorThinkingRoundTripForProfile({
+				profile: reasoningProfile,
+				configuredThinkingMode: modelConfiguration.thinkingMode,
+			});
 		const forceDisableThinking = shouldDisableThinking(model.id, disableThinkingPatterns);
+		const effectiveForceDisableThinking = forceDisableThinking || profileDefaultDisablesThinking;
 		const replayRequiredByProfile = shouldRequireThinkingReplayByProfile({
 			replayRisk: reasoningProfile.replayRisk,
 			defaultThinking: reasoningProfile.defaultThinking,
 			configuredThinkingMode: modelConfiguration.thinkingMode,
-			forceDisableThinking,
+			forceDisableThinking: effectiveForceDisableThinking,
 		});
 		await thinkingReplayStore.prune();
 		const replayPreflight = applyThinkingReplay({
@@ -716,7 +728,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			: undefined;
 		const suppressResponseThinking =
 			modelConfiguration.thinkingMode === "disabled" ||
-			(forceDisableThinking && !replayDecision.allowThinkingRoundTrip);
+			(effectiveForceDisableThinking && !replayDecision.allowThinkingRoundTrip);
 		const openaiApi = new OpenaiApi({
 			thinkingReplayStore: pendingThinkingTurn ? thinkingReplayStore : undefined,
 			pendingThinkingTurn,
@@ -735,7 +747,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			options,
 			replayDecision.allowThinkingRoundTrip
 		);
-		if (forceDisableThinking && !replayDecision.allowThinkingRoundTrip) {
+		if (effectiveForceDisableThinking && !replayDecision.allowThinkingRoundTrip) {
 			applyReasoningRequestControls(requestBody, reasoningProfile, { thinkingMode: "disabled" });
 		}
 		const replayPreservationControls = buildReplayPreservationRequestControls({
@@ -755,7 +767,9 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 					? "modelConfiguration"
 					: forceDisableThinking
 						? "safetyPattern"
-						: "requestBody";
+						: profileDefaultDisablesThinking
+							? "profileDefault"
+							: "requestBody";
 			logInfo(this.output, `Thinking disabled for request model=${sanitizeForLog(model.id, 120)} source=${source}`);
 		}
 		logDebug(
@@ -768,6 +782,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 				`reasoningDialect=${sanitizeForLog(reasoningProfile.currentTurnControl.kind, 120)} ` +
 				`replayCarrier=${sanitizeForLog(reasoningProfile.replayCarrier, 120)} ` +
 				`forceDisable=${forceDisableThinking} ` +
+				`profileDefaultThinkingMode=${sanitizeForLog(String(defaultRequestThinkingMode ?? ""), 40)} ` +
 				`roundTripOptIn=${userOptedIntoRoundTrip} ` +
 				`roundTripAllowed=${replayDecision.allowThinkingRoundTrip} ` +
 				`roundTripReplayed=${replayPreflight.replayedCount} ` +
@@ -810,18 +825,29 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		});
 		const disableThinkingPatterns = getDisableThinkingPatterns();
 		const roundTripPatterns = getThinkingRoundTripPatterns();
-		const userOptedIntoRoundTrip = shouldEnableThinkingRoundTrip(model.id, roundTripPatterns);
 		const modelConfiguration = resolveInfiniAIModelConfiguration(options);
 		const reasoningProfile = resolveReasoningDialectProfile({
 			modelId: model.id,
 			transport: route.transport,
 		});
+		const defaultRequestThinkingMode = getDefaultRequestThinkingMode({
+			profile: reasoningProfile,
+			configuredThinkingMode: modelConfiguration.thinkingMode,
+		});
+		const profileDefaultDisablesThinking = defaultRequestThinkingMode === "disabled";
+		const userOptedIntoRoundTrip =
+			shouldEnableThinkingRoundTrip(model.id, roundTripPatterns) &&
+			shouldHonorThinkingRoundTripForProfile({
+				profile: reasoningProfile,
+				configuredThinkingMode: modelConfiguration.thinkingMode,
+			});
 		const forceDisableThinking = shouldDisableThinking(model.id, disableThinkingPatterns);
+		const effectiveForceDisableThinking = forceDisableThinking || profileDefaultDisablesThinking;
 		const replayRequiredByProfile = shouldRequireThinkingReplayByProfile({
 			replayRisk: reasoningProfile.replayRisk,
 			defaultThinking: reasoningProfile.defaultThinking,
 			configuredThinkingMode: modelConfiguration.thinkingMode,
-			forceDisableThinking,
+			forceDisableThinking: effectiveForceDisableThinking,
 		});
 		await thinkingReplayStore.prune();
 		const replayPreflight = applyAnthropicThinkingReplay({
@@ -859,7 +885,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			: undefined;
 		const suppressResponseThinking =
 			modelConfiguration.thinkingMode === "disabled" ||
-			(forceDisableThinking && !replayDecision.allowThinkingRoundTrip);
+			(effectiveForceDisableThinking && !replayDecision.allowThinkingRoundTrip);
 		const anthropicApi = new AnthropicApi({
 			thinkingReplayStore: pendingThinkingTurn ? thinkingReplayStore : undefined,
 			pendingThinkingTurn,
@@ -896,7 +922,9 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 					? "modelConfiguration"
 					: forceDisableThinking
 						? "safetyPattern"
-						: "requestBody";
+						: profileDefaultDisablesThinking
+							? "profileDefault"
+							: "requestBody";
 			logInfo(this.output, `Thinking disabled for request model=${sanitizeForLog(model.id, 120)} source=${source}`);
 		}
 		logDebug(
@@ -909,6 +937,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 				`reasoningDialect=${sanitizeForLog(reasoningProfile.currentTurnControl.kind, 120)} ` +
 				`replayCarrier=${sanitizeForLog(reasoningProfile.replayCarrier, 120)} ` +
 				`forceDisable=${forceDisableThinking} ` +
+				`profileDefaultThinkingMode=${sanitizeForLog(String(defaultRequestThinkingMode ?? ""), 40)} ` +
 				`roundTripOptIn=${userOptedIntoRoundTrip} ` +
 				`roundTripAllowed=${replayDecision.allowThinkingRoundTrip} ` +
 				`roundTripReplayed=${replayPreflight.replayedCount} ` +

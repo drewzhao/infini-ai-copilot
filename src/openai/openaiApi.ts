@@ -41,6 +41,7 @@ import {
 	shouldEnableThinkingRoundTrip,
 	shouldDisableThinking,
 } from "../thinkingMode";
+import { sanitizeKimiOpenAITools } from "../kimiToolSchema";
 import { getThinkingPartCtor } from "../proposedApi";
 import type { PendingThinkingTurn, StoredReplayCarrier, ThinkingReplayStore } from "../thinkingReplayStore";
 
@@ -307,17 +308,18 @@ export class OpenaiApi extends CommonApi {
 			}
 		}
 
+		const modelId = um?.id ?? (typeof orb.model === "string" ? orb.model : "");
+		const reasoningProfile = resolveReasoningDialectProfile({ modelId, transport: "openai" });
+
 		// tools
 		const toolConfig = convertToolsToOpenAI(options);
 		if (toolConfig.tools) {
-			orb.tools = toolConfig.tools;
+			orb.tools = reasoningProfile.family === "kimi" ? sanitizeKimiOpenAITools(toolConfig.tools) : toolConfig.tools;
 		}
 		if (toolConfig.tool_choice) {
 			orb.tool_choice = toolConfig.tool_choice;
 		}
 
-		const modelId = um?.id ?? (typeof orb.model === "string" ? orb.model : "");
-		const reasoningProfile = resolveReasoningDialectProfile({ modelId, transport: "openai" });
 		applyOpenAIModelConfiguration(orb, resolveInfiniAIModelConfiguration(options), reasoningProfile, {
 			useDefaultReasoningEffort: replayPreflightSafe,
 		});

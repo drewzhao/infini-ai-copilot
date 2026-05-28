@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - DeepSeek thinking replay is now transport-aware: `deepseek-r1` uses forced OpenAI `reasoning_content` replay, Anthropic `deepseek-v3.2` exposes Anthropic `thinking` plus `output_config.effort`, and forced `deepseek-v3.2-thinking` is included in the replay defaults without broadening the base `deepseek-v3.2` model.
 - `infiniai.enableThinkingRoundTripForModels` now adds exact defaults for `deepseek-r1` and `deepseek-v3.2-thinking`, while leaving `deepseek-v3.2`, `deepseek-r1-distill-qwen-32b`, and `pro-deepseek-r1` out until separately verified.
 - GLM built-in route defaults now align with OpenClaw's bundled Z.AI provider: GLM 4.5+, 4.6, 4.7, and 5.x models default to OpenAI-compatible Chat Completions instead of Anthropic Messages.
+- Kimi K2 defaults now prefer OpenAI-compatible Chat Completions even when catalog metadata is Anthropic Messages, so preserved thinking uses the known `thinking.keep` plus `reasoning_content` shape by default.
+- Manually routed Kimi Anthropic Messages requests now use a conservative safe-off profile: thinking defaults to `disabled`, no reasoning effort is exposed, and the model-id round-trip default is not applied to that transport.
+
+### Fixed
+
+- Kimi tool schemas are sanitized before OpenAI-compatible and Anthropic Messages requests to avoid Moonshot-incompatible schema shapes such as nullable enums, tuple `items`, `$ref` siblings, and missing scalar `type` fields.
+- Malformed Anthropic streams that send `input_json_delta` without an active `tool_use` block now fail with a clear protocol error instead of silently dropping tool arguments.
 
 ## [0.5.8] - 2026-05-19
 

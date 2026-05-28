@@ -169,6 +169,15 @@ function inferTransport(model: InfiniAIModelInfo): ModelTransport {
 	return "openai";
 }
 
+function getCatalogPreferredTransport(model: InfiniAIModelInfo): ModelTransport | undefined {
+	const id = model.id.toLowerCase();
+	const family = model.family?.toLowerCase() ?? "";
+	if (family === "kimi-k2" || id.includes("kimi-k2")) {
+		return "openai";
+	}
+	return undefined;
+}
+
 function defaultBaseUrl(transport: ModelTransport): string {
 	const plan = getActivePlan();
 	const config = vscode.workspace.getConfiguration();
@@ -202,6 +211,16 @@ export function resolveModelRoute(model: InfiniAIModelInfo, routeConfigs: ModelR
 				source: "user",
 			};
 		}
+	}
+
+	const catalogPreferredTransport = getCatalogPreferredTransport(model);
+	if (catalogPreferredTransport) {
+		return {
+			transport: catalogPreferredTransport,
+			endpointKind: endpointKindForTransport(catalogPreferredTransport),
+			baseUrl: defaultBaseUrl(catalogPreferredTransport),
+			source: "catalog",
+		};
 	}
 
 	const metadataTransport = normalizeTransport(model.apiMode);

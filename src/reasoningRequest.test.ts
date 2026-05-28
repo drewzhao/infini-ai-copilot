@@ -112,6 +112,45 @@ describe("reasoning request controls", () => {
 		});
 	});
 
+	it("uses Anthropic disabled thinking as the only confirmed Kimi Messages control", () => {
+		const body: Record<string, unknown> = {
+			model: "kimi-k2.6",
+			max_tokens: 4096,
+		};
+		const profile = resolveReasoningDialectProfile({ modelId: "kimi-k2.6", transport: "anthropic" });
+
+		const result = applyReasoningRequestControls(body, profile, {
+			thinkingMode: "disabled",
+		});
+
+		assert.deepEqual(body, {
+			model: "kimi-k2.6",
+			max_tokens: 4096,
+			thinking: { type: "disabled" },
+		});
+		assert.deepEqual(result.ignoredControls, []);
+		assert.deepEqual(result.writtenFields, ["thinking.type"]);
+	});
+
+	it("does not invent Anthropic enable controls for Kimi Messages routes", () => {
+		const body: Record<string, unknown> = {
+			model: "kimi-k2.6",
+			max_tokens: 4096,
+		};
+		const profile = resolveReasoningDialectProfile({ modelId: "kimi-k2.6", transport: "anthropic" });
+
+		const result = applyReasoningRequestControls(body, profile, {
+			thinkingMode: "enabled",
+			preserveThinking: true,
+		});
+
+		assert.deepEqual(body, {
+			model: "kimi-k2.6",
+			max_tokens: 4096,
+		});
+		assert.deepEqual(result.ignoredControls, ["thinkingMode", "preserveThinking"]);
+	});
+
 	it("sets Kimi keep preservation without inventing Qwen fields", () => {
 		const body: Record<string, unknown> = { model: "kimi-k2.6" };
 		const profile = resolveReasoningDialectProfile({ modelId: "kimi-k2.6", transport: "openai" });

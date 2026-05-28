@@ -25,6 +25,7 @@ export type ReplayPreservationControlSpec =
 export type ReplayRisk = "none" | "reasoning-content-required-after-tool-call" | "unknown";
 export type ReasoningEffortControl = "none" | "openai-reasoning-effort" | "anthropic-output-config-effort";
 export type ReasoningEffortLevel = "low" | "medium" | "high";
+export type DefaultRequestThinkingMode = "enabled" | "disabled";
 
 export interface ReasoningDialectProfile {
 	readonly id: string;
@@ -39,6 +40,7 @@ export interface ReasoningDialectProfile {
 	readonly replayRisk: ReplayRisk;
 	readonly reasoningEffortControl: ReasoningEffortControl;
 	readonly defaultReasoningEffort?: ReasoningEffortLevel;
+	readonly defaultRequestThinkingMode?: DefaultRequestThinkingMode;
 }
 
 export interface ResolveReasoningDialectProfileInput {
@@ -110,22 +112,32 @@ function anthropicProfile(modelId: string): ReasoningDialectProfile {
 		});
 	}
 
+	if (modelId.includes("kimi-k2")) {
+		return profile({
+			id: "kimi-k2-anthropic-safe-off",
+			transport: "anthropic",
+			family: "kimi",
+			defaultThinking: "off",
+			defaultRequestThinkingMode: "disabled",
+			currentTurnControl: { kind: "anthropic-thinking" },
+			replayCarrier: "anthropic_thinking_block",
+			preservationControl: { kind: "none" },
+			canDisableThinking: true,
+			canEnableThinking: false,
+			replayRisk: "none",
+		});
+	}
+
 	const isGlmDefaultThinking = /^glm-(5|4\.7)(\.|$|-)/.test(modelId) || modelId === "glm-5" || modelId === "glm-4.7";
-	const isKimiForcedThinking = modelId.includes("kimi-k2-thinking");
-	const isKimiDefaultThinking = !isKimiForcedThinking && modelId.includes("kimi-k2");
 	return profile({
 		id: modelId.includes("claude")
 			? "anthropic-claude-compatible"
 			: isGlmDefaultThinking
 				? "glm-5-default-thinking"
-				: isKimiForcedThinking
-					? "kimi-k2-forced-thinking"
-					: isKimiDefaultThinking
-						? "kimi-k2-toggleable"
-						: "anthropic-messages-compatible",
+				: "anthropic-messages-compatible",
 		transport: "anthropic",
 		family: modelId.split(/[-_.]/)[0] || "anthropic",
-		defaultThinking: isKimiForcedThinking ? "forced" : isGlmDefaultThinking || isKimiDefaultThinking ? "on" : "unknown",
+		defaultThinking: isGlmDefaultThinking ? "on" : "unknown",
 		currentTurnControl: { kind: "none" },
 		replayCarrier: "anthropic_thinking_block",
 		preservationControl: { kind: "none" },

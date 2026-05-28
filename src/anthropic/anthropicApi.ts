@@ -27,6 +27,8 @@ import { applyReasoningRequestControls } from "../reasoningRequest";
 import { readSseEvents } from "../sse";
 import { ProviderProtocolError, StreamParseError, sanitizeForLog } from "../utils";
 import type { PendingThinkingTurn, ThinkingReplayStore } from "../thinkingReplayStore";
+import { sanitizeKimiOpenAITools } from "../kimiToolSchema";
+import { getDefaultRequestThinkingMode } from "../thinkingPolicy";
 
 export interface AnthropicApiOptions {
 	readonly thinkingReplayStore?: ThinkingReplayStore;
@@ -270,11 +272,15 @@ export class AnthropicApi extends CommonApi {
 		// 	arb.top_k = um.top_k;
 		// }
 
+		const modelId = um?.id ?? (typeof arb.model === "string" ? arb.model : "");
+		const reasoningProfile = resolveReasoningDialectProfile({ modelId, transport: "anthropic" });
+
 		// Add tools configuration
 		const toolConfig = convertToolsToOpenAI(options);
 		if (toolConfig.tools) {
+			const tools = reasoningProfile.family === "kimi" ? sanitizeKimiOpenAITools(toolConfig.tools) : toolConfig.tools;
 			// Convert OpenAI tool definitions to Anthropic format
-			arb.tools = toolConfig.tools.map((tool) => ({
+			arb.tools = tools.map((tool) => ({
 				name: tool.function.name,
 				description: tool.function.description,
 				input_schema: tool.function.parameters,
@@ -290,11 +296,18 @@ export class AnthropicApi extends CommonApi {
 			}
 		}
 
-		const modelId = um?.id ?? (typeof arb.model === "string" ? arb.model : "");
-		const reasoningProfile = resolveReasoningDialectProfile({ modelId, transport: "anthropic" });
 		const modelConfiguration = resolveInfiniAIModelConfiguration(options);
 		applyAnthropicModelConfiguration(arb as unknown as Record<string, unknown>, modelConfiguration, reasoningProfile);
 		applyReasoningRequestControls(arb as unknown as Record<string, unknown>, reasoningProfile, modelConfiguration);
+		const defaultThinkingMode = getDefaultRequestThinkingMode({
+			profile: reasoningProfile,
+			configuredThinkingMode: modelConfiguration.thinkingMode,
+		});
+		if (defaultThinkingMode) {
+			applyReasoningRequestControls(arb as unknown as Record<string, unknown>, reasoningProfile, {
+				thinkingMode: defaultThinkingMode,
+			});
+		}
 
 		// Process extra configuration parameters
 		// if (um?.extra && typeof um.extra === "object") {
@@ -442,12 +455,15 @@ export class AnthropicApi extends CommonApi {
 				// Find the latest tool call buffer and append partial JSON
 				const idx = (chunk.index as number) ?? 0;
 				const buf = this._toolCallBuffers.get(idx);
-				if (buf) {
-					buf.args += chunk.delta.partial_json;
-					this._toolCallBuffers.set(idx, buf);
-					// Try to emit if we have valid JSON
-					await this.tryEmitBufferedToolCall(idx, progress);
+				if (!buf) {
+					throw new ProviderProtocolError(
+						`Anthropic stream input_json_delta without active tool_use block at index ${idx}`
+					);
 				}
+				buf.args += chunk.delta.partial_json;
+				this._toolCallBuffers.set(idx, buf);
+				// Try to emit if we have valid JSON
+				await this.tryEmitBufferedToolCall(idx, progress);
 			} else if (chunk.delta.type === "signature_delta" && chunk.delta.signature) {
 				this.captureReplaySignature(chunk.delta.signature);
 			}

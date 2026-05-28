@@ -71,6 +71,24 @@ describe("model configuration schema", () => {
 		assert.equal(schema.properties.thinkingMode, undefined);
 	});
 
+	it("shows only the safe Anthropic disable control for manually routed Kimi K2", () => {
+		const schema = buildInfiniAIModelConfigurationSchema(
+			modelInfo({
+				id: "kimi-k2.6",
+				capabilities: {
+					toolCalling: true,
+				},
+			}),
+			4096,
+			"anthropic"
+		);
+
+		assert.ok(schema.properties.maxOutputTokens);
+		assert.equal(schema.properties.reasoningEffort, undefined);
+		assert.deepEqual(schema.properties.thinkingMode.enum, ["unset", "disabled"]);
+		assert.deepEqual(schema.properties.thinkingMode.enumItemLabels, ["Unset", "Disabled"]);
+	});
+
 	it("does not expose thinking controls for unknown profiles", () => {
 		const schema = buildInfiniAIModelConfigurationSchema(
 			modelInfo({

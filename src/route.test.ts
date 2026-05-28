@@ -64,6 +64,44 @@ describe("model routing", () => {
 		assert.equal(result.source, "metadata");
 	});
 
+	it("prefers OpenAI-compatible routing for Kimi K2 defaults even when catalog metadata says Anthropic", () => {
+		const route = loadRoute({
+			"infiniai.plan": "standard",
+			"infiniai.baseUrl": "https://openai.example/v1",
+			"infiniai.anthropic.baseUrl": "https://anthropic.example",
+		});
+		const { enrichModelWithBuiltInMetadata } = require("./catalogMetadata") as typeof import("./catalogMetadata");
+
+		const result = route.resolveModelRoute(
+			enrichModelWithBuiltInMetadata({ id: "kimi-k2.6", object: "model", created: 1, owned_by: "infini" }),
+			[]
+		);
+
+		assert.equal(result.transport, "openai");
+		assert.equal(result.endpointKind, "chat.completions");
+		assert.equal(result.baseUrl, "https://openai.example/v1");
+		assert.equal(result.source, "catalog");
+	});
+
+	it("still lets user route overrides send Kimi K2 through Anthropic Messages", () => {
+		const route = loadRoute({
+			"infiniai.plan": "standard",
+			"infiniai.baseUrl": "https://openai.example/v1",
+			"infiniai.anthropic.baseUrl": "https://anthropic.example",
+		});
+		const { enrichModelWithBuiltInMetadata } = require("./catalogMetadata") as typeof import("./catalogMetadata");
+
+		const result = route.resolveModelRoute(
+			enrichModelWithBuiltInMetadata({ id: "kimi-k2.6", object: "model", created: 1, owned_by: "infini" }),
+			[{ pattern: "kimi-k2.6", transport: "anthropic" }]
+		);
+
+		assert.equal(result.transport, "anthropic");
+		assert.equal(result.endpointKind, "messages");
+		assert.equal(result.baseUrl, "https://anthropic.example");
+		assert.equal(result.source, "user");
+	});
+
 	it("matches wildcard route overrides before metadata", () => {
 		const route = loadRoute({
 			"infiniai.plan": "standard",

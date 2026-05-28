@@ -134,4 +134,24 @@ describe("reasoning dialect profiles", () => {
 		assert.equal(profile.reasoningEffortControl, "anthropic-output-config-effort");
 		assert.equal(profile.defaultReasoningEffort, "high");
 	});
+
+	it("resolves manual Kimi Anthropic routes as safe-off without enable or effort controls", () => {
+		const profile = resolveReasoningDialectProfile({
+			modelId: "kimi-k2.6",
+			transport: "anthropic",
+		});
+
+		assert.equal(profile.id, "kimi-k2-anthropic-safe-off");
+		assert.equal(profile.transport, "anthropic");
+		assert.equal(profile.family, "kimi");
+		assert.equal(profile.defaultThinking, "off");
+		assert.equal(profile.defaultRequestThinkingMode, "disabled");
+		assert.equal(profile.currentTurnControl.kind, "anthropic-thinking");
+		assert.equal(profile.replayCarrier, "anthropic_thinking_block");
+		assert.equal(profile.preservationControl.kind, "none");
+		assert.equal(profile.canDisableThinking, true);
+		assert.equal(profile.canEnableThinking, false);
+		assert.equal(profile.reasoningEffortControl, "none");
+		assert.equal(profile.replayRisk, "none");
+	});
 });

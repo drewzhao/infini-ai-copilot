@@ -17,6 +17,11 @@ can preserve thinking by default while stale or missing replay context still fai
 request. MiniMax models always request split reasoning with `reasoning_split: true` and replay provider-native
 `reasoning_details`. Start a new chat after changing the round-trip list.
 
+Kimi K2 defaults to the OpenAI-compatible Chat Completions route so preserved thinking uses the verified
+`thinking.keep` and `reasoning_content` shape. If you manually route Kimi K2 through Anthropic Messages, the extension
+uses a conservative safe-off profile that sends `thinking: { "type": "disabled" }` and does not apply the Kimi
+round-trip default on that transport.
+
 You can also use `@infiniai` in Chat for diagnostics:
 
 - `@infiniai /doctor` checks configuration, key presence, endpoint settings, route override counts, cache state, and the last sanitized provider error.
@@ -84,7 +89,7 @@ Common settings:
 - `infiniai.imageInputModels`: Force-enable image input for matching model IDs. Supports `*` wildcards.
 - `infiniai.disableImageInputModels`: Force-disable image input for matching model IDs. Supports `*` wildcards.
 - `infiniai.disableThinkingForModels`: Safety list. Thinking mode is disabled by default for matching model IDs to avoid known `reasoning_content` HTTP 400 errors. The built-in defaults include known Xiaomi MiMo V2 model IDs and the DeepSeek V4 family: `mimo-v2-pro`, `mimo-v2.5-pro`, `mimo-v2.5`, `mimo-v2-omni`, `mimo-v2-flash`, `deepseek-v4*`. See [Thinking mode](#thinking-mode) below.
-- `infiniai.enableThinkingRoundTripForModels`: Round-trip replay list. The built-in defaults are `mimo-v2*`, `deepseek-v4*`, exact `deepseek-r1`, exact `deepseek-v3.2-thinking`, `glm-5*`, `glm-4.7*`, `kimi-k2*`, and `minimax*`; user patterns extend that list. The base `deepseek-v3.2` model is not enabled by default because it defaults to no thinking. Known adapters preserve the provider-native shape: OpenAI `reasoning_content` for MiMo V2, DeepSeek V4, DeepSeek R1, GLM, Kimi, and Qwen profiles; OpenAI `reasoning_details` for MiniMax split mode; and Anthropic `thinking` blocks for Anthropic Messages routes. If replay data is missing, expired, conflicting, or unavailable, the extension fails locally to avoid HTTP 400. Supports `*` wildcards.
+- `infiniai.enableThinkingRoundTripForModels`: Round-trip replay list. The built-in defaults are `mimo-v2*`, `deepseek-v4*`, exact `deepseek-r1`, exact `deepseek-v3.2-thinking`, `glm-5*`, `glm-4.7*`, `kimi-k2*`, and `minimax*`; user patterns extend that list. The base `deepseek-v3.2` model is not enabled by default because it defaults to no thinking. Known adapters preserve the provider-native shape: OpenAI `reasoning_content` for MiMo V2, DeepSeek V4, DeepSeek R1, GLM, Kimi, and Qwen profiles; OpenAI `reasoning_details` for MiniMax split mode; and Anthropic `thinking` blocks for Anthropic Messages routes. Kimi K2's built-in default applies to the OpenAI-compatible route; manually routed Anthropic Kimi requests use the safe-off profile instead. If replay data is missing, expired, conflicting, or unavailable, the extension fails locally to avoid HTTP 400. Supports `*` wildcards.
 - `infiniai.thinkingReplayStore`: Replay storage backend for profile-enabled or opted-in thinking replay. Defaults to `"localPlaintext"` for restart continuity; set `"memory"` to avoid writing replay data to disk and accept no restart continuity.
 - `infiniai.retry`: Retry policy for retryable network and HTTP failures.
 - `infiniai.delay`: Fixed delay between requests, in milliseconds.
@@ -95,7 +100,7 @@ The extension exposes stable-safe model controls in VS Code's model picker:
 
 - **Max output tokens** caps the response length. The model default sends no cap.
 - **Reasoning effort** appears only for profiles with a confirmed effort parameter. `Unset` sends no effort. OpenAI-compatible DeepSeek V4 maps selected values to `reasoning_effort`; Anthropic-routed DeepSeek profiles map selected values to `output_config.effort`.
-- **Thinking mode** appears only for model profiles with a confirmed current-turn thinking control. It offers `Unset` plus the supported `Disabled` and/or `Enabled` choices. Qwen maps to `enable_thinking`, OpenAI-compatible GLM/Kimi/MiMo/DeepSeek V4 maps to `thinking.type`, and Anthropic DeepSeek maps to the Anthropic `thinking` object. DeepSeek R1 and MiniMax do not expose a disable/enable toggle because no reliable disable field is confirmed.
+- **Thinking mode** appears only for model profiles with a confirmed current-turn thinking control. It offers `Unset` plus the supported `Disabled` and/or `Enabled` choices. Qwen maps to `enable_thinking`, OpenAI-compatible GLM/Kimi/MiMo/DeepSeek V4 maps to `thinking.type`, and Anthropic DeepSeek maps to the Anthropic `thinking` object. Manually routed Anthropic Kimi shows only the safe `Disabled` choice. DeepSeek R1 and MiniMax do not expose a disable/enable toggle because no reliable disable field is confirmed.
 
 Vertex routes map max output tokens into `generationConfig.maxOutputTokens`.
 
@@ -106,9 +111,10 @@ These controls use VS Code Stable's runtime-accepted model configuration surface
 Routing precedence:
 
 1. User `infiniai.modelRoutes` pattern match.
-2. Explicit InfiniAI model metadata.
-3. Provider-owned catalog metadata.
-4. Conservative OpenAI-compatible fallback.
+2. Provider-owned route preferences such as Kimi K2's OpenAI-compatible default.
+3. Explicit InfiniAI model metadata.
+4. Provider-owned catalog metadata.
+5. Conservative OpenAI-compatible fallback.
 
 Transport behavior:
 
