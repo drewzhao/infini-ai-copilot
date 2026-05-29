@@ -178,6 +178,9 @@ function getCatalogPreferredTransport(model: InfiniAIModelInfo): ModelTransport 
 	if (family === "mimo" || family.startsWith("mimo-v2") || id.startsWith("mimo-v2")) {
 		return "openai";
 	}
+	if (family === "deepseek-v4" || id.startsWith("deepseek-v4")) {
+		return "openai";
+	}
 	return undefined;
 }
 

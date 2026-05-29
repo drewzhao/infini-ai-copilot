@@ -13,11 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `infiniai.enableThinkingRoundTripForModels` now adds exact defaults for `deepseek-r1` and `deepseek-v3.2-thinking`, while leaving `deepseek-v3.2`, `deepseek-r1-distill-qwen-32b`, and `pro-deepseek-r1` out until separately verified.
 - GLM built-in route defaults now align with OpenClaw's bundled Z.AI provider: GLM 4.5+, 4.6, 4.7, and 5.x models default to OpenAI-compatible Chat Completions instead of Anthropic Messages.
 - Kimi K2 defaults now prefer OpenAI-compatible Chat Completions even when catalog metadata is Anthropic Messages, so preserved thinking uses the known `thinking.keep` plus `reasoning_content` shape by default.
+- DeepSeek V4 defaults now prefer OpenAI-compatible Chat Completions even when catalog metadata is Anthropic Messages, avoiding the Anthropic thinking-plus-tools stream shape unless the user explicitly routes the model back.
 - Manually routed Kimi Anthropic Messages requests now use a conservative safe-off profile: thinking defaults to `disabled`, no reasoning effort is exposed, and the model-id round-trip default is not applied to that transport.
+- Anthropic-routed DeepSeek V4 requests now use a conservative safe-off profile: thinking defaults to `disabled`, no reasoning effort is exposed, and the `deepseek-v4*` round-trip default applies only to the OpenAI-compatible route.
 
 ### Fixed
 
 - Kimi tool schemas are sanitized before OpenAI-compatible and Anthropic Messages requests to avoid Moonshot-incompatible schema shapes such as nullable enums, tuple `items`, `$ref` siblings, and missing scalar `type` fields.
+- DeepSeek V4 on the Anthropic Messages route no longer sends `thinking: enabled` by default on tool-call turns, avoiding provider streams that put `input_json_delta` on a `thinking` block instead of a valid `tool_use` block.
 - Malformed Anthropic streams that send `input_json_delta` without an active `tool_use` block now fail with a clear protocol error instead of silently dropping tool arguments.
 
 ## [0.5.8] - 2026-05-19

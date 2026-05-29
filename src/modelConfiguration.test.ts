@@ -57,6 +57,24 @@ describe("model configuration schema", () => {
 		assert.deepEqual(schema.properties.thinkingMode.enum, ["unset", "disabled", "enabled"]);
 	});
 
+	it("shows only the safe Anthropic disable control for DeepSeek V4 catalog routes", () => {
+		const schema = buildInfiniAIModelConfigurationSchema(
+			modelInfo({
+				id: "deepseek-v4-pro",
+				capabilities: {
+					toolCalling: true,
+				},
+			}),
+			4096,
+			"anthropic"
+		);
+
+		assert.ok(schema.properties.maxOutputTokens);
+		assert.equal(schema.properties.reasoningEffort, undefined);
+		assert.deepEqual(schema.properties.thinkingMode.enum, ["unset", "disabled"]);
+		assert.deepEqual(schema.properties.thinkingMode.enumItemLabels, ["Unset", "Disabled"]);
+	});
+
 	it("does not expose thinking or effort controls for forced DeepSeek R1", () => {
 		const schema = buildInfiniAIModelConfigurationSchema(
 			modelInfo({

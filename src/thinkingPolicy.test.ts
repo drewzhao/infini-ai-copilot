@@ -31,4 +31,18 @@ describe("profile-aware thinking policy", () => {
 		);
 		assert.equal(getDefaultRequestThinkingMode({ profile }), "disabled");
 	});
+
+	it("does not apply the DeepSeek V4 round-trip default to safe-off Anthropic routes", () => {
+		const profile = resolveReasoningDialectProfile({ modelId: "deepseek-v4-pro", transport: "anthropic" });
+
+		assert.equal(shouldHonorThinkingRoundTripForProfile({ profile }), false);
+		assert.equal(
+			shouldHonorThinkingRoundTripForProfile({
+				profile,
+				configuredThinkingMode: "enabled",
+			}),
+			false
+		);
+		assert.equal(getDefaultRequestThinkingMode({ profile }), "disabled");
+	});
 });

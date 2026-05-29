@@ -27,9 +27,10 @@ function loadRoute(configValues: Record<string, unknown>) {
 }
 
 describe("model routing", () => {
-	it("uses built-in catalog endpoint metadata for known Claude-compatible models", () => {
+	it("prefers OpenAI-compatible routing for DeepSeek V4 defaults even when catalog metadata says Anthropic", () => {
 		const route = loadRoute({
 			"infiniai.plan": "standard",
+			"infiniai.baseUrl": "https://openai.example/v1",
 			"infiniai.anthropic.baseUrl": "https://anthropic.example",
 		});
 		const { enrichModelWithBuiltInMetadata } = require("./catalogMetadata") as typeof import("./catalogMetadata");
@@ -39,10 +40,10 @@ describe("model routing", () => {
 			[]
 		);
 
-		assert.equal(result.transport, "anthropic");
-		assert.equal(result.endpointKind, "messages");
-		assert.equal(result.baseUrl, "https://anthropic.example");
-		assert.equal(result.source, "metadata");
+		assert.equal(result.transport, "openai");
+		assert.equal(result.endpointKind, "chat.completions");
+		assert.equal(result.baseUrl, "https://openai.example/v1");
+		assert.equal(result.source, "catalog");
 	});
 
 	it("routes GLM catalog models like the bundled OpenClaw Z.AI provider", () => {
@@ -277,9 +278,10 @@ describe("model routing", () => {
 		assert.equal(result.source, "user");
 	});
 
-	it("returns Claude-compatible catalog models to metadata routing after exact reset", () => {
+	it("returns DeepSeek V4 catalog models to the safer OpenAI-compatible default after exact reset", () => {
 		const route = loadRoute({
 			"infiniai.plan": "standard",
+			"infiniai.baseUrl": "https://openai.example/v1",
 			"infiniai.anthropic.baseUrl": "https://anthropic.example",
 		});
 		const { enrichModelWithBuiltInMetadata } = require("./catalogMetadata") as typeof import("./catalogMetadata");
@@ -293,7 +295,7 @@ describe("model routing", () => {
 			route.parseModelRouteConfigs(routes)
 		);
 
-		assert.equal(result.transport, "anthropic");
-		assert.equal(result.source, "metadata");
+		assert.equal(result.transport, "openai");
+		assert.equal(result.source, "catalog");
 	});
 });

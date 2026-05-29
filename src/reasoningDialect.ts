@@ -105,18 +105,17 @@ function anthropicProfile(modelId: string): ReasoningDialectProfile {
 
 	if (modelId.startsWith("deepseek-v4")) {
 		return profile({
-			id: "deepseek-v4-anthropic",
+			id: "deepseek-v4-anthropic-safe-off",
 			transport: "anthropic",
 			family: "deepseek",
-			defaultThinking: "unknown",
+			defaultThinking: "off",
+			defaultRequestThinkingMode: "disabled",
 			currentTurnControl: { kind: "anthropic-thinking" },
 			replayCarrier: "anthropic_thinking_block",
 			preservationControl: { kind: "none" },
 			canDisableThinking: true,
-			canEnableThinking: true,
-			replayRisk: "reasoning-content-required-after-tool-call",
-			reasoningEffortControl: "anthropic-output-config-effort",
-			defaultReasoningEffort: "high",
+			canEnableThinking: false,
+			replayRisk: "none",
 		});
 	}
 

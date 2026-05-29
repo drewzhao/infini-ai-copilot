@@ -119,20 +119,21 @@ describe("reasoning dialect profiles", () => {
 		assert.equal(profile.reasoningEffortControl, "anthropic-output-config-effort");
 	});
 
-	it("resolves DeepSeek V4 Anthropic routes as toggleable reasoning for catalog-default routes", () => {
+	it("resolves DeepSeek V4 Anthropic routes as safe-off because thinking plus tools is malformed", () => {
 		const profile = resolveReasoningDialectProfile({
 			modelId: "deepseek-v4-flash",
 			transport: "anthropic",
 		});
 
-		assert.equal(profile.id, "deepseek-v4-anthropic");
-		assert.equal(profile.defaultThinking, "unknown");
+		assert.equal(profile.id, "deepseek-v4-anthropic-safe-off");
+		assert.equal(profile.defaultThinking, "off");
+		assert.equal(profile.defaultRequestThinkingMode, "disabled");
 		assert.equal(profile.currentTurnControl.kind, "anthropic-thinking");
 		assert.equal(profile.replayCarrier, "anthropic_thinking_block");
 		assert.equal(profile.canDisableThinking, true);
-		assert.equal(profile.canEnableThinking, true);
-		assert.equal(profile.reasoningEffortControl, "anthropic-output-config-effort");
-		assert.equal(profile.defaultReasoningEffort, "high");
+		assert.equal(profile.canEnableThinking, false);
+		assert.equal(profile.reasoningEffortControl, "none");
+		assert.equal(profile.replayRisk, "none");
 	});
 
 	it("resolves manual Kimi Anthropic routes as safe-off without enable or effort controls", () => {

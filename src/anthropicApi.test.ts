@@ -123,6 +123,38 @@ describe("AnthropicApi.prepareRequestBody MiniMax request controls", () => {
 		assert.equal(body.output_config, undefined);
 	});
 
+	it("keeps DeepSeek V4 Anthropic tool-call requests in safe-off thinking mode", () => {
+		const { anthropic } = loadAnthropicApi();
+		const api = new anthropic.AnthropicApi();
+
+		const body = api.prepareRequestBody(
+			{
+				model: "deepseek-v4-pro",
+				messages: [],
+				stream: true,
+				max_tokens: 1024,
+			},
+			{ id: "deepseek-v4-pro" } as any,
+			{
+				modelOptions: {},
+				tools: [
+					{
+						name: "get_weather",
+						description: "Weather",
+						inputSchema: {
+							type: "object",
+							properties: { city: { type: "string" } },
+							required: ["city"],
+						},
+					},
+				],
+			} as any
+		);
+
+		assert.deepEqual(body.thinking, { type: "disabled" });
+		assert.equal(body.output_config, undefined);
+	});
+
 	it("sanitizes Kimi tool schemas before sending Anthropic Messages requests", () => {
 		const { anthropic } = loadAnthropicApi();
 		const api = new anthropic.AnthropicApi();

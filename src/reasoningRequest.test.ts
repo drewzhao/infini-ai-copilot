@@ -212,6 +212,13 @@ describe("reasoning request controls", () => {
 		});
 	});
 
+	it("does not activate DeepSeek V4 thinking on safe-off Anthropic round-trip defaults", () => {
+		const profile = resolveReasoningDialectProfile({ modelId: "deepseek-v4-pro", transport: "anthropic" });
+
+		assert.equal(shouldApplyReplayPreservationControl({ allowThinkingRoundTrip: true, profile }), false);
+		assert.equal(buildReplayPreservationRequestControls({ allowThinkingRoundTrip: true, profile }), undefined);
+	});
+
 	it("does not re-enable current-turn thinking when the user disables it", () => {
 		const profile = resolveReasoningDialectProfile({ modelId: "glm-5.1", transport: "openai" });
 
