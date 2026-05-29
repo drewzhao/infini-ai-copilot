@@ -7,8 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-05-29
+
+### Fixed
+
+- GLM thinking replay is now best-effort for compaction-generated tool-call turns that contain no reasoning text: captured `reasoning_content` is still replayed when available, but provider-accepted continuations are no longer blocked locally only because compaction produced a no-reasoning tool call.
+- OpenAI-compatible streaming replay capture now also recognizes choice-level `reasoning_content` before tool calls.
+
+## [0.5.9] - 2026-05-29
+
 ### Changed
 
+- MiMo V2 defaults now prefer OpenAI-compatible Chat Completions, confirmed MiMo V2 model IDs expose reasoning effort and replay controls, and unprobed MiMo V2 variants remain safe-off.
 - DeepSeek thinking replay is now transport-aware: `deepseek-r1` uses forced OpenAI `reasoning_content` replay, Anthropic `deepseek-v3.2` exposes Anthropic `thinking` plus `output_config.effort`, and forced `deepseek-v3.2-thinking` is included in the replay defaults without broadening the base `deepseek-v3.2` model.
 - `infiniai.enableThinkingRoundTripForModels` now adds exact defaults for `deepseek-r1` and `deepseek-v3.2-thinking`, while leaving `deepseek-v3.2`, `deepseek-r1-distill-qwen-32b`, and `pro-deepseek-r1` out until separately verified.
 - GLM built-in route defaults now align with OpenClaw's bundled Z.AI provider: GLM 4.5+, 4.6, 4.7, and 5.x models default to OpenAI-compatible Chat Completions instead of Anthropic Messages.
@@ -19,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- GLM thinking replay preservation now applies the provider-native `thinking.clear_thinking: false` control during round-trip requests and reports replay-miss context with model, transport, profile, carrier, and affected tool call IDs.
 - Kimi tool schemas are sanitized before OpenAI-compatible and Anthropic Messages requests to avoid Moonshot-incompatible schema shapes such as nullable enums, tuple `items`, `$ref` siblings, and missing scalar `type` fields.
 - DeepSeek V4 on the Anthropic Messages route no longer sends `thinking: enabled` by default on tool-call turns, avoiding provider streams that put `input_json_delta` on a `thinking` block instead of a valid `tool_use` block.
 - Malformed Anthropic streams that send `input_json_delta` without an active `tool_use` block now fail with a clear protocol error instead of silently dropping tool arguments.

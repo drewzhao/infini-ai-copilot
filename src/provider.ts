@@ -207,7 +207,12 @@ function shouldRequireThinkingReplayByProfile(input: {
 	readonly configuredThinkingMode?: string;
 	readonly forceDisableThinking: boolean;
 }): boolean {
-	if (input.forceDisableThinking || input.replayRisk === "none" || input.replayRisk === "unknown") {
+	if (
+		input.forceDisableThinking ||
+		input.replayRisk === "none" ||
+		input.replayRisk === "unknown" ||
+		input.replayRisk === "reasoning-content-best-effort-after-tool-call"
+	) {
 		return false;
 	}
 	return (
@@ -702,9 +707,12 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		const replayCarrier = isStoredReplayCarrier(reasoningProfile.replayCarrier)
 			? reasoningProfile.replayCarrier
 			: "reasoning_content";
+		const allowMissingReplay =
+			reasoningProfile.replayRisk === "reasoning-content-best-effort-after-tool-call";
 		const replayDecision = decideThinkingReplayRequest({
 			userOptedIntoRoundTrip,
 			replayRequiredByProfile,
+			allowMissingReplay,
 			preflight: replayPreflight,
 			failureContext: {
 				modelId: model.id,
@@ -859,9 +867,12 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		const replayCarrier = isStoredReplayCarrier(reasoningProfile.replayCarrier)
 			? reasoningProfile.replayCarrier
 			: "anthropic_thinking_block";
+		const allowMissingReplay =
+			reasoningProfile.replayRisk === "reasoning-content-best-effort-after-tool-call";
 		const replayDecision = decideThinkingReplayRequest({
 			userOptedIntoRoundTrip,
 			replayRequiredByProfile,
+			allowMissingReplay,
 			preflight: replayPreflight,
 			failureContext: {
 				modelId: model.id,

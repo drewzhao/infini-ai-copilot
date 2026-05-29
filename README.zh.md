@@ -11,7 +11,7 @@ InfiniAI Provider for VS Code 将 InfiniAI 注册为稳定的 VS Code 语言模�
 5. 输入对应方案的 InfiniAI API Key。密钥会保存在 VS Code Secret Storage 中。
 6. 在模型选择器中选择 InfiniAI 模型。
 
-思考回放会按模型族 profile 解析。内置 round-trip 默认值已经包含 MiMo V2、DeepSeek V4、精确 `deepseek-r1`、精确 `deepseek-v3.2-thinking`、GLM 5/4.7、Kimi K2 和 MiniMax 模式；具体传输协议 profile 仍可拒绝该默认值，例如 Anthropic 路由的 DeepSeek V4 会保持 safe-off。若回放上下文过期或缺失，扩展仍会先在本地失败，避免发送不安全的上游请求。MiniMax 模型始终会用 `reasoning_split: true` 请求 split reasoning，并回放原生 `reasoning_details`。修改 round-trip 列表后，请从新聊天开始。
+思考回放会按模型族 profile 解析。内置 round-trip 默认值已经包含 MiMo V2、DeepSeek V4、精确 `deepseek-r1`、精确 `deepseek-v3.2-thinking`、GLM 5/4.7、Kimi K2 和 MiniMax 模式；具体传输协议 profile 仍可拒绝该默认值，例如 Anthropic 路由的 DeepSeek V4 会保持 safe-off。强制要求回放的 profile 在上下文过期或缺失时仍会先在本地失败，避免发送不安全的上游请求；GLM profile 会在有缓存时回放已捕获的推理内容，但允许 VS Code compact 后生成的无推理工具调用继续发送。MiniMax 模型始终会用 `reasoning_split: true` 请求 split reasoning，并回放原生 `reasoning_details`。修改 round-trip 列表后，请从新聊天开始。
 
 Kimi K2 和 DeepSeek V4 默认走 OpenAI 兼容 Chat Completions 路由，这样 preserved thinking 使用已验证的提供方原生形态。
 如果你手动把 Kimi K2 或 DeepSeek V4 切到 Anthropic Messages，扩展会使用保守 safe-off profile：
@@ -84,7 +84,7 @@ npm run build
 - `infiniai.imageInputModels`: 为匹配的模型 ID 强制启用图片输入能力。支持 `*` 通配符。
 - `infiniai.disableImageInputModels`: 为匹配的模型 ID 强制禁用图片输入能力。支持 `*` 通配符。
 - `infiniai.disableThinkingForModels`: 安全列表。匹配的模型 ID 默认关闭思考模式，以避免已知的 `reasoning_content` HTTP 400 错误。内置默认值包含已知 Xiaomi MiMo V2 模型 ID 与 DeepSeek V4 系列：`mimo-v2-pro`、`mimo-v2.5-pro`、`mimo-v2.5`、`mimo-v2-omni`、`mimo-v2-flash`、`deepseek-v4*`。详见下方[为思考模型避免 HTTP 400](#为思考模型避免-http-400)。
-- `infiniai.enableThinkingRoundTripForModels`: round-trip 回放模型族列表。内置默认值是 `mimo-v2*`、`deepseek-v4*`、精确 `deepseek-r1`、精确 `deepseek-v3.2-thinking`、`glm-5*`、`glm-4.7*`、`kimi-k2*` 和 `minimax*`；用户模式会追加到该列表。基础 `deepseek-v3.2` 默认不加入，因为它默认不思考。已知适配器会保留提供方原生形态：MiMo V2、DeepSeek V4、DeepSeek R1、GLM、Kimi、Qwen 使用 OpenAI `reasoning_content`；MiniMax split 模式使用 OpenAI `reasoning_details`；安全支持的 Anthropic Messages 路由使用 Anthropic `thinking` block。Kimi K2 与 DeepSeek V4 的内置回放默认只应用在 OpenAI 兼容路由；手动 Anthropic 路由的 Kimi 和目录默认 Anthropic 路由的 DeepSeek V4 会使用 safe-off profile。若回放数据缺失、过期、冲突或不可用，扩展会在本地失败以避免 HTTP 400。支持 `*` 通配符。
+- `infiniai.enableThinkingRoundTripForModels`: round-trip 回放模型族列表。内置默认值是 `mimo-v2*`、`deepseek-v4*`、精确 `deepseek-r1`、精确 `deepseek-v3.2-thinking`、`glm-5*`、`glm-4.7*`、`kimi-k2*` 和 `minimax*`；用户模式会追加到该列表。基础 `deepseek-v3.2` 默认不加入，因为它默认不思考。已知适配器会保留提供方原生形态：MiMo V2、DeepSeek V4、DeepSeek R1、GLM、Kimi、Qwen 使用 OpenAI `reasoning_content`；MiniMax split 模式使用 OpenAI `reasoning_details`；安全支持的 Anthropic Messages 路由使用 Anthropic `thinking` block。Kimi K2 与 DeepSeek V4 的内置回放默认只应用在 OpenAI 兼容路由；手动 Anthropic 路由的 Kimi 和目录默认 Anthropic 路由的 DeepSeek V4 会使用 safe-off profile。强制要求回放的 profile 在回放数据缺失、过期、冲突或不可用时会在本地失败；GLM 5/4.7 使用 best-effort 回放，因此 compact 后生成的无推理工具调用可以继续发送，同时仍会在有缓存时回放已捕获推理。支持 `*` 通配符。
 - `infiniai.thinkingReplayStore`: profile 自动启用或显式启用后的思考回放存储后端。默认 `"localPlaintext"`，以支持重启后继续对话；设为 `"memory"` 则不把回放数据写入磁盘，但不支持重启后继续对话。
 - `infiniai.retry`: 可重试网络错误和 HTTP 错误的重试策略。
 - `infiniai.delay`: 请求之间的固定延迟，单位毫秒。
@@ -144,7 +144,7 @@ VS Code 稳定版语言模型 API (`vscode.LanguageModelChatMessage`) 没有公�
 回放是按模型族处理的，不是一个扁平的 `reasoning_content` 开关：
 
 - OpenAI 兼容的 MiMo V2、DeepSeek V4、DeepSeek R1、GLM、Kimi、Qwen profile 会回放 `assistant.reasoning_content`。
-- GLM 保持思考状态时会写入 `thinking.clear_thinking: false`，Kimi 会写入 `thinking.keep: true`，Qwen 会写入 `preserve_thinking: true`。
+- GLM 保持思考状态时会写入 `thinking.clear_thinking: false`，Kimi 会写入 `thinking.keep: true`，Qwen 会写入 `preserve_thinking: true`。GLM 5/4.7 在 VS Code compaction 之后采用 best-effort 回放：有缓存就回放 `reasoning_content`，如果 compact 生成的工具调用本身没有推理内容，也允许继续发送，因为 GLM 接受这种形态。
 - MiniMax split profile 会始终发送 `reasoning_split: true`，捕获流式 `reasoning_details`，并在启用 round-trip replay 后回放 `assistant.reasoning_details`。
 - Anthropic Messages 路由会捕获并回放 `thinking` block；如果上游返回 signature，也会一起保存和回放，并插入到上一条 assistant `tool_use` block 之前。若探针显示 thinking 与工具调用组合不安全，具体 profile 仍会禁用这一路径。
 
@@ -169,7 +169,7 @@ VS Code 稳定版语言模型 API (`vscode.LanguageModelChatMessage`) 没有公�
 `infiniai.enableThinkingRoundTripForModels` 已经为已验证的回放族预置：`"mimo-v2*"`、`"deepseek-v4*"`、`"deepseek-r1"`、`"deepseek-v3.2-thinking"`、`"glm-5*"`、`"glm-4.7*"`、`"kimi-k2*"` 和 `"minimax*"`。基础 `"deepseek-v3.2"` 默认不加入，因为它默认不思考；Kimi K2 与 DeepSeek V4 的默认回放只应用在 OpenAI 兼容路由，Anthropic 路由的 DeepSeek V4 会保持 safe-off。只有当另一个模型族已经有经过验证的回放适配器时，才向该设置添加模式：
 
 - 如果回放预检确认所需提供方原生推理形态可用，扩展会保持思考开启并发送请求。
-- 如果回放数据缺失、过期、冲突或不可用，扩展会在本地失败，不会发送可能触发上游 HTTP 400 的请求。
+- 强制要求回放的 profile 如果回放数据缺失、过期、冲突或不可用，扩展会在本地失败，不会发送可能触发上游 HTTP 400 的请求。GLM 5/4.7 对 compact 后无推理内容的工具调用使用 best-effort 策略，仍会在有缓存时回放推理内容。
 
 如果希望已启用的思考工具调用对话在 VS Code 重载或重启后仍能继续，保持 `infiniai.thinkingReplayStore` 默认值 `"localPlaintext"`。只有在不希望回放数据写入磁盘，并且可以接受重启后不能继续这类对话时，才选择 `"memory"`。
 

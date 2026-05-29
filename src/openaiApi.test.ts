@@ -246,6 +246,40 @@ describe("OpenaiApi thinking replay streaming capture", () => {
 		assert.equal(store.lookup("mimo-v2.5-pro", "call_1")?.reasoningContent, "because ");
 	});
 
+	it("commits choice-level reasoning_content before streamed tool calls", async () => {
+		const { openai, replayStore } = loadOpenaiApi();
+		const store = new replayStore.ThinkingReplayStore();
+		await store.initialize(new replayStore.MemoryThinkingReplayStorage());
+		const pendingTurn = store.beginTurn({
+			modelId: "glm-5.1",
+			profileId: "glm-5-default-thinking",
+			transport: "openai",
+			carrier: "reasoning_content",
+		});
+		const api = new openai.OpenaiApi({ thinkingReplayStore: store, pendingThinkingTurn: pendingTurn });
+
+		await api.processStreamingResponse(
+			streamFromChunks([
+				'data: {"choices":[{"reasoning_content":"because "}]}\n\n',
+				'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read_file","arguments":"{}"}}]}}]}\n\n',
+				'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n',
+				"data: [DONE]\n\n",
+			]),
+			{ report() {} },
+			token() as any
+		);
+
+		assert.equal(
+			store.lookup({
+				modelId: "glm-5.1",
+				callId: "call_1",
+				profileId: "glm-5-default-thinking",
+				carrier: "reasoning_content",
+			})?.reasoningContent,
+			"because "
+		);
+	});
+
 	it("commits structured reasoning when the stream completes after tool calls without finish_reason", async () => {
 		const { openai, replayStore } = loadOpenaiApi();
 		const store = new replayStore.ThinkingReplayStore();

@@ -22,7 +22,11 @@ export type ReplayPreservationControlSpec =
 	| { readonly kind: "kimi-keep" }
 	| { readonly kind: "qwen-preserve-thinking" };
 
-export type ReplayRisk = "none" | "reasoning-content-required-after-tool-call" | "unknown";
+export type ReplayRisk =
+	| "none"
+	| "reasoning-content-required-after-tool-call"
+	| "reasoning-content-best-effort-after-tool-call"
+	| "unknown";
 export type ReasoningEffortControl = "none" | "openai-reasoning-effort" | "anthropic-output-config-effort";
 export type ReasoningEffortLevel = "low" | "medium" | "high";
 export type DefaultRequestThinkingMode = "enabled" | "disabled";
@@ -226,7 +230,7 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 			preservationControl: { kind: "glm-clear-thinking" },
 			canDisableThinking: true,
 			canEnableThinking: true,
-			replayRisk: "reasoning-content-required-after-tool-call",
+			replayRisk: "reasoning-content-best-effort-after-tool-call",
 		});
 	}
 

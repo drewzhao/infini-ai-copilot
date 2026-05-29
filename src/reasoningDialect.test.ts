@@ -25,6 +25,7 @@ describe("reasoning dialect profiles", () => {
 		assert.equal(profile.defaultThinking, "on");
 		assert.equal(profile.currentTurnControl.kind, "thinking-type");
 		assert.deepEqual(profile.preservationControl, { kind: "glm-clear-thinking" });
+		assert.equal(String(profile.replayRisk), "reasoning-content-best-effort-after-tool-call");
 	});
 
 	it("keeps Anthropic routed models away from OpenAI Chat Completions controls", () => {

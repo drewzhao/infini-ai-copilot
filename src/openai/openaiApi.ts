@@ -462,7 +462,8 @@ export class OpenaiApi extends CommonApi {
 			let maybeThinking =
 				(choice as Record<string, unknown> | undefined)?.thinking ??
 				(deltaObj as Record<string, unknown> | undefined)?.thinking ??
-				(deltaObj as Record<string, unknown> | undefined)?.reasoning_content;
+				(deltaObj as Record<string, unknown> | undefined)?.reasoning_content ??
+				(choice as Record<string, unknown> | undefined)?.reasoning_content;
 
 			// OpenRouter/Claude reasoning_details array handling (new)
 			const maybeReasoningDetails =

@@ -324,6 +324,30 @@ describe("decideThinkingReplayRequest", () => {
 		);
 	});
 
+	it("allows opted-in best-effort profiles to continue when compacted tool-call reasoning is absent", async () => {
+		const profile = resolveReasoningDialectProfile({ modelId: "glm-5.1", transport: "openai" });
+		const miss = applyThinkingReplay({
+			modelId: "glm-5.1",
+			profile,
+			messages: [
+				{
+					role: "assistant",
+					tool_calls: [{ id: "call_missing", type: "function", function: { name: "a", arguments: "{}" } }],
+				},
+			],
+			store: await storeWithEntries([]),
+		});
+
+		const decision = decideThinkingReplayRequest({
+			userOptedIntoRoundTrip: true,
+			preflight: miss,
+			allowMissingReplay: true,
+		});
+
+		assert.equal(decision.allowThinkingRoundTrip, true);
+		assert.equal(decision.failLocalReason, undefined);
+	});
+
 	it("fails locally for replay-required profiles even without explicit opt-in", async () => {
 		const miss = applyThinkingReplay({
 			modelId: "glm-5.1",

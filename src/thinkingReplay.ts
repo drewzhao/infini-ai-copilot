@@ -307,6 +307,7 @@ export function applyAnthropicThinkingReplay(input: {
 export function decideThinkingReplayRequest(input: {
 	readonly userOptedIntoRoundTrip: boolean;
 	readonly replayRequiredByProfile?: boolean;
+	readonly allowMissingReplay?: boolean;
 	readonly preflight: ThinkingReplayPreflight<unknown>;
 	readonly failureContext?: ThinkingReplayFailureContext;
 }): ThinkingReplayRequestDecision {
@@ -314,7 +315,7 @@ export function decideThinkingReplayRequest(input: {
 	if (!shouldRoundTrip) {
 		return { allowThinkingRoundTrip: false, failLocalReason: undefined };
 	}
-	if (!input.preflight.allRequiredReasoningReplayed && input.preflight.hasAssistantToolCalls) {
+	if (!input.allowMissingReplay && !input.preflight.allRequiredReasoningReplayed && input.preflight.hasAssistantToolCalls) {
 		return {
 			allowThinkingRoundTrip: false,
 			failLocalReason: buildThinkingReplayMissError(input.preflight, input.failureContext),
