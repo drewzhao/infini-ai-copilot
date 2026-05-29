@@ -154,4 +154,43 @@ describe("reasoning dialect profiles", () => {
 		assert.equal(profile.reasoningEffortControl, "none");
 		assert.equal(profile.replayRisk, "none");
 	});
+
+	it("resolves OpenClaw-confirmed MiMo OpenAI reasoning IDs with effort and replay controls", () => {
+		for (const modelId of ["mimo-v2-pro", "mimo-v2-omni", "mimo-v2.5", "mimo-v2.5-pro", "mimo-v2.6-pro"]) {
+			const profile = resolveReasoningDialectProfile({
+				modelId,
+				transport: "openai",
+			});
+
+			assert.equal(profile.id, "mimo-v2-openai");
+			assert.equal(profile.transport, "openai");
+			assert.equal(profile.family, "mimo");
+			assert.equal(profile.defaultThinking, "unknown");
+			assert.equal(profile.currentTurnControl.kind, "thinking-type");
+			assert.equal(profile.replayCarrier, "reasoning_content");
+			assert.equal(profile.canDisableThinking, true);
+			assert.equal(profile.canEnableThinking, true);
+			assert.equal(profile.reasoningEffortControl, "openai-reasoning-effort");
+			assert.equal(profile.defaultReasoningEffort, "high");
+			assert.equal(profile.replayRisk, "reasoning-content-required-after-tool-call");
+		}
+	});
+
+	it("keeps unprobed MiMo V2 OpenAI variants safe-off", () => {
+		const profile = resolveReasoningDialectProfile({
+			modelId: "mimo-v2-flash",
+			transport: "openai",
+		});
+
+		assert.equal(profile.id, "mimo-v2-openai-safe-off");
+		assert.equal(profile.family, "mimo");
+		assert.equal(profile.defaultThinking, "off");
+		assert.equal(profile.defaultRequestThinkingMode, "disabled");
+		assert.equal(profile.currentTurnControl.kind, "thinking-type");
+		assert.equal(profile.replayCarrier, "reasoning_content");
+		assert.equal(profile.canDisableThinking, true);
+		assert.equal(profile.canEnableThinking, false);
+		assert.equal(profile.reasoningEffortControl, "none");
+		assert.equal(profile.replayRisk, "none");
+	});
 });

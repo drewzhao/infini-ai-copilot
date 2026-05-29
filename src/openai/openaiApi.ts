@@ -314,7 +314,10 @@ export class OpenaiApi extends CommonApi {
 		// tools
 		const toolConfig = convertToolsToOpenAI(options);
 		if (toolConfig.tools) {
-			orb.tools = reasoningProfile.family === "kimi" ? sanitizeKimiOpenAITools(toolConfig.tools) : toolConfig.tools;
+			orb.tools =
+				reasoningProfile.family === "kimi" || reasoningProfile.family === "mimo"
+					? sanitizeKimiOpenAITools(toolConfig.tools)
+					: toolConfig.tools;
 		}
 		if (toolConfig.tool_choice) {
 			orb.tool_choice = toolConfig.tool_choice;

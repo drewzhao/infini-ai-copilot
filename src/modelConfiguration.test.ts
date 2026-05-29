@@ -89,6 +89,40 @@ describe("model configuration schema", () => {
 		assert.deepEqual(schema.properties.thinkingMode.enumItemLabels, ["Unset", "Disabled"]);
 	});
 
+	it("exposes thinking mode and reasoning effort for confirmed MiMo OpenAI models", () => {
+		const schema = buildInfiniAIModelConfigurationSchema(
+			modelInfo({
+				id: "mimo-v2.5-pro",
+				capabilities: {
+					toolCalling: true,
+				},
+			}),
+			4096,
+			"openai"
+		);
+
+		assert.ok(schema.properties.maxOutputTokens);
+		assert.deepEqual(schema.properties.reasoningEffort.enum, ["unset", "low", "medium", "high"]);
+		assert.deepEqual(schema.properties.thinkingMode.enum, ["unset", "disabled", "enabled"]);
+	});
+
+	it("shows only the safe disable control for unprobed MiMo OpenAI variants", () => {
+		const schema = buildInfiniAIModelConfigurationSchema(
+			modelInfo({
+				id: "mimo-v2-flash",
+				capabilities: {
+					toolCalling: true,
+				},
+			}),
+			4096,
+			"openai"
+		);
+
+		assert.ok(schema.properties.maxOutputTokens);
+		assert.equal(schema.properties.reasoningEffort, undefined);
+		assert.deepEqual(schema.properties.thinkingMode.enum, ["unset", "disabled"]);
+	});
+
 	it("does not expose thinking controls for unknown profiles", () => {
 		const schema = buildInfiniAIModelConfigurationSchema(
 			modelInfo({
@@ -201,6 +235,19 @@ describe("model configuration request mapping", () => {
 
 		assert.deepEqual(body, {
 			model: "deepseek-v4-pro",
+			reasoning_effort: "high",
+		});
+	});
+
+	it("applies MiMo default reasoning effort on replay-enabled OpenAI requests", () => {
+		const body: Record<string, unknown> = { model: "mimo-v2.5-pro" };
+
+		applyOpenAIModelConfiguration(body, {}, undefined, {
+			useDefaultReasoningEffort: true,
+		});
+
+		assert.deepEqual(body, {
+			model: "mimo-v2.5-pro",
 			reasoning_effort: "high",
 		});
 	});

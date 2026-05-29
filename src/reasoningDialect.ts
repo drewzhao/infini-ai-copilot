@@ -62,6 +62,14 @@ function profile(input: ReasoningDialectProfileInput): ReasoningDialectProfile {
 	};
 }
 
+const MIMO_OPENAI_REASONING_MODEL_IDS = new Set([
+	"mimo-v2-pro",
+	"mimo-v2-omni",
+	"mimo-v2.5",
+	"mimo-v2.5-pro",
+	"mimo-v2.6-pro",
+]);
+
 function anthropicProfile(modelId: string): ReasoningDialectProfile {
 	if (modelId.startsWith("deepseek-v3.2-thinking")) {
 		return profile({
@@ -238,9 +246,9 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 		});
 	}
 
-	if (modelId.startsWith("mimo-v2")) {
+	if (MIMO_OPENAI_REASONING_MODEL_IDS.has(modelId)) {
 		return profile({
-			id: "mimo-v2",
+			id: "mimo-v2-openai",
 			transport: "openai",
 			family: "mimo",
 			defaultThinking: "unknown",
@@ -250,6 +258,24 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 			canDisableThinking: true,
 			canEnableThinking: true,
 			replayRisk: "reasoning-content-required-after-tool-call",
+			reasoningEffortControl: "openai-reasoning-effort",
+			defaultReasoningEffort: "high",
+		});
+	}
+
+	if (modelId.startsWith("mimo-v2")) {
+		return profile({
+			id: "mimo-v2-openai-safe-off",
+			transport: "openai",
+			family: "mimo",
+			defaultThinking: "off",
+			defaultRequestThinkingMode: "disabled",
+			currentTurnControl: { kind: "thinking-type" },
+			replayCarrier: "reasoning_content",
+			preservationControl: { kind: "none" },
+			canDisableThinking: true,
+			canEnableThinking: false,
+			replayRisk: "none",
 		});
 	}
 

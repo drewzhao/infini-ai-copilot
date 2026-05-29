@@ -118,6 +118,46 @@ describe("OpenaiApi.prepareRequestBody thinking-mode guard", () => {
 		});
 	});
 
+	it("sanitizes MiMo tool schemas before sending OpenAI-compatible requests", () => {
+		const { openai, withVscode } = loadOpenaiApi();
+
+		const api = new openai.OpenaiApi();
+		const rb = withVscode(() =>
+			api.prepareRequestBody(
+				{ model: "mimo-v2.5-pro" },
+				{ id: "mimo-v2.5-pro" } as any,
+				{
+					modelOptions: {},
+					tools: [
+						{
+							name: "collect_labels",
+							description: "Collect labels",
+							inputSchema: {
+								type: "object",
+								properties: {
+									labels: {
+										type: "array",
+										items: [],
+									},
+								},
+							},
+						},
+					],
+				} as any
+			)
+		);
+
+		assert.deepEqual(rb.tools?.[0]?.function?.parameters, {
+			type: "object",
+			properties: {
+				labels: {
+					type: "array",
+					items: {},
+				},
+			},
+		});
+	});
+
 	it("force-disables affected models even when LanguageModelThinkingPart exists", () => {
 		const { openai, proposedApi, withVscode } = loadOpenaiApi();
 		class FakeThinkingPart {

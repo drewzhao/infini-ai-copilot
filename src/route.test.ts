@@ -83,6 +83,25 @@ describe("model routing", () => {
 		assert.equal(result.source, "catalog");
 	});
 
+	it("prefers OpenAI-compatible routing for MiMo defaults even when catalog metadata says Anthropic", () => {
+		const route = loadRoute({
+			"infiniai.plan": "standard",
+			"infiniai.baseUrl": "https://openai.example/v1",
+			"infiniai.anthropic.baseUrl": "https://anthropic.example",
+		});
+		const { enrichModelWithBuiltInMetadata } = require("./catalogMetadata") as typeof import("./catalogMetadata");
+
+		const result = route.resolveModelRoute(
+			enrichModelWithBuiltInMetadata({ id: "mimo-v2.5-pro", object: "model", created: 1, owned_by: "infini" }),
+			[]
+		);
+
+		assert.equal(result.transport, "openai");
+		assert.equal(result.endpointKind, "chat.completions");
+		assert.equal(result.baseUrl, "https://openai.example/v1");
+		assert.equal(result.source, "catalog");
+	});
+
 	it("still lets user route overrides send Kimi K2 through Anthropic Messages", () => {
 		const route = loadRoute({
 			"infiniai.plan": "standard",
