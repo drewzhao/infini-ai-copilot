@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-05-30
+
+### Fixed
+
+- VS Code model metadata now advertises practical prompt budgets instead of reserving each provider's full maximum completion window. This delays unnecessary Copilot Chat compaction for long-context models such as GLM 5.x, Kimi K2.6, DeepSeek V4, and MiMo while keeping a 16K interactive output reserve.
+
 ## [0.6.0] - 2026-05-29
 
 ### Fixed

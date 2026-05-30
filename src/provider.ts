@@ -35,6 +35,7 @@ import { isStoredReplayCarrier, thinkingReplayStore } from "./thinkingReplayStor
 import { countModelRouteOverrides, resolveModelRoute } from "./route";
 import { updateContextStatusBar } from "./statusBar";
 import { getVisibleInfiniAITestModels } from "./testModelSelection";
+import { computeLanguageModelTokenBudget } from "./tokenBudget";
 import {
 	getDisableThinkingPatterns,
 	getThinkingRoundTripPatterns,
@@ -604,8 +605,12 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 
 	private toLanguageModelInfo(model: InfiniAIModelInfo, route: ModelRoute): LanguageModelChatInformation {
 		const contextLength = model.context_length ?? this.inferContextLength(model.id) ?? DEFAULT_CONTEXT_LENGTH;
-		const maxOutput = model.max_tokens ?? model.maxOutputTokens ?? DEFAULT_MAX_TOKENS;
-		const maxInput = model.maxInputTokens ?? Math.max(1, contextLength - maxOutput);
+		const providerMaxOutput = model.max_tokens ?? model.maxOutputTokens;
+		const { maxInputTokens: maxInput, maxOutputTokens: maxOutput } = computeLanguageModelTokenBudget(
+			contextLength,
+			providerMaxOutput,
+			DEFAULT_MAX_TOKENS
+		);
 		const cfg = vscode.workspace.getConfiguration("infiniai");
 		const enablePatterns = cfg.get<string[]>("imageInputModels", []);
 		const disablePatterns = cfg.get<string[]>("disableImageInputModels", []);

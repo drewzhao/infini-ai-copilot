@@ -76,6 +76,25 @@ describe("built-in InfiniAI catalog metadata", () => {
 		assert.equal(getBuiltInInfiniAIModelMetadata("mimo-v2.5-pro")?.capabilities?.toolCalling, undefined);
 	});
 
+	it("uses a practical output reserve for VS Code prompt budgets", () => {
+		const cases: Array<[string, number]> = [
+			["glm-5.1", 188416],
+			["glm-5", 188416],
+			["kimi-k2.6", 245760],
+			["deepseek-v4-pro", 1007616],
+			["deepseek-v4-flash", 1007616],
+			["kimi-k2.5", 245760],
+			["mimo-v2-pro", 245760],
+			["mimo-v2.5-pro", 245760],
+			["qwen3-14b", 122880],
+			["deepseek-v3", 114688],
+		];
+
+		for (const [id, expectedMaxInputTokens] of cases) {
+			assert.equal(getBuiltInInfiniAIModelMetadata(id)?.maxInputTokens, expectedMaxInputTokens, id);
+		}
+	});
+
 	it("keeps a useful family for unknown models", () => {
 		assert.equal(getBuiltInInfiniAIModelMetadata("unknown-model"), undefined);
 		assert.equal(enrichModelWithBuiltInMetadata(liveModel("unknown-model")).family, "unknown-model");

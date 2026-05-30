@@ -77,7 +77,7 @@ Every entry in `data.model_list` has the same top-level keys:
 | `tag_list` | 52 | 52 | array | Most valuable metadata source. |
 | `description` | 52 | 49 | string | Mixed quality; use cautiously in tooltip. |
 | `release_time` | 52 | 52 | string | Good VS Code `version` candidate, sorting, and tooltip. |
-| `context_length` | 52 | 52 | number | Good VS Code `maxInputTokens` source after subtracting output limit. |
+| `context_length` | 52 | 52 | number | Good VS Code `maxInputTokens` source after applying a practical interactive output reserve. |
 | `max_completion_tokens` | 52 | 28 | number/null | Good VS Code `maxOutputTokens` source when present. |
 | `access_type` | 52 | 52 | number | Unknown semantics; keep in `extra` and diagnostics. |
 | `promotion` | 52 | 30 | string | Good tooltip/detail badge when non-empty. |
@@ -184,7 +184,7 @@ Recommended mapping from catalog entry to stable `LanguageModelChatInformation`:
 | `tooltip` | composed from manufacturer, type, scenes, promotion, context/output, endpoint, billing | Avoid low-quality descriptions like `test`, `tet`, `转发`. |
 | `detail` | compact provider/capability detail | Example: `DeepSeek · Tools · Reasoning · Claude-compatible`. |
 | `version` | `release_time` | Prefer ISO date or timestamp string. |
-| `maxInputTokens` | `context_length - maxOutputTokens` | Clamp to at least 1. |
+| `maxInputTokens` | `context_length - practicalOutputReserve` | Clamp to at least 1; do not reserve the entire provider max completion window for interactive chat. |
 | `maxOutputTokens` | `max_completion_tokens || fallback` | Do not ignore `max_completion_tokens`. |
 | `capabilities.toolCalling` | scene tag `工具调用` | More accurate than current `!id.includes("embed")`. |
 | `capabilities.imageInput` | scene tag `视觉理解` or type `多模态模型` | More accurate than current suffix heuristics. |

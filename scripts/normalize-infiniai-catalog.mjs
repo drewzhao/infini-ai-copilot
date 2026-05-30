@@ -6,6 +6,8 @@ import path from "node:path";
 const DEFAULT_INPUT = "reports/list-models.json";
 const DEFAULT_OUTPUT = "reports/infiniai-model-metadata.generated.json";
 const DEFAULT_TS_OUTPUT = "src/generated/infiniaiCatalogMetadata.generated.ts";
+const PRACTICAL_OUTPUT_RESERVE_TOKENS = 16384;
+const PRACTICAL_OUTPUT_RESERVE_CONTEXT_RATIO = 0.25;
 
 const CHAT_TYPES = new Set(["大语言模型", "多模态模型"]);
 const LOW_VALUE_DESCRIPTIONS = new Set(["", "test", "tets", "tet", "转发"]);
@@ -123,6 +125,29 @@ function stringOrUndefined(value) {
 
 function numberOrUndefined(value) {
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function positiveIntegerOrUndefined(value) {
+	return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : undefined;
+}
+
+function computePracticalOutputReserve(contextLength, providerMaxOutputTokens) {
+	const context = positiveIntegerOrUndefined(contextLength);
+	if (!context || context <= 1) {
+		return 0;
+	}
+	const maxProviderReserve = positiveIntegerOrUndefined(providerMaxOutputTokens) ?? PRACTICAL_OUTPUT_RESERVE_TOKENS;
+	const ratioReserve = Math.floor(context * PRACTICAL_OUTPUT_RESERVE_CONTEXT_RATIO);
+	const reserve = Math.min(maxProviderReserve, PRACTICAL_OUTPUT_RESERVE_TOKENS, ratioReserve, context - 1);
+	return Math.max(0, reserve);
+}
+
+function computeAdvertisedMaxInputTokens(contextLength, providerMaxOutputTokens) {
+	const context = positiveIntegerOrUndefined(contextLength);
+	if (!context) {
+		return undefined;
+	}
+	return Math.max(1, context - computePracticalOutputReserve(context, providerMaxOutputTokens));
 }
 
 function unixSeconds(value) {
@@ -287,7 +312,7 @@ function normalizeModel(rawModel) {
 	const displayName = stringOrUndefined(raw.display_name) ?? id;
 	const contextLength = numberOrUndefined(raw.context_length);
 	const maxOutput = numberOrUndefined(raw.max_completion_tokens);
-	const maxInput = contextLength ? Math.max(1, contextLength - (maxOutput ?? 0)) : undefined;
+	const maxInput = computeAdvertisedMaxInputTokens(contextLength, maxOutput);
 	const labels = sceneLabels(trustedScenes);
 	const billing = raw.call_info && typeof raw.call_info === "object" ? {
 		expenses: stringOrUndefined(raw.call_info.expenses),

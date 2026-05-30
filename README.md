@@ -100,6 +100,7 @@ Common settings:
 The extension exposes stable-safe model controls in VS Code's model picker:
 
 - **Max output tokens** caps the response length. The model default sends no cap.
+- **Prompt budget** is advertised separately from the provider's absolute max completion window. Long-context models keep a practical 16K output reserve for interactive chat, so Copilot Chat does not compact early just because a provider allows very large completions.
 - **Reasoning effort** appears only for profiles with a confirmed effort parameter. `Unset` sends no effort. OpenAI-compatible DeepSeek V4 maps selected values to `reasoning_effort`; Anthropic-routed DeepSeek V3.2 profiles map selected values to `output_config.effort`.
 - **Thinking mode** appears only for model profiles with a confirmed current-turn thinking control. It offers `Unset` plus the supported `Disabled` and/or `Enabled` choices. Qwen maps to `enable_thinking`, OpenAI-compatible GLM/Kimi/MiMo/DeepSeek V4 maps to `thinking.type`, and Anthropic DeepSeek V3.2 maps to the Anthropic `thinking` object. Manually routed Anthropic Kimi and Anthropic DeepSeek V4 show only the safe `Disabled` choice. DeepSeek R1 and MiniMax do not expose a disable/enable toggle because no reliable disable field is confirmed.
 
