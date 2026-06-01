@@ -28,7 +28,7 @@ export type ReplayRisk =
 	| "reasoning-content-best-effort-after-tool-call"
 	| "unknown";
 export type ReasoningEffortControl = "none" | "openai-reasoning-effort" | "anthropic-output-config-effort";
-export type ReasoningEffortLevel = "low" | "medium" | "high";
+export type ReasoningEffortLevel = "low" | "medium" | "high" | "max";
 export type DefaultRequestThinkingMode = "enabled" | "disabled";
 
 export interface ReasoningDialectProfile {
@@ -43,6 +43,7 @@ export interface ReasoningDialectProfile {
 	readonly canEnableThinking: boolean;
 	readonly replayRisk: ReplayRisk;
 	readonly reasoningEffortControl: ReasoningEffortControl;
+	readonly reasoningEffortLevels?: readonly ReasoningEffortLevel[];
 	readonly defaultReasoningEffort?: ReasoningEffortLevel;
 	readonly defaultRequestThinkingMode?: DefaultRequestThinkingMode;
 }
@@ -295,6 +296,7 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 			canEnableThinking: true,
 			replayRisk: "reasoning-content-required-after-tool-call",
 			reasoningEffortControl: "openai-reasoning-effort",
+			reasoningEffortLevels: ["high", "max"],
 			defaultReasoningEffort: "high",
 		});
 	}

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-06-01
+
+### Changed
+
+- OpenAI-compatible DeepSeek V4 model picker reasoning effort is now limited to `Unset`, `High`, and `Max`; unsupported `low` and `medium` values are ignored for that profile.
+
 ## [0.6.1] - 2026-05-30
 
 ### Fixed

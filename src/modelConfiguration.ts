@@ -13,6 +13,7 @@ type ModelConfigurationRecord = Record<string, unknown>;
 
 export type ReasoningEffort = ReasoningEffortLevel;
 export type ThinkingMode = "enabled" | "disabled";
+const DEFAULT_REASONING_EFFORT_LEVELS: readonly ReasoningEffort[] = ["low", "medium", "high"];
 
 export interface InfiniAIModelConfiguration {
 	readonly maxOutputTokens?: number;
@@ -53,7 +54,7 @@ function isRecord(value: unknown): value is ModelConfigurationRecord {
 }
 
 function normalizeReasoningEffort(value: unknown): ReasoningEffort | undefined {
-	return value === "low" || value === "medium" || value === "high" ? value : undefined;
+	return value === "low" || value === "medium" || value === "high" || value === "max" ? value : undefined;
 }
 
 function normalizeThinkingMode(value: unknown): ThinkingMode | undefined {
@@ -95,13 +96,28 @@ function getReasoningEffortDescription(control: ReasoningEffortControl): string 
 	}
 }
 
-function getReasoningEffortEnumDescriptions(control: ReasoningEffortControl): string[] {
+function getReasoningEffortLevels(profile: ReasoningDialectProfile): readonly ReasoningEffort[] {
+	return profile.reasoningEffortLevels && profile.reasoningEffortLevels.length > 0
+		? profile.reasoningEffortLevels
+		: DEFAULT_REASONING_EFFORT_LEVELS;
+}
+
+function isSupportedReasoningEffort(profile: ReasoningDialectProfile, effort: ReasoningEffort): boolean {
+	return getReasoningEffortLevels(profile).includes(effort);
+}
+
+function formatReasoningEffortLabel(effort: ReasoningEffort): string {
+	return effort.charAt(0).toUpperCase() + effort.slice(1);
+}
+
+function getReasoningEffortEnumDescriptions(
+	control: ReasoningEffortControl,
+	levels: readonly ReasoningEffort[]
+): string[] {
 	const parameterName = control === "anthropic-output-config-effort" ? "output_config.effort" : "reasoning_effort";
 	return [
 		`Do not send ${parameterName}.`,
-		`Send ${parameterName}=low.`,
-		`Send ${parameterName}=medium.`,
-		`Send ${parameterName}=high.`,
+		...levels.map((level) => `Send ${parameterName}=${level}.`),
 	];
 }
 
@@ -152,13 +168,14 @@ export function buildInfiniAIModelConfigurationSchema(
 		},
 	};
 	if (profile.reasoningEffortControl !== "none") {
+		const effortLevels = getReasoningEffortLevels(profile);
 		properties.reasoningEffort = {
 			type: "string",
 			title: "Reasoning effort",
 			description: getReasoningEffortDescription(profile.reasoningEffortControl),
-			enum: ["unset", "low", "medium", "high"],
-			enumItemLabels: ["Unset", "Low", "Medium", "High"],
-			enumDescriptions: getReasoningEffortEnumDescriptions(profile.reasoningEffortControl),
+			enum: ["unset", ...effortLevels],
+			enumItemLabels: ["Unset", ...effortLevels.map(formatReasoningEffortLabel)],
+			enumDescriptions: getReasoningEffortEnumDescriptions(profile.reasoningEffortControl, effortLevels),
 			default: "unset",
 			group: "navigation",
 		};
@@ -225,11 +242,16 @@ export function applyOpenAIModelConfiguration(
 	const shouldSendEffort =
 		resolvedProfile.reasoningEffortControl === "openai-reasoning-effort" &&
 		configuration.thinkingMode !== "disabled";
-	const reasoningEffort =
-		configuration.reasoningEffort ??
-		(configuration.thinkingMode === "enabled" || options.useDefaultReasoningEffort
+	const configuredEffort =
+		configuration.reasoningEffort && isSupportedReasoningEffort(resolvedProfile, configuration.reasoningEffort)
+			? configuration.reasoningEffort
+			: undefined;
+	const defaultEffort =
+		resolvedProfile.defaultReasoningEffort && isSupportedReasoningEffort(resolvedProfile, resolvedProfile.defaultReasoningEffort)
 			? resolvedProfile.defaultReasoningEffort
-			: undefined);
+			: undefined;
+	const reasoningEffort =
+		configuredEffort ?? (configuration.thinkingMode === "enabled" || options.useDefaultReasoningEffort ? defaultEffort : undefined);
 	if (shouldSendEffort && reasoningEffort !== undefined) {
 		body.reasoning_effort = reasoningEffort;
 	}
@@ -254,7 +276,8 @@ export function applyAnthropicModelConfiguration(
 	if (
 		resolvedProfile.reasoningEffortControl === "anthropic-output-config-effort" &&
 		configuration.thinkingMode !== "disabled" &&
-		configuration.reasoningEffort !== undefined
+		configuration.reasoningEffort !== undefined &&
+		isSupportedReasoningEffort(resolvedProfile, configuration.reasoningEffort)
 	) {
 		const existing = isRecord(body.output_config) ? body.output_config : {};
 		body.output_config = {

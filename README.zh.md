@@ -94,7 +94,7 @@ npm run build
 扩展会在 VS Code 模型选择器中提供稳定安全的模型控制项：
 
 - **Max output tokens** 限制回复最多生成的 token 数。选择模型默认值时不会发送上限。
-- **Reasoning effort** 只会出现在已确认存在 effort 参数的 profile 上。`Unset` 不发送 effort。OpenAI 兼容 DeepSeek V4 会映射到 `reasoning_effort`；Anthropic 路由的 DeepSeek V3.2 profile 会映射到 `output_config.effort`。
+- **Reasoning effort** 只会出现在已确认存在 effort 参数的 profile 上。`Unset` 不发送 effort。OpenAI 兼容 DeepSeek V4 只提供 `High` 和 `Max`，并映射到 `reasoning_effort`；Anthropic 路由的 DeepSeek V3.2 profile 仍提供 `Low`、`Medium`、`High`，并映射到 `output_config.effort`。
 - **Thinking mode** 只会出现在已确认存在当前轮 thinking 控制参数的模型 profile 上。它提供 `Unset`，以及该 profile 支持的 `Disabled` 和/或 `Enabled` 选项。Qwen 映射到 `enable_thinking`，OpenAI 兼容 GLM/Kimi/MiMo/DeepSeek V4 映射到 `thinking.type`，Anthropic DeepSeek V3.2 映射到 Anthropic `thinking` 对象。手动 Anthropic 路由的 Kimi 和 Anthropic 路由的 DeepSeek V4 只展示安全的 `Disabled` 选项。DeepSeek R1 和 MiniMax 不暴露禁用/启用开关，因为尚未确认可靠的禁用字段。
 
 Vertex 路由会把最大输出 token 映射到 `generationConfig.maxOutputTokens`。

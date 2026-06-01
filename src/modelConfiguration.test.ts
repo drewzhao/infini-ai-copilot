@@ -57,6 +57,24 @@ describe("model configuration schema", () => {
 		assert.deepEqual(schema.properties.thinkingMode.enum, ["unset", "disabled", "enabled"]);
 	});
 
+	it("uses DeepSeek V4 OpenAI-specific reasoning effort choices", () => {
+		const schema = buildInfiniAIModelConfigurationSchema(
+			modelInfo({
+				id: "deepseek-v4-pro",
+				capabilities: {
+					toolCalling: true,
+				},
+			}),
+			4096,
+			"openai"
+		);
+
+		assert.ok(schema.properties.maxOutputTokens);
+		assert.deepEqual(schema.properties.reasoningEffort.enum, ["unset", "high", "max"]);
+		assert.deepEqual(schema.properties.reasoningEffort.enumItemLabels, ["Unset", "High", "Max"]);
+		assert.deepEqual(schema.properties.thinkingMode.enum, ["unset", "disabled", "enabled"]);
+	});
+
 	it("shows only the safe Anthropic disable control for DeepSeek V4 catalog routes", () => {
 		const schema = buildInfiniAIModelConfigurationSchema(
 			modelInfo({
@@ -254,6 +272,31 @@ describe("model configuration request mapping", () => {
 		assert.deepEqual(body, {
 			model: "deepseek-v4-pro",
 			reasoning_effort: "high",
+		});
+	});
+
+	it("maps DeepSeek V4 OpenAI max reasoning effort", () => {
+		const body: Record<string, unknown> = { model: "deepseek-v4-pro" };
+
+		applyOpenAIModelConfiguration(body, {
+			reasoningEffort: "max",
+		});
+
+		assert.deepEqual(body, {
+			model: "deepseek-v4-pro",
+			reasoning_effort: "max",
+		});
+	});
+
+	it("does not send unsupported DeepSeek V4 OpenAI reasoning effort values", () => {
+		const body: Record<string, unknown> = { model: "deepseek-v4-pro" };
+
+		applyOpenAIModelConfiguration(body, {
+			reasoningEffort: "low",
+		});
+
+		assert.deepEqual(body, {
+			model: "deepseek-v4-pro",
 		});
 	});
 
