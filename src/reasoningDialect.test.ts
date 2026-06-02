@@ -157,25 +157,65 @@ describe("reasoning dialect profiles", () => {
 		assert.equal(profile.replayRisk, "none");
 	});
 
-	it("resolves Claude Anthropic routes as adaptive-thinking profiles", () => {
+	it("resolves confirmed Claude Anthropic adaptive-thinking model IDs as adaptive profiles", () => {
+		for (const modelId of ["claude-opus-4-6", "claude-opus-4-7", "claude-sonnet-4-6"]) {
+			const profile = resolveReasoningDialectProfile({
+				modelId,
+				transport: "anthropic",
+			});
+
+			assert.equal(profile.id, "claude-anthropic-adaptive-thinking");
+			assert.equal(profile.transport, "anthropic");
+			assert.equal(profile.family, "claude");
+			assert.equal(profile.defaultThinking, "off");
+			assert.deepEqual(profile.currentTurnControl, {
+				kind: "anthropic-thinking",
+				enableMode: "adaptive",
+			});
+			assert.equal(profile.replayCarrier, "anthropic_thinking_block");
+			assert.equal(profile.canDisableThinking, true);
+			assert.equal(profile.canEnableThinking, true);
+			assert.equal(profile.reasoningEffortControl, "none");
+			assert.equal(profile.replayRisk, "reasoning-content-required-after-tool-call");
+		}
+	});
+
+	it("resolves Claude Sonnet 4.5 Anthropic routes as budgeted extended-thinking profiles", () => {
 		const profile = resolveReasoningDialectProfile({
-			modelId: "claude-opus-4-6",
+			modelId: "claude-sonnet-4-5-20250929",
 			transport: "anthropic",
 		});
 
-		assert.equal(profile.id, "claude-anthropic-adaptive-thinking");
+		assert.equal(profile.id, "claude-anthropic-budgeted-thinking");
 		assert.equal(profile.transport, "anthropic");
 		assert.equal(profile.family, "claude");
 		assert.equal(profile.defaultThinking, "off");
 		assert.deepEqual(profile.currentTurnControl, {
 			kind: "anthropic-thinking",
-			enableMode: "adaptive",
+			enableMode: "enabled",
 		});
 		assert.equal(profile.replayCarrier, "anthropic_thinking_block");
 		assert.equal(profile.canDisableThinking, true);
 		assert.equal(profile.canEnableThinking, true);
 		assert.equal(profile.reasoningEffortControl, "none");
 		assert.equal(profile.replayRisk, "reasoning-content-required-after-tool-call");
+	});
+
+	it("keeps unknown Claude Anthropic model IDs away from optimistic thinking controls", () => {
+		const profile = resolveReasoningDialectProfile({
+			modelId: "claude-future-experimental",
+			transport: "anthropic",
+		});
+
+		assert.equal(profile.id, "claude-anthropic-unknown");
+		assert.equal(profile.transport, "anthropic");
+		assert.equal(profile.family, "claude");
+		assert.equal(profile.currentTurnControl.kind, "none");
+		assert.equal(profile.replayCarrier, "anthropic_thinking_block");
+		assert.equal(profile.canDisableThinking, false);
+		assert.equal(profile.canEnableThinking, false);
+		assert.equal(profile.reasoningEffortControl, "none");
+		assert.equal(profile.replayRisk, "unknown");
 	});
 
 	it("resolves OpenClaw-confirmed MiMo OpenAI reasoning IDs with effort and replay controls", () => {

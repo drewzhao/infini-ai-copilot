@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-06-02
+
+### Added
+
+- Confirmed Claude adaptive-thinking models on Anthropic Messages routes (`claude-opus-4-6`, `claude-opus-4-7`, and `claude-sonnet-4-6`) now expose thinking controls in the model picker and send the provider-native `thinking: { type: "adaptive", display: "summarized" }` request shape when thinking is enabled.
+- `claude-sonnet-4-5-20250929` now uses the non-adaptive Anthropic extended-thinking request shape, sending `thinking: { type: "enabled", budget_tokens: ... }` when thinking is enabled.
+- Anthropic thinking replay now captures and replays `redacted_thinking` blocks, so Claude tool-call conversations can preserve provider-required thinking continuity even when the provider redacts the visible thinking text.
+
+### Fixed
+
+- Anthropic Messages requests now send Bearer authorization in addition to Anthropic-compatible headers, matching InfiniAI endpoints that require `Authorization: Bearer ...`.
+- Explicitly setting `Thinking mode` to `Disabled` no longer requires thinking replay preflight, so users can use disabled thinking as the intended escape hatch for conversations without preserved thinking context.
+- Anthropic streaming usage tracking now reads usage from both `message_start.message.usage` and delta usage payloads.
+- Claude adaptive-thinking tool-call turns that emit no `thinking` or `redacted_thinking` block are now recorded as observed no-payload turns, preventing false missing-replay failures on the next request.
+
 ## [0.6.2] - 2026-06-01
 
 ### Changed

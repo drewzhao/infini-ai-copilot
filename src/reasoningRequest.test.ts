@@ -111,6 +111,48 @@ describe("reasoning request controls", () => {
 		});
 	});
 
+	it("enables non-adaptive Claude Anthropic thinking with a bounded token budget", () => {
+		const body: Record<string, unknown> = {
+			model: "claude-sonnet-4-5-20250929",
+			max_tokens: 4096,
+		};
+		const profile = resolveReasoningDialectProfile({
+			modelId: "claude-sonnet-4-5-20250929",
+			transport: "anthropic",
+		});
+
+		applyReasoningRequestControls(body, profile, {
+			thinkingMode: "enabled",
+		});
+
+		assert.deepEqual(body, {
+			model: "claude-sonnet-4-5-20250929",
+			max_tokens: 4096,
+			thinking: { type: "enabled", budget_tokens: 1024 },
+		});
+	});
+
+	it("does not send speculative thinking controls for unknown Claude Anthropic model IDs", () => {
+		const body: Record<string, unknown> = {
+			model: "claude-future-experimental",
+			max_tokens: 4096,
+		};
+		const profile = resolveReasoningDialectProfile({
+			modelId: "claude-future-experimental",
+			transport: "anthropic",
+		});
+
+		const result = applyReasoningRequestControls(body, profile, {
+			thinkingMode: "enabled",
+		});
+
+		assert.deepEqual(body, {
+			model: "claude-future-experimental",
+			max_tokens: 4096,
+		});
+		assert.deepEqual(result.ignoredControls, ["thinkingMode"]);
+	});
+
 	it("disables Anthropic thinking with the provider control shape", () => {
 		const body: Record<string, unknown> = {
 			model: "deepseek-v3.2",

@@ -256,6 +256,7 @@ export function applyAnthropicThinkingReplay(input: {
 			redactedThinkingData: string | undefined;
 			payloadKey: string;
 		}> = [];
+		let observedWithoutReplayPayloadCount = 0;
 		for (const toolUse of toolUseBlocks) {
 			if (!toolUse.id) {
 				missingCallIds.push("<missing>");
@@ -270,6 +271,10 @@ export function applyAnthropicThinkingReplay(input: {
 					})
 				: input.store.lookup(input.modelId, toolUse.id);
 			if (!entry?.reasoningContent && !entry?.redactedThinkingData) {
+				if (entry?.observedWithoutReplayPayload) {
+					observedWithoutReplayPayloadCount++;
+					continue;
+				}
 				missingCallIds.push(toolUse.id);
 				continue;
 			}
@@ -285,6 +290,12 @@ export function applyAnthropicThinkingReplay(input: {
 		}
 
 		if (reasoningByCallId.length !== toolUseBlocks.length) {
+			if (missingCallIds.length === 0 && observedWithoutReplayPayloadCount === toolUseBlocks.length) {
+				return clonedMessage;
+			}
+			if (missingCallIds.length === 0 && observedWithoutReplayPayloadCount > 0) {
+				conflictingCallIds.push(...toolUseBlocks.map((toolUse) => toolUse.id || "<missing>"));
+			}
 			return clonedMessage;
 		}
 

@@ -79,6 +79,32 @@ const MIMO_OPENAI_REASONING_MODEL_IDS = new Set([
 	"mimo-v2.6-pro",
 ]);
 
+const CLAUDE_ANTHROPIC_ADAPTIVE_THINKING_MODEL_IDS = new Set([
+	"claude-opus-4-6",
+	"claude-opus-4-7",
+	"claude-sonnet-4-6",
+]);
+
+const CLAUDE_ANTHROPIC_BUDGETED_THINKING_MODEL_IDS = new Set(["claude-sonnet-4-5-20250929"]);
+
+function claudeAnthropicThinkingProfile(input: {
+	readonly id: string;
+	readonly currentTurnControl: CurrentTurnThinkingControlSpec;
+}): ReasoningDialectProfile {
+	return profile({
+		id: input.id,
+		transport: "anthropic",
+		family: "claude",
+		defaultThinking: "off",
+		currentTurnControl: input.currentTurnControl,
+		replayCarrier: "anthropic_thinking_block",
+		preservationControl: { kind: "none" },
+		canDisableThinking: true,
+		canEnableThinking: true,
+		replayRisk: "reasoning-content-required-after-tool-call",
+	});
+}
+
 function anthropicProfile(modelId: string): ReasoningDialectProfile {
 	if (modelId.startsWith("deepseek-v3.2-thinking")) {
 		return profile({
@@ -144,18 +170,32 @@ function anthropicProfile(modelId: string): ReasoningDialectProfile {
 		});
 	}
 
+	if (CLAUDE_ANTHROPIC_ADAPTIVE_THINKING_MODEL_IDS.has(modelId)) {
+		return claudeAnthropicThinkingProfile({
+			id: "claude-anthropic-adaptive-thinking",
+			currentTurnControl: { kind: "anthropic-thinking", enableMode: "adaptive" },
+		});
+	}
+
+	if (CLAUDE_ANTHROPIC_BUDGETED_THINKING_MODEL_IDS.has(modelId)) {
+		return claudeAnthropicThinkingProfile({
+			id: "claude-anthropic-budgeted-thinking",
+			currentTurnControl: { kind: "anthropic-thinking", enableMode: "enabled" },
+		});
+	}
+
 	if (modelId.includes("claude")) {
 		return profile({
-			id: "claude-anthropic-adaptive-thinking",
+			id: "claude-anthropic-unknown",
 			transport: "anthropic",
 			family: "claude",
-			defaultThinking: "off",
-			currentTurnControl: { kind: "anthropic-thinking", enableMode: "adaptive" },
+			defaultThinking: "unknown",
+			currentTurnControl: { kind: "none" },
 			replayCarrier: "anthropic_thinking_block",
 			preservationControl: { kind: "none" },
-			canDisableThinking: true,
-			canEnableThinking: true,
-			replayRisk: "reasoning-content-required-after-tool-call",
+			canDisableThinking: false,
+			canEnableThinking: false,
+			replayRisk: "unknown",
 		});
 	}
 

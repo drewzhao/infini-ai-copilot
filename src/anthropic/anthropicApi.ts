@@ -429,6 +429,7 @@ export class AnthropicApi extends CommonApi {
 					id: chunk.content_block.id,
 					name: chunk.content_block.name,
 					args: "",
+					startInput: chunk.content_block.input,
 				});
 			} else if (chunk.content_block.type === "text") {
 				// Text block start - nothing special to do

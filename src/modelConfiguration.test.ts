@@ -143,6 +143,41 @@ describe("model configuration schema", () => {
 		assert.deepEqual(schema.properties.thinkingMode.enumItemLabels, ["Unset", "Disabled", "Enabled"]);
 	});
 
+	it("shows Claude budgeted-thinking controls for non-adaptive extended-thinking model IDs", () => {
+		const schema = buildInfiniAIModelConfigurationSchema(
+			modelInfo({
+				id: "claude-sonnet-4-5-20250929",
+				capabilities: {
+					toolCalling: true,
+				},
+			}),
+			4096,
+			"anthropic"
+		);
+
+		assert.ok(schema.properties.maxOutputTokens);
+		assert.equal(schema.properties.reasoningEffort, undefined);
+		assert.deepEqual(schema.properties.thinkingMode.enum, ["unset", "disabled", "enabled"]);
+		assert.deepEqual(schema.properties.thinkingMode.enumItemLabels, ["Unset", "Disabled", "Enabled"]);
+	});
+
+	it("does not expose thinking controls for unknown Claude Anthropic model IDs", () => {
+		const schema = buildInfiniAIModelConfigurationSchema(
+			modelInfo({
+				id: "claude-future-experimental",
+				capabilities: {
+					toolCalling: true,
+				},
+			}),
+			4096,
+			"anthropic"
+		);
+
+		assert.ok(schema.properties.maxOutputTokens);
+		assert.equal(schema.properties.reasoningEffort, undefined);
+		assert.equal(schema.properties.thinkingMode, undefined);
+	});
+
 	it("exposes thinking mode and reasoning effort for confirmed MiMo OpenAI models", () => {
 		const schema = buildInfiniAIModelConfigurationSchema(
 			modelInfo({

@@ -9,7 +9,8 @@ import {
 	buildThinkingReplayMissError,
 	decideThinkingReplayRequest,
 } from "./thinkingReplay";
-import { MemoryThinkingReplayStorage, ThinkingReplayStore } from "./thinkingReplayStore";
+import { MemoryThinkingReplayStorage, type StoredReplayCarrier, ThinkingReplayStore } from "./thinkingReplayStore";
+import type { ModelTransport } from "./types";
 
 async function storeWithEntries(
 	entries: Array<{
@@ -18,12 +19,24 @@ async function storeWithEntries(
 		reasoningContent?: string;
 		reasoningSignature?: string;
 		redactedThinkingData?: string;
+		observedWithoutReplayPayload?: boolean;
+		profileId?: string;
+		transport?: ModelTransport;
+		carrier?: StoredReplayCarrier;
 	}>
 ) {
 	const store = new ThinkingReplayStore();
 	await store.initialize(new MemoryThinkingReplayStorage());
 	for (const entry of entries) {
-		const turn = store.beginTurn(entry.modelId);
+		const turn =
+			entry.profileId && entry.transport && entry.carrier
+				? store.beginTurn({
+						modelId: entry.modelId,
+						profileId: entry.profileId,
+						transport: entry.transport,
+						carrier: entry.carrier,
+					})
+				: store.beginTurn(entry.modelId);
 		if (entry.reasoningContent) {
 			store.appendReasoning(turn.turnId, entry.reasoningContent);
 		}
@@ -255,6 +268,37 @@ describe("applyAnthropicThinkingReplay", () => {
 
 		assert.equal(result.allRequiredReasoningReplayed, false);
 		assert.deepEqual(result.missingCallIds, ["toolu_missing"]);
+		assert.deepEqual(result.messages[0].content, messages[0].content);
+	});
+
+	it("leaves observed no-payload Anthropic tool turns replay-safe", async () => {
+		const store = await storeWithEntries([
+			{
+				modelId: "claude-opus-4-6",
+				callId: "toolu_no_thinking",
+				observedWithoutReplayPayload: true,
+				profileId: "claude-anthropic-adaptive-thinking",
+				transport: "anthropic",
+				carrier: "anthropic_thinking_block",
+			},
+		]);
+		const profile = resolveReasoningDialectProfile({
+			modelId: "claude-opus-4-6",
+			transport: "anthropic",
+		});
+		const messages: AnthropicMessage[] = [
+			{
+				role: "assistant",
+				content: [{ type: "tool_use", id: "toolu_no_thinking", name: "read_file", input: {} }],
+			},
+		];
+
+		const result = applyAnthropicThinkingReplay({ modelId: "claude-opus-4-6", profile, messages, store });
+
+		assert.equal(result.allRequiredReasoningReplayed, true);
+		assert.equal(result.hasAssistantToolCalls, true);
+		assert.equal(result.replayedCount, 0);
+		assert.deepEqual(result.missingCallIds, []);
 		assert.deepEqual(result.messages[0].content, messages[0].content);
 	});
 

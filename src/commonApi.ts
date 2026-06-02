@@ -25,9 +25,9 @@ export abstract class CommonApi {
 	public lastUsage?: ApiUsage;
 
 	/** Buffer for assembling streamed tool calls by index. */
-	protected _toolCallBuffers: Map<number, { id?: string; name?: string; args: string }> = new Map<
+	protected _toolCallBuffers: Map<number, { id?: string; name?: string; args: string; startInput?: unknown }> = new Map<
 		number,
-		{ id?: string; name?: string; args: string }
+		{ id?: string; name?: string; args: string; startInput?: unknown }
 	>();
 
 	/** Indices for which a tool call has been fully emitted. */
@@ -126,7 +126,8 @@ export abstract class CommonApi {
 		}
 		for (const [idx, buf] of Array.from(this._toolCallBuffers.entries())) {
 			const parsed = tryParseJSONObject(buf.args);
-			if (!parsed.ok) {
+			const fallbackInput = buf.args.length === 0 && buf.startInput !== undefined ? buf.startInput : undefined;
+			if (!parsed.ok && fallbackInput === undefined) {
 				if (throwOnInvalid) {
 					throw new Error("Invalid JSON for tool call");
 				}
@@ -136,7 +137,13 @@ export abstract class CommonApi {
 			}
 			const id = buf.id ?? `call_${Math.random().toString(36).slice(2, 10)}`;
 			const name = buf.name ?? "unknown_tool";
-			progress.report(new LanguageModelToolCallPart(id, name, parsed.value));
+			const parameters =
+				fallbackInput !== undefined && typeof fallbackInput === "object" && fallbackInput !== null
+					? fallbackInput
+					: parsed.ok
+						? parsed.value
+						: {};
+			progress.report(new LanguageModelToolCallPart(id, name, parameters));
 			this.onToolCallEmitted(id);
 			this._toolCallBuffers.delete(idx);
 			this._completedToolCallIndices.add(idx);

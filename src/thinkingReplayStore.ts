@@ -17,6 +17,7 @@ export interface ThinkingReplayEntry {
 	readonly reasoningDetails?: readonly unknown[];
 	readonly reasoningSignature?: string;
 	readonly redactedThinkingData?: string;
+	readonly observedWithoutReplayPayload?: boolean;
 	readonly capturedAt: number;
 	readonly byteLength: number;
 }
@@ -112,6 +113,7 @@ function isReplayEntry(value: unknown): value is ThinkingReplayEntry {
 		(v.reasoningDetails === undefined || Array.isArray(v.reasoningDetails)) &&
 		(v.reasoningSignature === undefined || typeof v.reasoningSignature === "string") &&
 		(v.redactedThinkingData === undefined || typeof v.redactedThinkingData === "string") &&
+		(v.observedWithoutReplayPayload === undefined || v.observedWithoutReplayPayload === true) &&
 		typeof v.capturedAt === "number" &&
 		typeof v.byteLength === "number" &&
 		v.modelId.length > 0 &&
@@ -119,7 +121,8 @@ function isReplayEntry(value: unknown): value is ThinkingReplayEntry {
 		v.byteLength >= 0 &&
 		(typeof v.reasoningContent === "string" ||
 			Array.isArray(v.reasoningDetails) ||
-			typeof v.redactedThinkingData === "string")
+			typeof v.redactedThinkingData === "string" ||
+			v.observedWithoutReplayPayload === true)
 	);
 }
 
@@ -323,7 +326,11 @@ export class ThinkingReplayStore {
 		const reasoningContent = pending.chunks.join("") || undefined;
 		const reasoningDetails = pending.detailChunks.length > 0 ? [...pending.detailChunks] : undefined;
 		const redactedThinkingData = pending.redactedThinkingChunks.join("") || undefined;
-		if (pending.carrier === "reasoning_details" ? !reasoningDetails : !reasoningContent && !redactedThinkingData) {
+		const hasReplayPayload =
+			pending.carrier === "reasoning_details" ? !!reasoningDetails : !!reasoningContent || !!redactedThinkingData;
+		const observedWithoutReplayPayload =
+			pending.carrier === "anthropic_thinking_block" && !hasReplayPayload ? true : undefined;
+		if (!hasReplayPayload && !observedWithoutReplayPayload) {
 			return;
 		}
 		const reasoningSignature = pending.signatureChunks.join("") || undefined;
@@ -345,6 +352,7 @@ export class ThinkingReplayStore {
 				reasoningDetails,
 				reasoningSignature,
 				redactedThinkingData,
+				observedWithoutReplayPayload,
 				capturedAt,
 				byteLength: entryByteLength,
 			};

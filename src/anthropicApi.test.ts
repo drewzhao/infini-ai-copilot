@@ -283,6 +283,72 @@ describe("AnthropicApi thinking replay streaming capture", () => {
 		assert.equal(entry?.redactedThinkingData, "encrypted_blob");
 	});
 
+	it("commits redacted thinking when tool input arrives only in the start block", async () => {
+		const { anthropic, replayStore } = loadAnthropicApi();
+		const store = new replayStore.ThinkingReplayStore();
+		await store.initialize(new replayStore.MemoryThinkingReplayStorage());
+		const pendingTurn = store.beginTurn({
+			modelId: "claude-opus-4-6",
+			profileId: "claude-anthropic-adaptive-thinking",
+			transport: "anthropic",
+			carrier: "anthropic_thinking_block",
+		});
+		const api = new anthropic.AnthropicApi({ thinkingReplayStore: store, pendingThinkingTurn: pendingTurn });
+
+		await api.processStreamingResponse(
+			streamFromChunks([
+				'data: {"type":"content_block_start","index":0,"content_block":{"type":"redacted_thinking","data":"encrypted_blob"}}\n\n',
+				'data: {"type":"content_block_stop","index":0}\n\n',
+				'data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_start_only","name":"read_file","input":{}}}\n\n',
+				'data: {"type":"content_block_stop","index":1}\n\n',
+				'data: {"type":"message_stop"}\n\n',
+			]),
+			{ report() {} },
+			token() as any
+		);
+
+		const entry = store.lookup({
+			modelId: "claude-opus-4-6",
+			callId: "toolu_start_only",
+			profileId: "claude-anthropic-adaptive-thinking",
+			carrier: "anthropic_thinking_block",
+		});
+		assert.equal(entry?.redactedThinkingData, "encrypted_blob");
+	});
+
+	it("commits observed Anthropic tool use when adaptive thinking emits no thinking block", async () => {
+		const { anthropic, replayStore } = loadAnthropicApi();
+		const store = new replayStore.ThinkingReplayStore();
+		await store.initialize(new replayStore.MemoryThinkingReplayStorage());
+		const pendingTurn = store.beginTurn({
+			modelId: "claude-opus-4-6",
+			profileId: "claude-anthropic-adaptive-thinking",
+			transport: "anthropic",
+			carrier: "anthropic_thinking_block",
+		});
+		const api = new anthropic.AnthropicApi({ thinkingReplayStore: store, pendingThinkingTurn: pendingTurn });
+
+		await api.processStreamingResponse(
+			streamFromChunks([
+				'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_no_thinking","name":"read_file","input":{}}}\n\n',
+				'data: {"type":"content_block_stop","index":0}\n\n',
+				'data: {"type":"message_stop"}\n\n',
+			]),
+			{ report() {} },
+			token() as any
+		);
+
+		const entry = store.lookup({
+			modelId: "claude-opus-4-6",
+			callId: "toolu_no_thinking",
+			profileId: "claude-anthropic-adaptive-thinking",
+			carrier: "anthropic_thinking_block",
+		});
+		assert.equal(entry?.observedWithoutReplayPayload, true);
+		assert.equal(entry?.redactedThinkingData, undefined);
+		assert.equal(entry?.reasoningContent, undefined);
+	});
+
 	it("does not commit Anthropic thinking when no tool use is emitted", async () => {
 		const { anthropic, replayStore } = loadAnthropicApi();
 		const store = new replayStore.ThinkingReplayStore();
