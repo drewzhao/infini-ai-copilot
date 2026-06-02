@@ -12,15 +12,26 @@ import {
 import { MemoryThinkingReplayStorage, ThinkingReplayStore } from "./thinkingReplayStore";
 
 async function storeWithEntries(
-	entries: Array<{ modelId: string; callId: string; reasoningContent: string; reasoningSignature?: string }>
+	entries: Array<{
+		modelId: string;
+		callId: string;
+		reasoningContent?: string;
+		reasoningSignature?: string;
+		redactedThinkingData?: string;
+	}>
 ) {
 	const store = new ThinkingReplayStore();
 	await store.initialize(new MemoryThinkingReplayStorage());
 	for (const entry of entries) {
 		const turn = store.beginTurn(entry.modelId);
-		store.appendReasoning(turn.turnId, entry.reasoningContent);
+		if (entry.reasoningContent) {
+			store.appendReasoning(turn.turnId, entry.reasoningContent);
+		}
 		if (entry.reasoningSignature) {
 			store.appendReasoningSignature(turn.turnId, entry.reasoningSignature);
+		}
+		if (entry.redactedThinkingData) {
+			store.appendRedactedThinkingData(turn.turnId, entry.redactedThinkingData);
 		}
 		store.recordToolCall(turn.turnId, entry.callId);
 		await store.commit(turn.turnId);
@@ -247,6 +258,37 @@ describe("applyAnthropicThinkingReplay", () => {
 		assert.deepEqual(result.messages[0].content, messages[0].content);
 	});
 
+	it("injects matching redacted thinking blocks before Anthropic tool_use blocks", async () => {
+		const store = await storeWithEntries([
+			{
+				modelId: "claude-opus-4-6",
+				callId: "toolu_redacted",
+				redactedThinkingData: "encrypted_thinking_blob",
+			},
+		]);
+		const messages: AnthropicMessage[] = [
+			{
+				role: "assistant",
+				content: [{ type: "tool_use", id: "toolu_redacted", name: "read_file", input: {} }],
+			},
+		];
+
+		const result = applyAnthropicThinkingReplay({ modelId: "claude-opus-4-6", messages, store });
+
+		assert.equal(result.allRequiredReasoningReplayed, true);
+		assert.equal(result.replayedCount, 1);
+		assert.deepEqual((result.messages[0].content as unknown[])[0], {
+			type: "redacted_thinking",
+			data: "encrypted_thinking_blob",
+		});
+		assert.deepEqual((result.messages[0].content as unknown[])[1], {
+			type: "tool_use",
+			id: "toolu_redacted",
+			name: "read_file",
+			input: {},
+		});
+	});
+
 	it("leaves existing Anthropic thinking blocks replay-safe", async () => {
 		const store = await storeWithEntries([]);
 		const messages: AnthropicMessage[] = [
@@ -260,6 +302,26 @@ describe("applyAnthropicThinkingReplay", () => {
 		];
 
 		const result = applyAnthropicThinkingReplay({ modelId: "mimo-v2.5-pro", messages, store });
+
+		assert.equal(result.allRequiredReasoningReplayed, true);
+		assert.equal(result.hasAssistantToolCalls, true);
+		assert.equal(result.replayedCount, 0);
+		assert.deepEqual(result.messages[0].content, messages[0].content);
+	});
+
+	it("leaves existing Anthropic redacted thinking blocks replay-safe", async () => {
+		const store = await storeWithEntries([]);
+		const messages: AnthropicMessage[] = [
+			{
+				role: "assistant",
+				content: [
+					{ type: "redacted_thinking", data: "host encrypted" },
+					{ type: "tool_use", id: "toolu_host", name: "read_file", input: {} },
+				],
+			},
+		];
+
+		const result = applyAnthropicThinkingReplay({ modelId: "claude-opus-4-6", messages, store });
 
 		assert.equal(result.allRequiredReasoningReplayed, true);
 		assert.equal(result.hasAssistantToolCalls, true);

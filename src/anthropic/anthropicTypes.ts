@@ -31,6 +31,11 @@ export interface AnthropicThinkingBlock {
 	signature?: string;
 }
 
+export interface AnthropicRedactedThinkingBlock {
+	type: "redacted_thinking";
+	data: string;
+}
+
 export interface AnthropicToolUseBlock {
 	type: "tool_use";
 	id: string;
@@ -51,6 +56,7 @@ export type AnthropicContentBlock =
 	| AnthropicTextBlock
 	| AnthropicImageBlock
 	| AnthropicThinkingBlock
+	| AnthropicRedactedThinkingBlock
 	| AnthropicToolUseBlock
 	| AnthropicToolResultBlock;
 
@@ -79,7 +85,10 @@ export interface AnthropicRequestBody {
 		user_id?: string;
 	};
 	service_tier?: "auto" | "standard_only";
-	thinking?: { type: "enabled"; budget_tokens: number } | { type: "disabled" };
+	thinking?:
+		| { type: "enabled"; budget_tokens: number; display?: "summarized" | "omitted" }
+		| { type: "adaptive"; display?: "summarized" | "omitted" }
+		| { type: "disabled" };
 	output_config?: {
 		effort?: "low" | "medium" | "high";
 	};
@@ -98,6 +107,13 @@ export type AnthropicToolChoice =
 	| { type: "any" }
 	| { type: "tool"; name: string }
 	| { type: "none" };
+
+export interface AnthropicUsage {
+	input_tokens?: number;
+	output_tokens?: number;
+	cache_creation_input_tokens?: number;
+	cache_read_input_tokens?: number;
+}
 
 export interface AnthropicStreamChunk {
 	type:
@@ -118,11 +134,13 @@ export interface AnthropicStreamChunk {
 		model: string;
 		stop_reason?: string;
 		stop_sequence?: string;
+		usage?: AnthropicUsage;
 	};
 	content_block?: {
-		type: "text" | "thinking" | "tool_use";
+		type: "text" | "thinking" | "redacted_thinking" | "tool_use";
 		text?: string;
 		thinking?: string;
+		data?: string;
 		id?: string;
 		name?: string;
 		input?: Record<string, unknown>;
@@ -134,10 +152,7 @@ export interface AnthropicStreamChunk {
 		partial_json?: string;
 		signature?: string;
 	};
-	usage?: {
-		input_tokens: number;
-		output_tokens: number;
-	};
+	usage?: AnthropicUsage;
 	error?: {
 		type: string;
 		message: string;

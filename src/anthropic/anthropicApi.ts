@@ -15,6 +15,7 @@ import type {
 	AnthropicToolUseBlock,
 	AnthropicToolResultBlock,
 	AnthropicStreamChunk,
+	AnthropicUsage,
 } from "./anthropicTypes";
 
 import { isImageMimeType, isToolResultPart, collectToolResultText, convertToolsToOpenAI, mapRole } from "../utils";
@@ -394,24 +395,12 @@ export class AnthropicApi extends CommonApi {
 		}
 
 		if (chunk.type === "message_start" && chunk.message) {
-			if (chunk.usage) {
-				this.lastUsage = {
-					inputTokens: chunk.usage.input_tokens ?? 0,
-					outputTokens: chunk.usage.output_tokens ?? 0,
-				};
-			}
+			this.mergeUsage(chunk.message.usage ?? chunk.usage);
 			return;
 		}
 
 		if (chunk.type === "message_delta" && chunk.delta) {
-			if (chunk.usage) {
-				const prev = this.lastUsage;
-				this.lastUsage = {
-					inputTokens: chunk.usage.input_tokens ?? prev?.inputTokens ?? 0,
-					outputTokens: chunk.usage.output_tokens ?? prev?.outputTokens ?? 0,
-					cachedTokens: prev?.cachedTokens,
-				};
-			}
+			this.mergeUsage(chunk.usage);
 			return;
 		}
 
@@ -422,6 +411,10 @@ export class AnthropicApi extends CommonApi {
 				if (chunk.content_block.thinking) {
 					this.captureReplayReasoning(chunk.content_block.thinking);
 					this.bufferThinkingContent(chunk.content_block.thinking, progress);
+				}
+			} else if (chunk.content_block.type === "redacted_thinking") {
+				if (chunk.content_block.data) {
+					this.captureReplayRedactedThinking(chunk.content_block.data);
 				}
 			} else if (chunk.content_block.type === "tool_use") {
 				// Start tool call block
@@ -497,6 +490,26 @@ export class AnthropicApi extends CommonApi {
 			return;
 		}
 		this.thinkingReplayStore.appendReasoningSignature(this.pendingThinkingTurn.turnId, signature);
+	}
+
+	private captureReplayRedactedThinking(data: string): void {
+		if (!this.thinkingReplayStore || !this.pendingThinkingTurn) {
+			return;
+		}
+		this.thinkingReplayStore.appendRedactedThinkingData(this.pendingThinkingTurn.turnId, data);
+	}
+
+	private mergeUsage(usage: AnthropicUsage | undefined): void {
+		if (!usage) {
+			return;
+		}
+		const prev = this.lastUsage;
+		const cachedTokens = usage.cache_read_input_tokens ?? prev?.cachedTokens;
+		this.lastUsage = {
+			inputTokens: usage.input_tokens ?? prev?.inputTokens ?? 0,
+			outputTokens: usage.output_tokens ?? prev?.outputTokens ?? 0,
+			...(cachedTokens !== undefined ? { cachedTokens } : {}),
+		};
 	}
 
 	private async completeReplayTurn(): Promise<void> {

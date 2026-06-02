@@ -3,6 +3,7 @@ import type { ReasoningDialectProfile, ReplayCarrier } from "./reasoningDialect"
 import type {
 	AnthropicContentBlock,
 	AnthropicMessage,
+	AnthropicRedactedThinkingBlock,
 	AnthropicThinkingBlock,
 	AnthropicToolUseBlock,
 } from "./anthropic/anthropicTypes";
@@ -67,7 +68,9 @@ export function buildThinkingReplayMissError(
 		details.push(`conflictingToolCallIds=${formatShortList(preflight.conflictingCallIds)}`);
 	}
 
-	return details.length > 0 ? `${THINKING_REPLAY_MISS_ERROR} Details: ${details.join("; ")}.` : THINKING_REPLAY_MISS_ERROR;
+	return details.length > 0
+		? `${THINKING_REPLAY_MISS_ERROR} Details: ${details.join("; ")}.`
+		: THINKING_REPLAY_MISS_ERROR;
 }
 
 function resolveReplayCarrier(profile: ReasoningDialectProfile | undefined): StoredReplayCarrier {
@@ -207,6 +210,16 @@ function isAnthropicThinkingBlock(block: AnthropicContentBlock): block is Anthro
 	return block.type === "thinking" && typeof block.thinking === "string" && block.thinking.length > 0;
 }
 
+function isAnthropicRedactedThinkingBlock(block: AnthropicContentBlock): block is AnthropicRedactedThinkingBlock {
+	return block.type === "redacted_thinking" && typeof block.data === "string" && block.data.length > 0;
+}
+
+function isAnthropicReplayBlock(
+	block: AnthropicContentBlock
+): block is AnthropicThinkingBlock | AnthropicRedactedThinkingBlock {
+	return isAnthropicThinkingBlock(block) || isAnthropicRedactedThinkingBlock(block);
+}
+
 export function applyAnthropicThinkingReplay(input: {
 	readonly modelId: string;
 	readonly profile?: ReasoningDialectProfile;
@@ -232,14 +245,16 @@ export function applyAnthropicThinkingReplay(input: {
 		}
 
 		hasAssistantToolCalls = true;
-		if (clonedContent.some(isAnthropicThinkingBlock)) {
+		if (clonedContent.some(isAnthropicReplayBlock)) {
 			return clonedMessage;
 		}
 
 		const reasoningByCallId: Array<{
 			callId: string;
-			reasoningContent: string;
+			reasoningContent: string | undefined;
 			reasoningSignature: string | undefined;
+			redactedThinkingData: string | undefined;
+			payloadKey: string;
 		}> = [];
 		for (const toolUse of toolUseBlocks) {
 			if (!toolUse.id) {
@@ -254,7 +269,7 @@ export function applyAnthropicThinkingReplay(input: {
 						carrier: "anthropic_thinking_block",
 					})
 				: input.store.lookup(input.modelId, toolUse.id);
-			if (!entry?.reasoningContent) {
+			if (!entry?.reasoningContent && !entry?.redactedThinkingData) {
 				missingCallIds.push(toolUse.id);
 				continue;
 			}
@@ -262,6 +277,10 @@ export function applyAnthropicThinkingReplay(input: {
 				callId: toolUse.id,
 				reasoningContent: entry.reasoningContent,
 				reasoningSignature: entry.reasoningSignature,
+				redactedThinkingData: entry.redactedThinkingData,
+				payloadKey: entry.reasoningContent
+					? JSON.stringify(["thinking", entry.reasoningContent, entry.reasoningSignature ?? ""])
+					: JSON.stringify(["redacted_thinking", entry.redactedThinkingData ?? ""]),
 			});
 		}
 
@@ -273,21 +292,21 @@ export function applyAnthropicThinkingReplay(input: {
 		if (!first) {
 			return clonedMessage;
 		}
-		if (
-			reasoningByCallId.some(
-				(entry) =>
-					entry.reasoningContent !== first.reasoningContent || entry.reasoningSignature !== first.reasoningSignature
-			)
-		) {
+		if (reasoningByCallId.some((entry) => entry.payloadKey !== first.payloadKey)) {
 			conflictingCallIds.push(...reasoningByCallId.map((entry) => entry.callId));
 			return clonedMessage;
 		}
 
-		const thinkingBlock: AnthropicThinkingBlock = {
-			type: "thinking",
-			thinking: first.reasoningContent,
-			...(first.reasoningSignature ? { signature: first.reasoningSignature } : {}),
-		};
+		const thinkingBlock: AnthropicThinkingBlock | AnthropicRedactedThinkingBlock = first.reasoningContent
+			? {
+					type: "thinking",
+					thinking: first.reasoningContent,
+					...(first.reasoningSignature ? { signature: first.reasoningSignature } : {}),
+				}
+			: {
+					type: "redacted_thinking",
+					data: first.redactedThinkingData ?? "",
+				};
 		const firstToolUseIndex = clonedContent.findIndex(isAnthropicToolUseBlock);
 		clonedContent.splice(firstToolUseIndex === -1 ? 0 : firstToolUseIndex, 0, thinkingBlock);
 		replayedCount++;
@@ -315,7 +334,11 @@ export function decideThinkingReplayRequest(input: {
 	if (!shouldRoundTrip) {
 		return { allowThinkingRoundTrip: false, failLocalReason: undefined };
 	}
-	if (!input.allowMissingReplay && !input.preflight.allRequiredReasoningReplayed && input.preflight.hasAssistantToolCalls) {
+	if (
+		!input.allowMissingReplay &&
+		!input.preflight.allRequiredReasoningReplayed &&
+		input.preflight.hasAssistantToolCalls
+	) {
 		return {
 			allowThinkingRoundTrip: false,
 			failLocalReason: buildThinkingReplayMissError(input.preflight, input.failureContext),

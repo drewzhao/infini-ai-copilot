@@ -55,9 +55,8 @@ function getThinkingObject(body: Record<string, unknown>): Record<string, unknow
 }
 
 function getAnthropicThinkingBudget(body: Record<string, unknown>): number {
-	const maxTokens = typeof body.max_tokens === "number" && Number.isFinite(body.max_tokens)
-		? Math.floor(body.max_tokens)
-		: undefined;
+	const maxTokens =
+		typeof body.max_tokens === "number" && Number.isFinite(body.max_tokens) ? Math.floor(body.max_tokens) : undefined;
 	if (maxTokens === undefined || maxTokens <= 1) {
 		return 1024;
 	}
@@ -102,20 +101,30 @@ function applyCurrentTurnControl(
 			delete body.enable_thinking;
 			writtenFields.push("thinking.type");
 			return;
-		case "anthropic-thinking":
-			body.thinking =
-				thinkingMode === "enabled"
-					? {
-							...getThinkingObject(body),
-							type: "enabled",
-							budget_tokens: getAnthropicThinkingBudget(body),
-						}
-					: {
-							type: "disabled",
-						};
+		case "anthropic-thinking": {
+			const control = profile.currentTurnControl;
+			if (thinkingMode === "enabled" && control.enableMode === "adaptive") {
+				body.thinking = {
+					...getThinkingObject(body),
+					type: "adaptive",
+					display: control.adaptiveDisplay ?? "summarized",
+				};
+			} else {
+				body.thinking =
+					thinkingMode === "enabled"
+						? {
+								...getThinkingObject(body),
+								type: "enabled",
+								budget_tokens: getAnthropicThinkingBudget(body),
+							}
+						: {
+								type: "disabled",
+							};
+			}
 			delete body.enable_thinking;
 			writtenFields.push("thinking.type");
 			return;
+		}
 		case "none":
 			ignoredControls.push("thinkingMode");
 			return;
@@ -168,7 +177,11 @@ function applyPreservationControl(
 	}
 }
 
-function applyReplayModeSelection(body: Record<string, unknown>, profile: ReasoningDialectProfile, writtenFields: string[]): void {
+function applyReplayModeSelection(
+	body: Record<string, unknown>,
+	profile: ReasoningDialectProfile,
+	writtenFields: string[]
+): void {
 	if (profile.family === "minimax") {
 		body.reasoning_split = true;
 		writtenFields.push("reasoning_split");

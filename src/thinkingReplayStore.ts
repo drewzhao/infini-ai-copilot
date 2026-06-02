@@ -16,6 +16,7 @@ export interface ThinkingReplayEntry {
 	readonly reasoningContent?: string;
 	readonly reasoningDetails?: readonly unknown[];
 	readonly reasoningSignature?: string;
+	readonly redactedThinkingData?: string;
 	readonly capturedAt: number;
 	readonly byteLength: number;
 }
@@ -68,6 +69,7 @@ interface PendingTurn {
 	readonly chunks: string[];
 	readonly detailChunks: unknown[];
 	readonly signatureChunks: string[];
+	readonly redactedThinkingChunks: string[];
 	byteLength: number;
 	invalid: boolean;
 }
@@ -101,17 +103,23 @@ function isReplayEntry(value: unknown): value is ThinkingReplayEntry {
 		typeof v.modelId === "string" &&
 		typeof v.callId === "string" &&
 		(v.profileId === undefined || typeof v.profileId === "string") &&
-		(v.transport === undefined || v.transport === "openai" || v.transport === "anthropic" || v.transport === "vertex") &&
+		(v.transport === undefined ||
+			v.transport === "openai" ||
+			v.transport === "anthropic" ||
+			v.transport === "vertex") &&
 		(v.carrier === undefined || isStoredReplayCarrier(v.carrier)) &&
 		(v.reasoningContent === undefined || typeof v.reasoningContent === "string") &&
 		(v.reasoningDetails === undefined || Array.isArray(v.reasoningDetails)) &&
 		(v.reasoningSignature === undefined || typeof v.reasoningSignature === "string") &&
+		(v.redactedThinkingData === undefined || typeof v.redactedThinkingData === "string") &&
 		typeof v.capturedAt === "number" &&
 		typeof v.byteLength === "number" &&
 		v.modelId.length > 0 &&
 		v.callId.length > 0 &&
 		v.byteLength >= 0 &&
-		(typeof v.reasoningContent === "string" || Array.isArray(v.reasoningDetails))
+		(typeof v.reasoningContent === "string" ||
+			Array.isArray(v.reasoningDetails) ||
+			typeof v.redactedThinkingData === "string")
 	);
 }
 
@@ -222,6 +230,7 @@ export class ThinkingReplayStore {
 			chunks: [],
 			detailChunks: [],
 			signatureChunks: [],
+			redactedThinkingChunks: [],
 			byteLength: 0,
 			invalid: !config.modelId || !config.profileId,
 		});
@@ -276,6 +285,22 @@ export class ThinkingReplayStore {
 		pending.signatureChunks.push(signature);
 	}
 
+	appendRedactedThinkingData(turnId: string, data: string): void {
+		if (!data) {
+			return;
+		}
+		const pending = this.pending.get(turnId);
+		if (!pending) {
+			return;
+		}
+		pending.byteLength += byteLength(data);
+		if (pending.byteLength > this.maxPendingTurnBytes) {
+			pending.invalid = true;
+			return;
+		}
+		pending.redactedThinkingChunks.push(data);
+	}
+
 	recordToolCall(turnId: string, callId: string): void {
 		const pending = this.pending.get(turnId);
 		if (!pending) {
@@ -297,7 +322,8 @@ export class ThinkingReplayStore {
 
 		const reasoningContent = pending.chunks.join("") || undefined;
 		const reasoningDetails = pending.detailChunks.length > 0 ? [...pending.detailChunks] : undefined;
-		if (pending.carrier === "reasoning_details" ? !reasoningDetails : !reasoningContent) {
+		const redactedThinkingData = pending.redactedThinkingChunks.join("") || undefined;
+		if (pending.carrier === "reasoning_details" ? !reasoningDetails : !reasoningContent && !redactedThinkingData) {
 			return;
 		}
 		const reasoningSignature = pending.signatureChunks.join("") || undefined;
@@ -306,7 +332,8 @@ export class ThinkingReplayStore {
 		const entryByteLength =
 			(reasoningContent ? byteLength(reasoningContent) : 0) +
 			(reasoningDetails ? byteLength(JSON.stringify(reasoningDetails)) : 0) +
-			(reasoningSignature ? byteLength(reasoningSignature) : 0);
+			(reasoningSignature ? byteLength(reasoningSignature) : 0) +
+			(redactedThinkingData ? byteLength(redactedThinkingData) : 0);
 		for (const callId of pending.callIds) {
 			const entry: ThinkingReplayEntry = {
 				modelId: pending.modelId,
@@ -317,6 +344,7 @@ export class ThinkingReplayStore {
 				reasoningContent,
 				reasoningDetails,
 				reasoningSignature,
+				redactedThinkingData,
 				capturedAt,
 				byteLength: entryByteLength,
 			};

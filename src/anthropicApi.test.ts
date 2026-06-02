@@ -197,6 +197,30 @@ describe("AnthropicApi.prepareRequestBody MiniMax request controls", () => {
 });
 
 describe("AnthropicApi thinking replay streaming capture", () => {
+	it("preserves input usage from the message_start message object", async () => {
+		const { anthropic } = loadAnthropicApi();
+		const api = new anthropic.AnthropicApi();
+
+		await api.processStreamingResponse(
+			streamFromChunks([
+				'data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude-opus-4-7","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":25,"output_tokens":1,"cache_read_input_tokens":7}}}\n\n',
+				'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n',
+				'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}\n\n',
+				'data: {"type":"content_block_stop","index":0}\n\n',
+				'data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":15}}\n\n',
+				'data: {"type":"message_stop"}\n\n',
+			]),
+			{ report() {} },
+			token() as any
+		);
+
+		assert.deepEqual(api.lastUsage, {
+			inputTokens: 25,
+			outputTokens: 15,
+			cachedTokens: 7,
+		});
+	});
+
 	it("commits structured thinking when the streamed turn finishes with tool use", async () => {
 		const { anthropic, replayStore } = loadAnthropicApi();
 		const store = new replayStore.ThinkingReplayStore();
@@ -222,6 +246,41 @@ describe("AnthropicApi thinking replay streaming capture", () => {
 		const entry = store.lookup("mimo-v2.5-pro", "toolu_1");
 		assert.equal(entry?.reasoningContent, "because reason ");
 		assert.equal(entry?.reasoningSignature, "sig_1");
+	});
+
+	it("commits redacted thinking when the streamed turn finishes with tool use", async () => {
+		const { anthropic, replayStore } = loadAnthropicApi();
+		const store = new replayStore.ThinkingReplayStore();
+		await store.initialize(new replayStore.MemoryThinkingReplayStorage());
+		const pendingTurn = store.beginTurn({
+			modelId: "claude-opus-4-6",
+			profileId: "claude-anthropic-adaptive-thinking",
+			transport: "anthropic",
+			carrier: "anthropic_thinking_block",
+		});
+		const api = new anthropic.AnthropicApi({ thinkingReplayStore: store, pendingThinkingTurn: pendingTurn });
+
+		await api.processStreamingResponse(
+			streamFromChunks([
+				'data: {"type":"content_block_start","index":0,"content_block":{"type":"redacted_thinking","data":"encrypted_blob"}}\n\n',
+				'data: {"type":"content_block_stop","index":0}\n\n',
+				'data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"read_file","input":{}}}\n\n',
+				'data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{}"}}\n\n',
+				'data: {"type":"content_block_stop","index":1}\n\n',
+				'data: {"type":"message_stop"}\n\n',
+			]),
+			{ report() {} },
+			token() as any
+		);
+
+		const entry = store.lookup({
+			modelId: "claude-opus-4-6",
+			callId: "toolu_1",
+			profileId: "claude-anthropic-adaptive-thinking",
+			carrier: "anthropic_thinking_block",
+		});
+		assert.equal(entry?.reasoningContent, undefined);
+		assert.equal(entry?.redactedThinkingData, "encrypted_blob");
 	});
 
 	it("does not commit Anthropic thinking when no tool use is emitted", async () => {

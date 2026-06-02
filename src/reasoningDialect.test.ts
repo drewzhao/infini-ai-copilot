@@ -157,6 +157,27 @@ describe("reasoning dialect profiles", () => {
 		assert.equal(profile.replayRisk, "none");
 	});
 
+	it("resolves Claude Anthropic routes as adaptive-thinking profiles", () => {
+		const profile = resolveReasoningDialectProfile({
+			modelId: "claude-opus-4-6",
+			transport: "anthropic",
+		});
+
+		assert.equal(profile.id, "claude-anthropic-adaptive-thinking");
+		assert.equal(profile.transport, "anthropic");
+		assert.equal(profile.family, "claude");
+		assert.equal(profile.defaultThinking, "off");
+		assert.deepEqual(profile.currentTurnControl, {
+			kind: "anthropic-thinking",
+			enableMode: "adaptive",
+		});
+		assert.equal(profile.replayCarrier, "anthropic_thinking_block");
+		assert.equal(profile.canDisableThinking, true);
+		assert.equal(profile.canEnableThinking, true);
+		assert.equal(profile.reasoningEffortControl, "none");
+		assert.equal(profile.replayRisk, "reasoning-content-required-after-tool-call");
+	});
+
 	it("resolves OpenClaw-confirmed MiMo OpenAI reasoning IDs with effort and replay controls", () => {
 		for (const modelId of ["mimo-v2-pro", "mimo-v2-omni", "mimo-v2.5", "mimo-v2.5-pro", "mimo-v2.6-pro"]) {
 			const profile = resolveReasoningDialectProfile({

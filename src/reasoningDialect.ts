@@ -6,7 +6,11 @@ export type CurrentTurnThinkingControlSpec =
 	| { readonly kind: "none" }
 	| { readonly kind: "qwen-enable-thinking" }
 	| { readonly kind: "thinking-type" }
-	| { readonly kind: "anthropic-thinking" };
+	| {
+			readonly kind: "anthropic-thinking";
+			readonly enableMode?: "enabled" | "adaptive";
+			readonly adaptiveDisplay?: "summarized" | "omitted";
+	  };
 
 export type ReplayCarrier =
 	| "none"
@@ -140,13 +144,24 @@ function anthropicProfile(modelId: string): ReasoningDialectProfile {
 		});
 	}
 
+	if (modelId.includes("claude")) {
+		return profile({
+			id: "claude-anthropic-adaptive-thinking",
+			transport: "anthropic",
+			family: "claude",
+			defaultThinking: "off",
+			currentTurnControl: { kind: "anthropic-thinking", enableMode: "adaptive" },
+			replayCarrier: "anthropic_thinking_block",
+			preservationControl: { kind: "none" },
+			canDisableThinking: true,
+			canEnableThinking: true,
+			replayRisk: "reasoning-content-required-after-tool-call",
+		});
+	}
+
 	const isGlmDefaultThinking = /^glm-(5|4\.7)(\.|$|-)/.test(modelId) || modelId === "glm-5" || modelId === "glm-4.7";
 	return profile({
-		id: modelId.includes("claude")
-			? "anthropic-claude-compatible"
-			: isGlmDefaultThinking
-				? "glm-5-default-thinking"
-				: "anthropic-messages-compatible",
+		id: isGlmDefaultThinking ? "glm-5-default-thinking" : "anthropic-messages-compatible",
 		transport: "anthropic",
 		family: modelId.split(/[-_.]/)[0] || "anthropic",
 		defaultThinking: isGlmDefaultThinking ? "on" : "unknown",
@@ -319,7 +334,11 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 	if (modelId.includes("qwen")) {
 		const forcedThinking = modelId.includes("thinking") || modelId.includes("qwq");
 		return profile({
-			id: forcedThinking ? "qwen3-forced-thinking" : modelId.includes("instruct") ? "qwen3-instruct" : "qwen3-open-hybrid",
+			id: forcedThinking
+				? "qwen3-forced-thinking"
+				: modelId.includes("instruct")
+					? "qwen3-instruct"
+					: "qwen3-open-hybrid",
 			transport: "openai",
 			family: "qwen",
 			defaultThinking: forcedThinking ? "forced" : modelId.includes("instruct") ? "off" : "unknown",
@@ -346,9 +365,7 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 	});
 }
 
-export function resolveReasoningDialectProfile(
-	input: ResolveReasoningDialectProfileInput
-): ReasoningDialectProfile {
+export function resolveReasoningDialectProfile(input: ResolveReasoningDialectProfileInput): ReasoningDialectProfile {
 	const modelId = normalizedModelId(input.modelId);
 	if (input.transport === "anthropic") {
 		return anthropicProfile(modelId);

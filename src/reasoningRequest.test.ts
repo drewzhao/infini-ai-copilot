@@ -93,6 +93,24 @@ describe("reasoning request controls", () => {
 		});
 	});
 
+	it("enables Claude Anthropic thinking with adaptive mode instead of a token budget", () => {
+		const body: Record<string, unknown> = {
+			model: "claude-opus-4-6",
+			max_tokens: 4096,
+		};
+		const profile = resolveReasoningDialectProfile({ modelId: "claude-opus-4-6", transport: "anthropic" });
+
+		applyReasoningRequestControls(body, profile, {
+			thinkingMode: "enabled",
+		});
+
+		assert.deepEqual(body, {
+			model: "claude-opus-4-6",
+			max_tokens: 4096,
+			thinking: { type: "adaptive", display: "summarized" },
+		});
+	});
+
 	it("disables Anthropic thinking with the provider control shape", () => {
 		const body: Record<string, unknown> = {
 			model: "deepseek-v3.2",
