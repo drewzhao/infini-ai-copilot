@@ -1,7 +1,11 @@
 import assert from "assert/strict";
 
 import { resolveReasoningDialectProfile } from "./reasoningDialect";
-import { getDefaultRequestThinkingMode, shouldHonorThinkingRoundTripForProfile } from "./thinkingPolicy";
+import {
+	getDefaultRequestThinkingMode,
+	shouldHonorThinkingRoundTripForProfile,
+	shouldRequireThinkingReplayByProfile,
+} from "./thinkingPolicy";
 
 describe("profile-aware thinking policy", () => {
 	it("honors the Kimi K2 round-trip default on the OpenAI-compatible route", () => {
@@ -44,5 +48,26 @@ describe("profile-aware thinking policy", () => {
 			false
 		);
 		assert.equal(getDefaultRequestThinkingMode({ profile }), "disabled");
+	});
+
+	it("does not require replay when thinking is explicitly disabled", () => {
+		const profile = resolveReasoningDialectProfile({ modelId: "claude-opus-4-6", transport: "anthropic" });
+
+		assert.equal(
+			shouldRequireThinkingReplayByProfile({
+				profile,
+				configuredThinkingMode: "disabled",
+				forceDisableThinking: false,
+			}),
+			false
+		);
+		assert.equal(
+			shouldRequireThinkingReplayByProfile({
+				profile,
+				configuredThinkingMode: "enabled",
+				forceDisableThinking: false,
+			}),
+			true
+		);
 	});
 });

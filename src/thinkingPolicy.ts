@@ -28,3 +28,21 @@ export function shouldHonorThinkingRoundTripForProfile(input: {
 	}
 	return configuredThinkingMode === "enabled" && profile.canEnableThinking;
 }
+
+export function shouldRequireThinkingReplayByProfile(input: {
+	readonly profile: ReasoningDialectProfile;
+	readonly configuredThinkingMode?: InfiniAIModelConfiguration["thinkingMode"];
+	readonly forceDisableThinking: boolean;
+}): boolean {
+	const { profile, configuredThinkingMode, forceDisableThinking } = input;
+	if (
+		forceDisableThinking ||
+		configuredThinkingMode === "disabled" ||
+		profile.replayRisk === "none" ||
+		profile.replayRisk === "unknown" ||
+		profile.replayRisk === "reasoning-content-best-effort-after-tool-call"
+	) {
+		return false;
+	}
+	return configuredThinkingMode === "enabled" || profile.defaultThinking === "on" || profile.defaultThinking === "forced";
+}

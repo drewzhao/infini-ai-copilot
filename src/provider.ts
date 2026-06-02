@@ -42,7 +42,11 @@ import {
 	shouldDisableThinking,
 	shouldEnableThinkingRoundTrip,
 } from "./thinkingMode";
-import { getDefaultRequestThinkingMode, shouldHonorThinkingRoundTripForProfile } from "./thinkingPolicy";
+import {
+	getDefaultRequestThinkingMode,
+	shouldHonorThinkingRoundTripForProfile,
+	shouldRequireThinkingReplayByProfile,
+} from "./thinkingPolicy";
 import { InfiniAIModelInfo, ModelRoute, ModelRouteConfig } from "./types";
 import {
 	cancellableDelay,
@@ -200,28 +204,6 @@ function safeEndpointLabel(url: string): string {
 
 function lowerIncludes(value: string | undefined, needle: string): boolean {
 	return value?.toLowerCase().includes(needle) ?? false;
-}
-
-function shouldRequireThinkingReplayByProfile(input: {
-	readonly replayRisk: string;
-	readonly defaultThinking: string;
-	readonly configuredThinkingMode?: string;
-	readonly forceDisableThinking: boolean;
-}): boolean {
-	if (
-		input.forceDisableThinking ||
-		input.replayRisk === "none" ||
-		input.replayRisk === "unknown" ||
-		input.replayRisk === "reasoning-content-best-effort-after-tool-call"
-	) {
-		return false;
-	}
-	return (
-		input.configuredThinkingMode === "enabled" ||
-		input.configuredThinkingMode === "disabled" ||
-		input.defaultThinking === "on" ||
-		input.defaultThinking === "forced"
-	);
 }
 
 function requestBodyHasDisabledThinking(body: Record<string, unknown>): boolean {
@@ -697,8 +679,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		const forceDisableThinking = shouldDisableThinking(model.id, disableThinkingPatterns);
 		const effectiveForceDisableThinking = forceDisableThinking || profileDefaultDisablesThinking;
 		const replayRequiredByProfile = shouldRequireThinkingReplayByProfile({
-			replayRisk: reasoningProfile.replayRisk,
-			defaultThinking: reasoningProfile.defaultThinking,
+			profile: reasoningProfile,
 			configuredThinkingMode: modelConfiguration.thinkingMode,
 			forceDisableThinking: effectiveForceDisableThinking,
 		});
@@ -857,8 +838,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		const forceDisableThinking = shouldDisableThinking(model.id, disableThinkingPatterns);
 		const effectiveForceDisableThinking = forceDisableThinking || profileDefaultDisablesThinking;
 		const replayRequiredByProfile = shouldRequireThinkingReplayByProfile({
-			replayRisk: reasoningProfile.replayRisk,
-			defaultThinking: reasoningProfile.defaultThinking,
+			profile: reasoningProfile,
 			configuredThinkingMode: modelConfiguration.thinkingMode,
 			forceDisableThinking: effectiveForceDisableThinking,
 		});
@@ -1045,6 +1025,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			return {
 				"Content-Type": "application/json",
 				"User-Agent": this.userAgent,
+				Authorization: `Bearer ${apiKey}`,
 				"x-api-key": apiKey,
 				"anthropic-version": "2023-06-01",
 			};
