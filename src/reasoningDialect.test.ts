@@ -86,6 +86,7 @@ describe("reasoning dialect profiles", () => {
 		assert.equal(profile.canEnableThinking, true);
 		assert.equal(profile.reasoningEffortControl, "openai-reasoning-effort");
 		assert.equal(profile.defaultReasoningEffort, "high");
+		assert.equal(profile.replayRisk, "reasoning-content-best-effort-after-tool-call");
 	});
 
 	it("resolves DeepSeek V3.2 Anthropic routes as toggleable default-off thinking", () => {

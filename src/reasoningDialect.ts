@@ -349,7 +349,7 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 			preservationControl: { kind: "none" },
 			canDisableThinking: true,
 			canEnableThinking: true,
-			replayRisk: "reasoning-content-required-after-tool-call",
+			replayRisk: "reasoning-content-best-effort-after-tool-call",
 			reasoningEffortControl: "openai-reasoning-effort",
 			reasoningEffortLevels: ["high", "max"],
 			defaultReasoningEffort: "high",
