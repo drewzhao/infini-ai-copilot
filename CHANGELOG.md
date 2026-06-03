@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - DeepSeek V4 OpenAI-compatible reasoning replay now treats compaction-generated tool-call turns without historical `reasoning_content` as best-effort instead of failing locally. Live probes confirmed `deepseek-v4-pro` and `deepseek-v4-flash` accept follow-up requests with the assistant tool call and tool result preserved while `reasoning_content` is omitted.
+- Kimi K2 OpenAI-compatible reasoning replay now treats tool-call turns without historical `reasoning_content` as best-effort instead of failing locally. Live probes confirmed `kimi-k2.6` accepts follow-up requests with captured, omitted, and blank historical `reasoning_content` in non-streaming and streaming modes.
 
 ## [0.6.3] - 2026-06-02
 

@@ -256,7 +256,7 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 			preservationControl: { kind: "kimi-keep" },
 			canDisableThinking: false,
 			canEnableThinking: false,
-			replayRisk: "reasoning-content-required-after-tool-call",
+			replayRisk: "reasoning-content-best-effort-after-tool-call",
 		});
 	}
 
@@ -271,7 +271,7 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 			preservationControl: { kind: "kimi-keep" },
 			canDisableThinking: true,
 			canEnableThinking: true,
-			replayRisk: "reasoning-content-required-after-tool-call",
+			replayRisk: "reasoning-content-best-effort-after-tool-call",
 		});
 	}
 

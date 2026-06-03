@@ -158,6 +158,22 @@ describe("reasoning dialect profiles", () => {
 		assert.equal(profile.replayRisk, "none");
 	});
 
+	it("resolves Kimi K2 OpenAI routes as best-effort reasoning replay profiles", () => {
+		for (const modelId of ["kimi-k2.6", "kimi-k2-thinking"]) {
+			const profile = resolveReasoningDialectProfile({
+				modelId,
+				transport: "openai",
+			});
+
+			assert.equal(profile.transport, "openai");
+			assert.equal(profile.family, "kimi");
+			assert.equal(profile.replayCarrier, "reasoning_content");
+			assert.deepEqual(profile.preservationControl, { kind: "kimi-keep" });
+			assert.equal(profile.reasoningEffortControl, "none");
+			assert.equal(profile.replayRisk, "reasoning-content-best-effort-after-tool-call");
+		}
+	});
+
 	it("resolves confirmed Claude Anthropic adaptive-thinking model IDs as adaptive profiles", () => {
 		for (const modelId of ["claude-opus-4-6", "claude-opus-4-7", "claude-sonnet-4-6"]) {
 			const profile = resolveReasoningDialectProfile({
