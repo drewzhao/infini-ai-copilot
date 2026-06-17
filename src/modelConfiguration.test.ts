@@ -75,6 +75,24 @@ describe("model configuration schema", () => {
 		assert.deepEqual(schema.properties.thinkingMode.enum, ["unset", "disabled", "enabled"]);
 	});
 
+	it("uses GLM 5.2 OpenAI-specific reasoning effort choices", () => {
+		const schema = buildInfiniAIModelConfigurationSchema(
+			modelInfo({
+				id: "glm-5.2",
+				capabilities: {
+					toolCalling: true,
+				},
+			}),
+			131072,
+			"openai"
+		);
+
+		assert.ok(schema.properties.maxOutputTokens);
+		assert.deepEqual(schema.properties.reasoningEffort.enum, ["unset", "high", "max"]);
+		assert.deepEqual(schema.properties.reasoningEffort.enumItemLabels, ["Unset", "High", "Max"]);
+		assert.deepEqual(schema.properties.thinkingMode.enum, ["unset", "disabled", "enabled"]);
+	});
+
 	it("shows only the safe Anthropic disable control for DeepSeek V4 catalog routes", () => {
 		const schema = buildInfiniAIModelConfigurationSchema(
 			modelInfo({
@@ -338,6 +356,53 @@ describe("model configuration request mapping", () => {
 		assert.deepEqual(body, {
 			model: "deepseek-v4-pro",
 			reasoning_effort: "max",
+		});
+	});
+
+	it("applies GLM 5.2 default max reasoning effort on replay-enabled OpenAI requests", () => {
+		const body: Record<string, unknown> = { model: "glm-5.2" };
+
+		applyOpenAIModelConfiguration(body, {}, undefined, {
+			useDefaultReasoningEffort: true,
+		});
+
+		assert.deepEqual(body, {
+			model: "glm-5.2",
+			reasoning_effort: "max",
+		});
+	});
+
+	it("maps GLM 5.2 OpenAI high reasoning effort", () => {
+		const body: Record<string, unknown> = { model: "glm-5.2" };
+
+		applyOpenAIModelConfiguration(body, {
+			reasoningEffort: "high",
+		});
+
+		assert.deepEqual(body, {
+			model: "glm-5.2",
+			reasoning_effort: "high",
+		});
+	});
+
+	it("removes GLM 5.2 reasoning effort when thinking is disabled", () => {
+		const body: Record<string, unknown> = { model: "glm-5.2" };
+
+		applyOpenAIModelConfiguration(
+			body,
+			{
+				reasoningEffort: "max",
+				thinkingMode: "disabled",
+			},
+			undefined,
+			{
+				useDefaultReasoningEffort: true,
+			}
+		);
+
+		assert.deepEqual(body, {
+			model: "glm-5.2",
+			thinking: { type: "disabled" },
 		});
 	});
 

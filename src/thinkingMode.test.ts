@@ -110,6 +110,7 @@ describe("getThinkingRoundTripPatterns", () => {
 			"deepseek-v4-pro",
 			"deepseek-r1",
 			"deepseek-v3.2-thinking",
+			"glm-5.2",
 			"glm-5.1",
 			"glm-4.7",
 			"kimi-k2.6",

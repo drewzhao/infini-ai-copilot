@@ -52,7 +52,7 @@ describe("built-in InfiniAI catalog metadata", () => {
 	});
 
 	it("defaults GLM models to the OpenClaw Z.AI OpenAI-compatible protocol", () => {
-		for (const id of ["glm-4.5", "glm-4.5-air", "glm-4.6", "glm-4.7", "glm-5", "glm-5.1"]) {
+		for (const id of ["glm-4.5", "glm-4.5-air", "glm-4.6", "glm-4.7", "glm-5", "glm-5.1", "glm-5.2"]) {
 			const enriched = enrichModelWithBuiltInMetadata(liveModel(id));
 
 			assert.equal(enriched.apiMode, "openai", id);
@@ -78,6 +78,7 @@ describe("built-in InfiniAI catalog metadata", () => {
 
 	it("uses a practical output reserve for VS Code prompt budgets", () => {
 		const cases: Array<[string, number]> = [
+			["glm-5.2", 983616],
 			["glm-5.1", 188416],
 			["glm-5", 188416],
 			["kimi-k2.6", 245760],
@@ -93,6 +94,18 @@ describe("built-in InfiniAI catalog metadata", () => {
 		for (const [id, expectedMaxInputTokens] of cases) {
 			assert.equal(getBuiltInInfiniAIModelMetadata(id)?.maxInputTokens, expectedMaxInputTokens, id);
 		}
+	});
+
+	it("records GLM 5.2 million-token metadata", () => {
+		const metadata = getBuiltInInfiniAIModelMetadata("glm-5.2");
+
+		assert.equal(metadata?.family, "glm-5");
+		assert.equal(metadata?.maxContextTokens, 1000000);
+		assert.equal(metadata?.maxInputTokens, 983616);
+		assert.equal(metadata?.maxOutputTokens, 131072);
+		assert.equal(metadata?.apiMode, "openai");
+		assert.equal(metadata?.endpointKind, "chat.completions");
+		assert.match(metadata?.tooltip ?? "", /Context: 1,000,000 tokens/);
 	});
 
 	it("keeps a useful family for unknown models", () => {

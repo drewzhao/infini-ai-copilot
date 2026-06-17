@@ -5,8 +5,32 @@ import {
 } from "./generated/infiniaiCatalogMetadata.generated";
 import type { InfiniAIModelInfo, ModelEndpointKind, ModelTransport } from "./types";
 
+const BUILT_IN_INFINIAI_MODEL_METADATA_OVERRIDES: Record<string, BuiltInInfiniAIModelMetadata> = {
+	"glm-5.2": {
+		name: "glm-5.2",
+		family: "glm-5",
+		manufacturer: "智谱",
+		maxContextTokens: 1000000,
+		maxInputTokens: 983616,
+		maxOutputTokens: 131072,
+		apiMode: "openai",
+		endpointKind: "chat.completions",
+		detail: "智谱 · Code · Tools",
+		tooltip:
+			"glm-5.2\nProvider: 智谱 · 大语言模型\nCapabilities: Text, Code, Tools\nContext: 1,000,000 tokens\nMax output: 131,072 tokens\nBilling: 后付费",
+		capabilities: {
+			toolCalling: true,
+			imageInput: false,
+			codeGeneration: true,
+		},
+	},
+};
+
 export function getBuiltInInfiniAIModelMetadata(modelId: string): BuiltInInfiniAIModelMetadata | undefined {
-	return BUILT_IN_INFINIAI_MODEL_METADATA[modelId as keyof typeof BUILT_IN_INFINIAI_MODEL_METADATA];
+	return (
+		BUILT_IN_INFINIAI_MODEL_METADATA_OVERRIDES[modelId] ??
+		BUILT_IN_INFINIAI_MODEL_METADATA[modelId as keyof typeof BUILT_IN_INFINIAI_MODEL_METADATA]
+	);
 }
 
 export function isBuiltInNonChatModel(modelId: string): boolean {

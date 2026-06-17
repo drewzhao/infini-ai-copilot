@@ -275,6 +275,24 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 		});
 	}
 
+	if (/^glm-5\.2(\.|$|-)/.test(modelId)) {
+		return profile({
+			id: "glm-5.2-openai",
+			transport: "openai",
+			family: "glm",
+			defaultThinking: "on",
+			currentTurnControl: { kind: "thinking-type" },
+			replayCarrier: "reasoning_content",
+			preservationControl: { kind: "glm-clear-thinking" },
+			canDisableThinking: true,
+			canEnableThinking: true,
+			replayRisk: "reasoning-content-best-effort-after-tool-call",
+			reasoningEffortControl: "openai-reasoning-effort",
+			reasoningEffortLevels: ["high", "max"],
+			defaultReasoningEffort: "max",
+		});
+	}
+
 	if (/^glm-(5|4\.7)(\.|$|-)/.test(modelId) || modelId === "glm-5" || modelId === "glm-4.7") {
 		return profile({
 			id: "glm-5-default-thinking",

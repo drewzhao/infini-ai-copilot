@@ -26,6 +26,23 @@ describe("reasoning dialect profiles", () => {
 		assert.equal(profile.currentTurnControl.kind, "thinking-type");
 		assert.deepEqual(profile.preservationControl, { kind: "glm-clear-thinking" });
 		assert.equal(String(profile.replayRisk), "reasoning-content-best-effort-after-tool-call");
+		assert.equal(profile.reasoningEffortControl, "none");
+	});
+
+	it("resolves GLM 5.2 OpenAI routes with provider-specific reasoning effort", () => {
+		const profile = resolveReasoningDialectProfile({
+			modelId: "glm-5.2",
+			transport: "openai",
+		});
+
+		assert.equal(profile.id, "glm-5.2-openai");
+		assert.equal(profile.defaultThinking, "on");
+		assert.equal(profile.currentTurnControl.kind, "thinking-type");
+		assert.deepEqual(profile.preservationControl, { kind: "glm-clear-thinking" });
+		assert.equal(profile.reasoningEffortControl, "openai-reasoning-effort");
+		assert.deepEqual(profile.reasoningEffortLevels, ["high", "max"]);
+		assert.equal(profile.defaultReasoningEffort, "max");
+		assert.equal(profile.replayRisk, "reasoning-content-best-effort-after-tool-call");
 	});
 
 	it("keeps Anthropic routed models away from OpenAI Chat Completions controls", () => {

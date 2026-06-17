@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-06-17
+
+### Added
+
+- GLM-5.2 now has a dedicated OpenAI-compatible reasoning profile with model-picker `Reasoning effort` choices limited to `Unset`, `High`, and `Max`, default replay effort `max`, and built-in 1,000,000-token context metadata.
+
 ## [0.6.4] - 2026-06-03
 
 ### Fixed

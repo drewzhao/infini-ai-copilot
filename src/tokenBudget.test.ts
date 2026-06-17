@@ -9,6 +9,7 @@ import {
 describe("advertised prompt budget policy", () => {
 	it("caps very large provider completion limits to a practical interactive reserve", () => {
 		assert.equal(computeAdvertisedMaxInputTokens(204800, 131072), 188416);
+		assert.equal(computeAdvertisedMaxInputTokens(1000000, 131072), 983616);
 		assert.equal(computeAdvertisedMaxInputTokens(1024000, 393216), 1007616);
 	});
 

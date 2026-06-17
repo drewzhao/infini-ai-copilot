@@ -1151,6 +1151,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		if (modelId.includes("glm-4.5v")) return 64000;
 		if (modelId.includes("glm-4.6v") || modelId.includes("glm-4.5-air") || modelId.includes("glm-4.5")) return 128000;
 		if (modelId.includes("glm-4.6") || modelId.includes("glm-4.7")) return 200000;
+		if (modelId.includes("glm-5.2")) return 1000000;
 		if (modelId.includes("glm-5")) return 198000;
 		if (modelId.includes("minimax-m")) return 200000;
 		if (
