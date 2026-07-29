@@ -42,13 +42,13 @@ export function shouldCaptureDisabledThinkingObservation(input: {
 	readonly allowThinkingRoundTrip: boolean;
 }): boolean {
 	const { profile, configuredThinkingMode, forceDisableThinking, allowThinkingRoundTrip } = input;
-	if (profile.replayScope !== "all-assistant-messages" || !profile.canDisableThinking) {
+	if (
+		!profile.canDisableThinking ||
+		(profile.replayScope !== "all-assistant-messages" && !profile.allowsMissingReplayPayload)
+	) {
 		return false;
 	}
-	return (
-		configuredThinkingMode === "disabled" ||
-		(forceDisableThinking && !allowThinkingRoundTrip)
-	);
+	return configuredThinkingMode === "disabled" || (forceDisableThinking && !allowThinkingRoundTrip);
 }
 
 export function shouldRequireThinkingReplayByProfile(input: {

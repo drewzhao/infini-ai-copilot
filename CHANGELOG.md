@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.8] - 2026-07-30
+
+### Fixed
+
+- Recognized exact `kimi-k3` as tool-call capable when catalog metadata is silent, allowing it in VS Code 1.130
+  Agents while preserving explicit capability metadata and user-disable precedence.
+- Recorded adaptive GLM-5.2 tool-call turns without `reasoning_content` as observed-empty, so a valid provider
+  omission is no longer misclassified as lost replay state.
+- Reset genuinely missing or conflicting GLM-5.2 preserved-thinking history with `clear_thinking: true`, avoiding
+  partial reasoning reconstruction while retaining visible/tool history and the current-turn thinking and effort
+  controls.
+- Clarified that GLM-5.2's **Enabled** control is adaptive, and added diagnostics that distinguish replayed,
+  observed-empty, missing/conflicting, and reset histories.
+
 ## [0.6.7] - 2026-07-29
 
 ### Fixed

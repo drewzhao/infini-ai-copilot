@@ -43,6 +43,8 @@ describe("reasoning dialect profiles", () => {
 		assert.deepEqual(profile.reasoningEffortLevels, ["high", "max"]);
 		assert.equal(profile.defaultReasoningEffort, "max");
 		assert.equal(profile.replayRisk, "reasoning-content-best-effort-after-tool-call");
+		assert.equal(profile.allowsMissingReplayPayload, true);
+		assert.equal(profile.resetThinkingHistoryOnReplayGap, true);
 	});
 
 	it("keeps Anthropic routed models away from OpenAI Chat Completions controls", () => {

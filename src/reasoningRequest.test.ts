@@ -304,6 +304,35 @@ describe("reasoning request controls", () => {
 		});
 	});
 
+	it("resets unknown GLM-5.2 history without overriding current-turn reasoning effort", () => {
+		const body: Record<string, unknown> = {
+			model: "glm-5.2",
+			reasoning_effort: "high",
+		};
+		const profile = resolveReasoningDialectProfile({ modelId: "glm-5.2", transport: "openai" });
+		const controls = buildReplayPreservationRequestControls({
+			allowThinkingRoundTrip: true,
+			profile,
+			resetThinkingHistory: true,
+		});
+
+		assert.deepEqual(controls, {
+			thinkingMode: "enabled",
+			clearThinking: true,
+		});
+		assert.ok(controls);
+		const result = applyReasoningRequestControls(body, profile, controls);
+		assert.deepEqual(body, {
+			model: "glm-5.2",
+			reasoning_effort: "high",
+			thinking: {
+				type: "enabled",
+				clear_thinking: true,
+			},
+		});
+		assert.equal(result.writtenFields.includes("reasoning_effort"), false);
+	});
+
 	it("activates current-turn thinking during round-trip even without preservation controls", () => {
 		const profile = resolveReasoningDialectProfile({ modelId: "deepseek-v4-pro", transport: "openai" });
 

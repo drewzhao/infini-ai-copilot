@@ -486,6 +486,75 @@ describe("OpenaiApi thinking replay streaming capture", () => {
 		);
 	});
 
+	it("commits an observed-empty marker for a completed GLM-5.2 tool turn", async () => {
+		const { openai, replayStore } = loadOpenaiApi();
+		const store = new replayStore.ThinkingReplayStore();
+		await store.initialize(new replayStore.MemoryThinkingReplayStorage());
+		const pendingTurn = store.beginTurn({
+			modelId: "glm-5.2",
+			profileId: "glm-5.2-openai",
+			transport: "openai",
+			carrier: "reasoning_content",
+			allowsMissingReplayPayload: true,
+		});
+		const api = new openai.OpenaiApi({ thinkingReplayStore: store, pendingThinkingTurn: pendingTurn });
+
+		await api.processStreamingResponse(
+			streamFromChunks([
+				'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_no_reasoning","function":{"name":"read_file","arguments":"{}"}}]}}]}\n\n',
+				'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n',
+				"data: [DONE]\n\n",
+			]),
+			{ report() {} },
+			token() as any
+		);
+
+		const entry = store.lookup({
+			modelId: "glm-5.2",
+			callId: "call_no_reasoning",
+			profileId: "glm-5.2-openai",
+			carrier: "reasoning_content",
+		});
+		assert.equal(entry?.observedWithoutReplayPayload, true);
+		assert.equal(entry?.reasoningContent, undefined);
+	});
+
+	it("does not commit a GLM-5.2 observed-empty marker for an aborted stream", async () => {
+		const { openai, replayStore } = loadOpenaiApi();
+		const store = new replayStore.ThinkingReplayStore();
+		await store.initialize(new replayStore.MemoryThinkingReplayStorage());
+		const pendingTurn = store.beginTurn({
+			modelId: "glm-5.2",
+			profileId: "glm-5.2-openai",
+			transport: "openai",
+			carrier: "reasoning_content",
+			allowsMissingReplayPayload: true,
+		});
+		const api = new openai.OpenaiApi({ thinkingReplayStore: store, pendingThinkingTurn: pendingTurn });
+
+		await assert.rejects(
+			api.processStreamingResponse(
+				streamFromChunks([
+					'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_aborted","function":{"name":"read_file","arguments":"{}"}}]}}]}\n\n',
+					"data: {not-json}\n\n",
+				]),
+				{ report() {} },
+				token() as any
+			),
+			/OpenAI stream parse failed/
+		);
+
+		assert.equal(
+			store.lookup({
+				modelId: "glm-5.2",
+				callId: "call_aborted",
+				profileId: "glm-5.2-openai",
+				carrier: "reasoning_content",
+			}),
+			undefined
+		);
+	});
+
 	it("commits structured reasoning when the stream completes after tool calls without finish_reason", async () => {
 		const { openai, replayStore } = loadOpenaiApi();
 		const store = new replayStore.ThinkingReplayStore();

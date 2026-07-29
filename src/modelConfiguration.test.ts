@@ -93,6 +93,8 @@ describe("model configuration schema", () => {
 		assert.match(schema.properties.reasoningEffort.description ?? "", /may send reasoning_effort=max/);
 		assert.match(schema.properties.reasoningEffort.description ?? "", /ignored while thinking is disabled/);
 		assert.deepEqual(schema.properties.thinkingMode.enum, ["unset", "disabled", "enabled"]);
+		assert.match(schema.properties.thinkingMode.enumDescriptions?.[2] ?? "", /adaptively/);
+		assert.match(schema.properties.thinkingMode.enumDescriptions?.[2] ?? "", /without reasoning_content/);
 	});
 
 	it("shows only the safe Anthropic disable control for DeepSeek V4 catalog routes", () => {

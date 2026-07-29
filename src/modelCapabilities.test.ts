@@ -79,6 +79,21 @@ describe("resolveToolCallingCapability", () => {
 		);
 	});
 
+	it("uses the exact verified Kimi K3 fallback without overriding stronger signals", () => {
+		const config = { verifiedPatterns: VERIFIED_TOOL_CALLING_MODEL_PATTERNS };
+
+		assert.equal(resolveToolCallingCapability({ id: "kimi-k3" }, config), true);
+		assert.equal(resolveToolCallingCapability({ id: "kimi-k3-preview" }, config), false);
+		assert.equal(resolveToolCallingCapability({ id: "kimi-k3", capabilities: { toolCalling: false } }, config), false);
+		assert.equal(
+			resolveToolCallingCapability(
+				{ id: "kimi-k3", capabilities: { toolCalling: true } },
+				{ ...config, disablePatterns: ["kimi-k3"] }
+			),
+			false
+		);
+	});
+
 	it("supports explicit user enable and disable patterns with disable winning", () => {
 		assert.equal(
 			resolveToolCallingCapability(

@@ -53,6 +53,7 @@ export interface ReasoningDialectProfile {
 	readonly replayScope: ReplayScope;
 	readonly replayRequiredByDefault?: boolean;
 	readonly allowsMissingReplayPayload: boolean;
+	readonly resetThinkingHistoryOnReplayGap: boolean;
 	readonly requiredToolChoiceControl: RequiredToolChoiceControl;
 	readonly reasoningEffortControl: ReasoningEffortControl;
 	readonly reasoningEffortLevels?: readonly ReasoningEffortLevel[];
@@ -73,6 +74,7 @@ type DefaultedReasoningDialectProfileFields =
 	| "reasoningEffortControl"
 	| "replayScope"
 	| "allowsMissingReplayPayload"
+	| "resetThinkingHistoryOnReplayGap"
 	| "requiredToolChoiceControl";
 type ReasoningDialectProfileInput = Omit<ReasoningDialectProfile, DefaultedReasoningDialectProfileFields> &
 	Partial<Pick<ReasoningDialectProfile, DefaultedReasoningDialectProfileFields>>;
@@ -82,6 +84,7 @@ function profile(input: ReasoningDialectProfileInput): ReasoningDialectProfile {
 		reasoningEffortControl: "none",
 		replayScope: "tool-call-assistant-messages",
 		allowsMissingReplayPayload: false,
+		resetThinkingHistoryOnReplayGap: false,
 		requiredToolChoiceControl: "specified-function",
 		...input,
 	};
@@ -363,6 +366,8 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 			canDisableThinking: true,
 			canEnableThinking: true,
 			replayRisk: "reasoning-content-best-effort-after-tool-call",
+			allowsMissingReplayPayload: true,
+			resetThinkingHistoryOnReplayGap: true,
 			reasoningEffortControl: "openai-reasoning-effort",
 			reasoningEffortLevels: ["high", "max"],
 			defaultReasoningEffort: "max",

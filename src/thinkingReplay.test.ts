@@ -51,6 +51,9 @@ async function storeWithEntries(
 		if (entry.redactedThinkingData) {
 			store.appendRedactedThinkingData(turn.turnId, entry.redactedThinkingData);
 		}
+		if (entry.observedWithoutReplayPayload) {
+			store.markObservedWithoutReplayPayload(turn.turnId);
+		}
 		store.recordToolCall(turn.turnId, entry.callId);
 		await store.commit(turn.turnId);
 	}
@@ -130,6 +133,64 @@ describe("applyThinkingReplay", () => {
 		assert.equal(result.allRequiredReasoningReplayed, true);
 		assert.equal(result.replayedCount, 1);
 		assert.equal(result.messages[0].reasoning_content, "same reasoning");
+	});
+
+	it("treats mixed GLM-5.2 reasoning and observed-empty tool turns as complete history", async () => {
+		const profile = resolveReasoningDialectProfile({ modelId: "glm-5.2", transport: "openai" });
+		const store = await storeWithEntries([
+			{
+				modelId: "glm-5.2",
+				callId: "call_reasoned",
+				reasoningContent: "stored reasoning",
+				profileId: profile.id,
+				transport: profile.transport,
+				carrier: "reasoning_content",
+			},
+			{
+				modelId: "glm-5.2",
+				callId: "call_observed_empty",
+				observedWithoutReplayPayload: true,
+				profileId: profile.id,
+				transport: profile.transport,
+				carrier: "reasoning_content",
+			},
+		]);
+		const messages: OpenAIChatMessage[] = [
+			{
+				role: "assistant",
+				tool_calls: [{ id: "call_reasoned", type: "function", function: { name: "first_tool", arguments: "{}" } }],
+			},
+			{ role: "tool", tool_call_id: "call_reasoned", content: "first result" },
+			{
+				role: "assistant",
+				tool_calls: [
+					{
+						id: "call_observed_empty",
+						type: "function",
+						function: { name: "second_tool", arguments: "{}" },
+					},
+				],
+			},
+			{ role: "tool", tool_call_id: "call_observed_empty", content: "second result" },
+		];
+
+		const result = applyThinkingReplay({ modelId: "glm-5.2", profile, messages, store });
+		const decision = decideThinkingReplayRequest({
+			userOptedIntoRoundTrip: true,
+			allowMissingReplay: true,
+			resetThinkingHistoryOnReplayGap: profile.resetThinkingHistoryOnReplayGap,
+			preflight: result,
+		});
+
+		assert.equal(result.allRequiredReasoningReplayed, true);
+		assert.equal(result.replayedCount, 1);
+		assert.equal(result.observedWithoutReplayPayloadCount, 1);
+		assert.deepEqual(result.missingCallIds, []);
+		assert.deepEqual(result.conflictingCallIds, []);
+		assert.equal(result.messages[0].reasoning_content, "stored reasoning");
+		assert.equal(result.messages[2].reasoning_content, undefined);
+		assert.equal(decision.allowThinkingRoundTrip, true);
+		assert.equal(decision.resetThinkingHistory, undefined);
 	});
 
 	it("marks missing tool call ids and missing store entries as unreplayable", async () => {
@@ -599,6 +660,100 @@ describe("decideThinkingReplayRequest", () => {
 		assert.equal(decision.failLocalReason, undefined);
 	});
 
+	it("resets GLM-5.2 thinking history for true replay gaps instead of partially preserving it", async () => {
+		const profile = resolveReasoningDialectProfile({ modelId: "glm-5.2", transport: "openai" });
+		const originalMessages: OpenAIChatMessage[] = [
+			{
+				role: "assistant",
+				tool_calls: [{ id: "call_replayed", type: "function", function: { name: "first_tool", arguments: "{}" } }],
+			},
+			{ role: "tool", tool_call_id: "call_replayed", content: "first result" },
+			{
+				role: "assistant",
+				tool_calls: [{ id: "call_missing", type: "function", function: { name: "second_tool", arguments: "{}" } }],
+			},
+		];
+		const preflight = applyThinkingReplay({
+			modelId: "glm-5.2",
+			profile,
+			messages: originalMessages,
+			store: await storeWithEntries([
+				{
+					modelId: "glm-5.2",
+					callId: "call_replayed",
+					reasoningContent: "do not send this during reset",
+					profileId: profile.id,
+					transport: profile.transport,
+					carrier: "reasoning_content",
+				},
+			]),
+		});
+
+		const decision = decideThinkingReplayRequest({
+			userOptedIntoRoundTrip: true,
+			allowMissingReplay: true,
+			resetThinkingHistoryOnReplayGap: profile.resetThinkingHistoryOnReplayGap,
+			preflight,
+		});
+
+		assert.equal(preflight.replayedCount, 1);
+		assert.deepEqual(preflight.missingCallIds, ["call_missing"]);
+		assert.equal(preflight.messages[0].reasoning_content, "do not send this during reset");
+		assert.equal(originalMessages[0].reasoning_content, undefined);
+		assert.deepEqual(decision, {
+			allowThinkingRoundTrip: true,
+			failLocalReason: undefined,
+			resetThinkingHistory: true,
+			resetReason: "missing",
+		});
+	});
+
+	it("resets GLM-5.2 thinking history when one assistant tool-call turn has conflicting replay", async () => {
+		const profile = resolveReasoningDialectProfile({ modelId: "glm-5.2", transport: "openai" });
+		const preflight = applyThinkingReplay({
+			modelId: "glm-5.2",
+			profile,
+			messages: [
+				{
+					role: "assistant",
+					tool_calls: [
+						{ id: "call_1", type: "function", function: { name: "first_tool", arguments: "{}" } },
+						{ id: "call_2", type: "function", function: { name: "second_tool", arguments: "{}" } },
+					],
+				},
+			],
+			store: await storeWithEntries([
+				{
+					modelId: "glm-5.2",
+					callId: "call_1",
+					reasoningContent: "first reasoning",
+					profileId: profile.id,
+					transport: profile.transport,
+					carrier: "reasoning_content",
+				},
+				{
+					modelId: "glm-5.2",
+					callId: "call_2",
+					reasoningContent: "different reasoning",
+					profileId: profile.id,
+					transport: profile.transport,
+					carrier: "reasoning_content",
+				},
+			]),
+		});
+
+		const decision = decideThinkingReplayRequest({
+			userOptedIntoRoundTrip: true,
+			allowMissingReplay: true,
+			resetThinkingHistoryOnReplayGap: profile.resetThinkingHistoryOnReplayGap,
+			preflight,
+		});
+
+		assert.deepEqual(preflight.conflictingCallIds, ["call_1", "call_2"]);
+		assert.equal(decision.resetThinkingHistory, true);
+		assert.equal(decision.resetReason, "conflict");
+	});
+
 	it("fails locally for replay-required profiles even without explicit opt-in", async () => {
 		const miss = applyThinkingReplay({
 			modelId: "glm-5.1",
@@ -716,6 +871,7 @@ describe("decideThinkingReplayRequest", () => {
 				hasAssistantToolCalls: true,
 				hasAssistantMessagesRequiringReplay: true,
 				replayedCount: 0,
+				observedWithoutReplayPayloadCount: 0,
 				missingCallIds: ["call_1", "call_2", "call_3", "call_4", "call_5", "call_6"],
 				conflictingCallIds: [],
 				missingAssistantMessageIndexes: [],

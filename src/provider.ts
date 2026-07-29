@@ -948,6 +948,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			userOptedIntoRoundTrip,
 			replayRequiredByProfile,
 			allowMissingReplay,
+			resetThinkingHistoryOnReplayGap: reasoningProfile.resetThinkingHistoryOnReplayGap,
 			preflight: replayPreflight,
 			failureContext: {
 				modelId: model.id,
@@ -960,7 +961,10 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			logWarn(this.output, sanitizeForLog(replayDecision.failLocalReason, 600));
 			throw new Error(replayDecision.failLocalReason);
 		}
-		const requestMessages = replayDecision.allowThinkingRoundTrip ? replayPreflight.messages : openaiMessages;
+		const requestMessages =
+			replayDecision.allowThinkingRoundTrip && !replayDecision.resetThinkingHistory
+				? replayPreflight.messages
+				: openaiMessages;
 		const captureDisabledThinkingObservation = shouldCaptureDisabledThinkingObservation({
 			profile: reasoningProfile,
 			configuredThinkingMode: modelConfiguration.thinkingMode,
@@ -1012,6 +1016,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			allowThinkingRoundTrip: replayDecision.allowThinkingRoundTrip,
 			profile: reasoningProfile,
 			configuredThinkingMode: modelConfiguration.thinkingMode,
+			resetThinkingHistory: replayDecision.resetThinkingHistory,
 		});
 		if (replayPreservationControls) {
 			applyReasoningRequestControls(requestBody, reasoningProfile, replayPreservationControls);
@@ -1044,10 +1049,13 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 				`roundTripOptIn=${userOptedIntoRoundTrip} ` +
 				`roundTripAllowed=${replayDecision.allowThinkingRoundTrip} ` +
 				`roundTripReplayed=${replayPreflight.replayedCount} ` +
+				`roundTripObservedEmpty=${replayPreflight.observedWithoutReplayPayloadCount} ` +
 				`roundTripMissing=${replayPreflight.missingCallIds.length} ` +
 				`roundTripConflicts=${replayPreflight.conflictingCallIds.length} ` +
 				`roundTripMissingAssistantMessages=${replayPreflight.missingAssistantMessageIndexes.length} ` +
 				`roundTripConflictingAssistantMessages=${replayPreflight.conflictingAssistantMessageIndexes.length} ` +
+				`roundTripReset=${replayDecision.resetThinkingHistory === true} ` +
+				`roundTripResetReason=${sanitizeForLog(replayDecision.resetReason ?? "none", 40)} ` +
 				`thinkingDisabled=${thinkingDisabled} ` +
 				`disablePatterns=${sanitizeForLog(disableThinkingPatterns.join(","), 300)} ` +
 				`roundTripPatterns=${sanitizeForLog(roundTripPatterns.join(","), 300)} ` +
@@ -1204,6 +1212,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 				`roundTripOptIn=${userOptedIntoRoundTrip} ` +
 				`roundTripAllowed=${replayDecision.allowThinkingRoundTrip} ` +
 				`roundTripReplayed=${replayPreflight.replayedCount} ` +
+				`roundTripObservedEmpty=${replayPreflight.observedWithoutReplayPayloadCount} ` +
 				`roundTripMissing=${replayPreflight.missingCallIds.length} ` +
 				`roundTripConflicts=${replayPreflight.conflictingCallIds.length} ` +
 				`thinkingDisabled=${thinkingDisabled} ` +

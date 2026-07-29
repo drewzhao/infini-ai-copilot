@@ -29,6 +29,30 @@ describe("ThinkingReplayStore", () => {
 		assert.equal(entry?.callId, "call_1");
 	});
 
+	it("records completed GLM-5.2 tool turns that contain no reasoning payload", async () => {
+		const store = new ThinkingReplayStore();
+		await store.initialize(new MemoryThinkingReplayStorage());
+		const turn = store.beginTurn({
+			modelId: "glm-5.2",
+			profileId: "glm-5.2-openai",
+			transport: "openai",
+			carrier: "reasoning_content",
+			allowsMissingReplayPayload: true,
+		});
+		store.recordToolCall(turn.turnId, "call_without_reasoning");
+
+		await store.commit(turn.turnId);
+
+		const entry = store.lookup({
+			modelId: "glm-5.2",
+			callId: "call_without_reasoning",
+			profileId: "glm-5.2-openai",
+			carrier: "reasoning_content",
+		});
+		assert.equal(entry?.observedWithoutReplayPayload, true);
+		assert.equal(entry?.reasoningContent, undefined);
+	});
+
 	it("stores ordinary assistant reasoning by transcript fingerprint", async () => {
 		const store = new ThinkingReplayStore();
 		await store.initialize(new MemoryThinkingReplayStorage());
@@ -269,9 +293,19 @@ describe("ThinkingReplayStore", () => {
 			first.appendAssistantContent(assistantTurn.turnId, "Persisted answer");
 			await first.commit(assistantTurn.turnId);
 
+			const observedEmptyTurn = first.beginTurn({
+				modelId: "glm-5.2",
+				profileId: "glm-5.2-openai",
+				transport: "openai",
+				carrier: "reasoning_content",
+				allowsMissingReplayPayload: true,
+			});
+			first.recordToolCall(observedEmptyTurn.turnId, "call_observed_empty");
+			await first.commit(observedEmptyTurn.turnId);
+
 			const raw = JSON.parse(await readFile(file, "utf8"));
 			assert.equal(raw.version, 2);
-			assert.equal(raw.entries.length, 2);
+			assert.equal(raw.entries.length, 3);
 
 			const second = new ThinkingReplayStore();
 			await second.initialize(new LocalPlaintextThinkingReplayStorage(file));
@@ -289,6 +323,15 @@ describe("ThinkingReplayStore", () => {
 					carrier: "reasoning_content",
 				})?.reasoningContent,
 				"persisted hidden reasoning"
+			);
+			assert.equal(
+				second.lookup({
+					modelId: "glm-5.2",
+					callId: "call_observed_empty",
+					profileId: "glm-5.2-openai",
+					carrier: "reasoning_content",
+				})?.observedWithoutReplayPayload,
+				true
 			);
 		} finally {
 			await rm(dir, { recursive: true, force: true });

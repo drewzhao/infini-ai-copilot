@@ -54,6 +54,21 @@ describe("profile-aware thinking policy", () => {
 		);
 	});
 
+	it("captures explicitly disabled GLM-5.2 tool turns as observed-empty candidates", () => {
+		const profile = resolveReasoningDialectProfile({ modelId: "glm-5.2", transport: "openai" });
+
+		assert.equal(profile.replayScope, "tool-call-assistant-messages");
+		assert.equal(
+			shouldCaptureDisabledThinkingObservation({
+				profile,
+				configuredThinkingMode: "disabled",
+				forceDisableThinking: false,
+				allowThinkingRoundTrip: false,
+			}),
+			true
+		);
+	});
+
 	it("always requires preserved replay for forced Kimi K2.7 and K3 profiles", () => {
 		for (const modelId of ["kimi-k2.7-code", "kimi-k3"]) {
 			const profile = resolveReasoningDialectProfile({ modelId, transport: "openai" });

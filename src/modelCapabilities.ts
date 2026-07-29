@@ -42,6 +42,7 @@ export type ToolCallingCapabilityConfig = {
 };
 
 export const VERIFIED_TOOL_CALLING_MODEL_PATTERNS = [
+	"kimi-k3",
 	"deepseek-v4-pro",
 	"deepseek-v4-flash",
 	"mimo-v2-pro",

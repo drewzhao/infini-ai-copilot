@@ -162,6 +162,18 @@ function getThinkingAutomaticDescription(
 	);
 }
 
+function getThinkingEnabledDescription(
+	profile: ReasoningDialectProfile,
+	translate: ModelConfigurationTranslate
+): string {
+	if (profile.id === "glm-5.2-openai") {
+		return translate(
+			"Enable current-turn thinking. GLM-5.2 may still adaptively return a tool call without reasoning_content; that is a valid response, not evidence that thinking was disabled."
+		);
+	}
+	return translate("Send the enable-thinking control supported by this model profile.");
+}
+
 function getReasoningEffortLevels(profile: ReasoningDialectProfile): readonly ReasoningEffort[] {
 	return profile.reasoningEffortLevels && profile.reasoningEffortLevels.length > 0
 		? profile.reasoningEffortLevels
@@ -270,7 +282,7 @@ export function buildInfiniAIModelConfigurationSchema(
 	if (profile.canEnableThinking) {
 		thinkingModes.push("enabled");
 		thinkingLabels.push(translate("Enabled"));
-		thinkingDescriptions.push(translate("Send the enable-thinking control supported by this model profile."));
+		thinkingDescriptions.push(getThinkingEnabledDescription(profile, translate));
 	}
 	if (thinkingModes.length > 1) {
 		properties.thinkingMode = {

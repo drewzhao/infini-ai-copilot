@@ -20,6 +20,7 @@ export interface ThinkingReplayPreflight<TMessage = OpenAIChatMessage> {
 	readonly hasAssistantToolCalls: boolean;
 	readonly hasAssistantMessagesRequiringReplay: boolean;
 	readonly replayedCount: number;
+	readonly observedWithoutReplayPayloadCount: number;
 	readonly missingCallIds: readonly string[];
 	readonly conflictingCallIds: readonly string[];
 	readonly missingAssistantMessageIndexes: readonly number[];
@@ -29,6 +30,8 @@ export interface ThinkingReplayPreflight<TMessage = OpenAIChatMessage> {
 export interface ThinkingReplayRequestDecision {
 	readonly allowThinkingRoundTrip: boolean;
 	readonly failLocalReason: string | undefined;
+	readonly resetThinkingHistory?: boolean;
+	readonly resetReason?: "missing" | "conflict" | "missing-and-conflict";
 }
 
 export interface ThinkingReplayFailureContext {
@@ -143,6 +146,7 @@ export function applyThinkingReplay(input: {
 	let hasAssistantToolCalls = false;
 	let hasAssistantMessagesRequiringReplay = false;
 	let replayedCount = 0;
+	let observedWithoutReplayPayloadCount = 0;
 	const carrier = resolveReplayCarrier(input.profile);
 	const replayAllAssistantMessages = input.profile?.replayScope === "all-assistant-messages";
 
@@ -191,6 +195,9 @@ export function applyThinkingReplay(input: {
 				}
 				replayByCallId.push({ callId: toolCall.id, entry, payloadKey });
 			}
+			observedWithoutReplayPayloadCount += replayByCallId.filter(
+				({ entry }) => entry.observedWithoutReplayPayload === true
+			).length;
 
 			if (replayByCallId.length !== message.tool_calls.length) {
 				return { ...message };
@@ -235,6 +242,7 @@ export function applyThinkingReplay(input: {
 			return { ...message };
 		}
 		if (entry.observedWithoutReplayPayload) {
+			observedWithoutReplayPayloadCount++;
 			return { ...message };
 		}
 		const payloadKey = replayPayloadKey(entry, carrier);
@@ -263,6 +271,7 @@ export function applyThinkingReplay(input: {
 		hasAssistantToolCalls,
 		hasAssistantMessagesRequiringReplay,
 		replayedCount,
+		observedWithoutReplayPayloadCount,
 		missingCallIds,
 		conflictingCallIds,
 		missingAssistantMessageIndexes,
@@ -311,6 +320,7 @@ export function applyAnthropicThinkingReplay(input: {
 	const conflictingCallIds: string[] = [];
 	let hasAssistantToolCalls = false;
 	let replayedCount = 0;
+	let observedWithoutReplayPayloadCount = 0;
 
 	const messages = input.messages.map((message) => {
 		const clonedContent = Array.isArray(message.content) ? message.content.map(cloneAnthropicBlock) : message.content;
@@ -337,7 +347,7 @@ export function applyAnthropicThinkingReplay(input: {
 			redactedThinkingData: string | undefined;
 			payloadKey: string;
 		}> = [];
-		let observedWithoutReplayPayloadCount = 0;
+		let observedWithoutReplayPayloadCountForMessage = 0;
 		for (const toolUse of toolUseBlocks) {
 			if (!toolUse.id) {
 				missingCallIds.push("<missing>");
@@ -354,6 +364,7 @@ export function applyAnthropicThinkingReplay(input: {
 			if (!entry?.reasoningContent && !entry?.redactedThinkingData) {
 				if (entry?.observedWithoutReplayPayload) {
 					observedWithoutReplayPayloadCount++;
+					observedWithoutReplayPayloadCountForMessage++;
 					continue;
 				}
 				missingCallIds.push(toolUse.id);
@@ -371,10 +382,10 @@ export function applyAnthropicThinkingReplay(input: {
 		}
 
 		if (reasoningByCallId.length !== toolUseBlocks.length) {
-			if (missingCallIds.length === 0 && observedWithoutReplayPayloadCount === toolUseBlocks.length) {
+			if (missingCallIds.length === 0 && observedWithoutReplayPayloadCountForMessage === toolUseBlocks.length) {
 				return clonedMessage;
 			}
-			if (missingCallIds.length === 0 && observedWithoutReplayPayloadCount > 0) {
+			if (missingCallIds.length === 0 && observedWithoutReplayPayloadCountForMessage > 0) {
 				conflictingCallIds.push(...toolUseBlocks.map((toolUse) => toolUse.id || "<missing>"));
 			}
 			return clonedMessage;
@@ -411,6 +422,7 @@ export function applyAnthropicThinkingReplay(input: {
 		hasAssistantToolCalls,
 		hasAssistantMessagesRequiringReplay: hasAssistantToolCalls,
 		replayedCount,
+		observedWithoutReplayPayloadCount,
 		missingCallIds,
 		conflictingCallIds,
 		missingAssistantMessageIndexes: [],
@@ -422,12 +434,30 @@ export function decideThinkingReplayRequest(input: {
 	readonly userOptedIntoRoundTrip: boolean;
 	readonly replayRequiredByProfile?: boolean;
 	readonly allowMissingReplay?: boolean;
+	readonly resetThinkingHistoryOnReplayGap?: boolean;
 	readonly preflight: ThinkingReplayPreflight<unknown>;
 	readonly failureContext?: ThinkingReplayFailureContext;
 }): ThinkingReplayRequestDecision {
 	const shouldRoundTrip = input.userOptedIntoRoundTrip || input.replayRequiredByProfile === true;
 	if (!shouldRoundTrip) {
 		return { allowThinkingRoundTrip: false, failLocalReason: undefined };
+	}
+	const hasMissingReplay =
+		input.preflight.missingCallIds.length > 0 || input.preflight.missingAssistantMessageIndexes.length > 0;
+	const hasConflictingReplay =
+		input.preflight.conflictingCallIds.length > 0 || input.preflight.conflictingAssistantMessageIndexes.length > 0;
+	if (
+		input.resetThinkingHistoryOnReplayGap &&
+		input.preflight.hasAssistantMessagesRequiringReplay &&
+		(hasMissingReplay || hasConflictingReplay)
+	) {
+		return {
+			allowThinkingRoundTrip: true,
+			failLocalReason: undefined,
+			resetThinkingHistory: true,
+			resetReason:
+				hasMissingReplay && hasConflictingReplay ? "missing-and-conflict" : hasMissingReplay ? "missing" : "conflict",
+		};
 	}
 	if (
 		!input.allowMissingReplay &&

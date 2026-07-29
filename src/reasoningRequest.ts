@@ -31,25 +31,36 @@ export function buildReplayPreservationRequestControls(input: {
 	readonly allowThinkingRoundTrip: boolean;
 	readonly profile: ReasoningDialectProfile;
 	readonly configuredThinkingMode?: InfiniAIModelConfiguration["thinkingMode"];
+	readonly resetThinkingHistory?: boolean;
 }): ReasoningRequestControlOptions | undefined {
 	if (!input.allowThinkingRoundTrip) {
 		return undefined;
 	}
 	const thinkingMode =
-		input.configuredThinkingMode === "disabled" || !input.profile.canEnableThinking ? undefined : "enabled";
-	const preserveThinking = shouldApplyReplayPreservationControl(input) ? true : undefined;
-	if (thinkingMode === undefined && preserveThinking === undefined) {
+		input.resetThinkingHistory && input.profile.canEnableThinking
+			? "enabled"
+			: input.configuredThinkingMode === "disabled" || !input.profile.canEnableThinking
+				? undefined
+				: "enabled";
+	const preserveThinking =
+		!input.resetThinkingHistory && shouldApplyReplayPreservationControl(input) ? true : undefined;
+	const clearThinking = input.resetThinkingHistory ? true : undefined;
+	if (thinkingMode === undefined && preserveThinking === undefined && clearThinking === undefined) {
 		return undefined;
 	}
 	const controls: {
 		thinkingMode?: InfiniAIModelConfiguration["thinkingMode"];
 		preserveThinking?: boolean;
+		clearThinking?: boolean;
 	} = {};
 	if (thinkingMode !== undefined) {
 		controls.thinkingMode = thinkingMode;
 	}
 	if (preserveThinking !== undefined) {
 		controls.preserveThinking = preserveThinking;
+	}
+	if (clearThinking !== undefined) {
+		controls.clearThinking = clearThinking;
 	}
 	return controls;
 }
