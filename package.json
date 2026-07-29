@@ -19,7 +19,7 @@
 		"type": "git",
 		"url": "https://github.com/drewzhao/infini-ai-copilot.git"
 	},
-	"version": "0.6.6",
+	"version": "0.6.7",
 	"engines": {
 		"vscode": "^1.130.0"
 	},

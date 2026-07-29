@@ -163,13 +163,29 @@ describe("InfiniAIChatModelProvider model cache", () => {
 	it("does not duplicate configurable provider models in VS Code's groupless discovery pass", async () => {
 		const { InfiniAIChatModelProvider } = loadProvider();
 		const provider = new InfiniAIChatModelProvider("test-agent", {} as any, { appendLine() {} } as any);
+		(provider as any)._providerGroups.set("cache-key", {
+			name: "Provider configuration 1",
+			apiKey: "sk-group",
+			cacheKey: "cache-key",
+		});
 
 		const result = await provider.provideLanguageModelChatInformation({ silent: true }, token as any);
 
 		assert.deepEqual(result, []);
+		assert.equal((provider as any)._providerGroups.size, 0);
 	});
 
-	it("binds each configured provider-group model to that group's API key", async () => {
+	it("reports a configured provider group whose API key is missing", async () => {
+		const { InfiniAIChatModelProvider } = loadProvider();
+		const provider = new InfiniAIChatModelProvider("test-agent", {} as any, { appendLine() {} } as any);
+
+		await assert.rejects(
+			provider.provideLanguageModelChatInformation({ silent: true, configuration: {} } as any, token as any),
+			/no API key/
+		);
+	});
+
+	it("binds each configured model object to its exact API key", async () => {
 		const { InfiniAIChatModelProvider } = loadProvider();
 		const provider = new InfiniAIChatModelProvider("test-agent", {} as any, { appendLine() {} } as any);
 		const info = { id: "test-model" };
@@ -179,7 +195,7 @@ describe("InfiniAIChatModelProvider model cache", () => {
 		(provider as any)._lastGoodCacheByKey.set("cache-key", entry);
 
 		const result = await provider.provideLanguageModelChatInformation(
-			{ silent: true, group: "InfiniAI Team", configuration: { apiKey: "sk-group" } } as any,
+			{ silent: true, configuration: { apiKey: "sk-group" } } as any,
 			token as any
 		);
 
@@ -187,24 +203,13 @@ describe("InfiniAIChatModelProvider model cache", () => {
 		assert.notEqual(result[0], info);
 		assert.equal((provider as any)._modelCredentials.get(info), undefined);
 		assert.deepEqual((provider as any)._modelCredentials.get(result[0]), {
-			name: "InfiniAI Team",
+			name: "Provider configuration 1",
 			apiKey: "sk-group",
 			cacheKey: "cache-key",
 		});
-		assert.equal(
-			(provider as any).activeCredential((provider as any)._modelCredentials.get(result[0])).name,
-			"InfiniAI Team"
-		);
-
-		(provider as any)._providerGroups.set("InfiniAI Team", {
-			name: "InfiniAI Team",
-			apiKey: "sk-updated",
-			cacheKey: "updated-cache-key",
-		});
-		assert.equal((provider as any).activeCredential((provider as any)._modelCredentials.get(result[0])), undefined);
 	});
 
-	it("keeps same-key provider groups isolated and retains their shared cache when one is removed", async () => {
+	it("keeps same-key provider model objects isolated while sharing credential-scoped cache state", async () => {
 		const { InfiniAIChatModelProvider } = loadProvider();
 		const provider = new InfiniAIChatModelProvider("test-agent", {} as any, { appendLine() {} } as any);
 		const info = { id: "test-model" };
@@ -214,32 +219,196 @@ describe("InfiniAIChatModelProvider model cache", () => {
 		(provider as any)._lastGoodCacheByKey.set("cache-key", entry);
 
 		const first = await provider.provideLanguageModelChatInformation(
-			{ silent: true, group: "InfiniAI A", configuration: { apiKey: "sk-shared" } } as any,
+			{ silent: true, configuration: { apiKey: "sk-shared" } } as any,
 			token as any
 		);
 		const second = await provider.provideLanguageModelChatInformation(
-			{ silent: true, group: "InfiniAI B", configuration: { apiKey: "sk-shared" } } as any,
+			{ silent: true, configuration: { apiKey: "sk-shared" } } as any,
 			token as any
 		);
 
 		assert.notEqual(first[0], second[0]);
-		assert.equal((provider as any)._modelCredentials.get(first[0]).name, "InfiniAI A");
-		assert.equal((provider as any)._modelCredentials.get(second[0]).name, "InfiniAI B");
-
-		(provider as any).registerProviderGroup("InfiniAI A", "sk-new", "new-cache-key");
+		assert.equal((provider as any)._modelCredentials.get(first[0]), (provider as any)._modelCredentials.get(second[0]));
+		assert.deepEqual([...((provider as any)._providerGroups as Map<string, unknown>).keys()], ["cache-key"]);
 		assert.equal((provider as any)._cacheByKey.get("cache-key"), entry);
 		assert.equal((provider as any)._lastGoodCacheByKey.get("cache-key"), entry);
+	});
+
+	it("settles cached models after the groupless RPC gap without rediscovery", async () => {
+		const { InfiniAIChatModelProvider } = loadProvider();
+		const provider = new InfiniAIChatModelProvider("test-agent", {} as any, { appendLine() {} } as any);
+		const info = { id: "test-model" };
+		const entry = { ...cacheEntry("cache-key", Date.now()), infos: [info] };
+		(provider as any).buildCacheKey = () => "cache-key";
+		let resolveFetch!: (entry: any) => void;
+		let fetches = 0;
+		(provider as any).fetchAndNormalizeModels = async () => {
+			fetches++;
+			return await new Promise<typeof entry>((resolve) => {
+				resolveFetch = resolve;
+			});
+		};
+		let changes = 0;
+		provider.onDidChangeLanguageModelChatInformation(() => changes++);
 
 		await provider.provideLanguageModelChatInformation({ silent: true }, token as any);
-		await provider.provideLanguageModelChatInformation(
-			{ silent: true, group: "InfiniAI B", configuration: { apiKey: "sk-shared" } } as any,
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		await assert.rejects(
+			provider.provideLanguageModelChatInformation({ silent: true, configuration: {} } as any, token as any),
+			/no API key/
+		);
+		const initial = await provider.provideLanguageModelChatInformation(
+			{ silent: true, configuration: { apiKey: "sk-group" } } as any,
 			token as any
 		);
-		await new Promise((resolve) => setTimeout(resolve, 0));
+		assert.deepEqual(initial, []);
+		assert.equal(fetches, 1);
+		const discovery = (provider as any)._modelDiscoveryOperations.get("cache-key").promise;
+		resolveFetch(entry);
+		await discovery;
+		assert.equal(changes, 1);
 
-		assert.deepEqual([...((provider as any)._providerGroups as Map<string, unknown>).keys()], ["InfiniAI B"]);
-		assert.equal((provider as any)._cacheByKey.get("cache-key"), entry);
-		assert.equal((provider as any)._lastGoodCacheByKey.get("cache-key"), entry);
+		for (let cycle = 0; cycle < 2; cycle++) {
+			await provider.provideLanguageModelChatInformation({ silent: true }, token as any);
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			await assert.rejects(
+				provider.provideLanguageModelChatInformation({ silent: true, configuration: {} } as any, token as any),
+				/no API key/
+			);
+			const resolved = await provider.provideLanguageModelChatInformation(
+				{ silent: true, configuration: { apiKey: "sk-group" } } as any,
+				token as any
+			);
+			assert.equal(resolved.length, 1);
+			assert.equal(resolved[0].id, "test-model");
+		}
+
+		assert.equal(fetches, 1);
+		assert.equal(changes, 1);
+	});
+
+	it("retains distinct credentials when VS Code resolves multiple configurations without group names", async () => {
+		const { InfiniAIChatModelProvider } = loadProvider();
+		const provider = new InfiniAIChatModelProvider("test-agent", {} as any, { appendLine() {} } as any);
+		const info = { id: "test-model" };
+		(provider as any).buildCacheKey = (apiKey: string) => `cache-${apiKey}`;
+		for (const apiKey of ["sk-a", "sk-b"]) {
+			const key = `cache-${apiKey}`;
+			const entry = { ...cacheEntry(key, Date.now()), infos: [info] };
+			(provider as any)._cacheByKey.set(key, entry);
+			(provider as any)._lastGoodCacheByKey.set(key, entry);
+		}
+
+		const first = await provider.provideLanguageModelChatInformation(
+			{ silent: true, configuration: { apiKey: "sk-a" } } as any,
+			token as any
+		);
+		const second = await provider.provideLanguageModelChatInformation(
+			{ silent: true, configuration: { apiKey: "sk-b" } } as any,
+			token as any
+		);
+
+		assert.equal((provider as any)._modelCredentials.get(first[0]).apiKey, "sk-a");
+		assert.equal((provider as any)._modelCredentials.get(second[0]).apiKey, "sk-b");
+		assert.deepEqual(
+			[...((provider as any)._providerGroups as Map<string, unknown>).keys()],
+			["cache-sk-a", "cache-sk-b"]
+		);
+	});
+
+	it("disambiguates credential-scoped caches when base cache keys collide", async () => {
+		const { InfiniAIChatModelProvider } = loadProvider();
+		const provider = new InfiniAIChatModelProvider("test-agent", {} as any, { appendLine() {} } as any);
+		const info = { id: "test-model" };
+		(provider as any).buildCacheKey = () => "colliding-cache-key";
+		const firstKey = (provider as any).resolveCacheKey("sk-a");
+		const secondKey = (provider as any).resolveCacheKey("sk-b");
+		assert.equal(firstKey, "colliding-cache-key");
+		assert.notEqual(secondKey, firstKey);
+		assert.equal((provider as any).resolveCacheKey("sk-a"), firstKey);
+		assert.equal((provider as any).resolveCacheKey("sk-b"), secondKey);
+		for (const key of [firstKey, secondKey]) {
+			const entry = { ...cacheEntry(key, Date.now()), infos: [info] };
+			(provider as any)._cacheByKey.set(key, entry);
+			(provider as any)._lastGoodCacheByKey.set(key, entry);
+		}
+
+		const first = await provider.provideLanguageModelChatInformation(
+			{ silent: true, configuration: { apiKey: "sk-a" } } as any,
+			token as any
+		);
+		const second = await provider.provideLanguageModelChatInformation(
+			{ silent: true, configuration: { apiKey: "sk-b" } } as any,
+			token as any
+		);
+
+		assert.equal((provider as any)._modelCredentials.get(first[0]).apiKey, "sk-a");
+		assert.equal((provider as any)._modelCredentials.get(second[0]).apiKey, "sk-b");
+		assert.deepEqual([...((provider as any)._providerGroups as Map<string, unknown>).keys()], [firstKey, secondKey]);
+	});
+
+	it("uses the model object's bound credential after another configuration is resolved", async () => {
+		const { InfiniAIChatModelProvider } = loadProvider();
+		const provider = new InfiniAIChatModelProvider("test-agent", {} as any, { appendLine() {} } as any);
+		const info = { id: "test-model" };
+		(provider as any).buildCacheKey = (apiKey: string) => `cache-${apiKey}`;
+		for (const apiKey of ["sk-a", "sk-b"]) {
+			const key = `cache-${apiKey}`;
+			const entry = { ...cacheEntry(key, Date.now()), infos: [info] };
+			(provider as any)._cacheByKey.set(key, entry);
+			(provider as any)._lastGoodCacheByKey.set(key, entry);
+		}
+
+		const first = await provider.provideLanguageModelChatInformation(
+			{ silent: true, configuration: { apiKey: "sk-a" } } as any,
+			token as any
+		);
+		await provider.provideLanguageModelChatInformation(
+			{ silent: true, configuration: { apiKey: "sk-b" } } as any,
+			token as any
+		);
+
+		let cacheCredential: string | undefined;
+		let requestCredential: string | undefined;
+		(provider as any).getModelCache = async (apiKey: string) => {
+			cacheCredential = apiKey;
+			return {
+				...cacheEntry(`cache-${apiKey}`, Date.now()),
+				models: [{ id: "test-model" }],
+				routes: new Map([
+					[
+						"test-model",
+						{
+							transport: "openai",
+							baseUrl: "https://example.test/v1",
+							endpointKind: "chat-completions",
+							source: "default",
+						},
+					],
+				]),
+			};
+		};
+		(provider as any).runOpenAIRequest = async (
+			_model: unknown,
+			_messages: unknown,
+			_options: unknown,
+			_progress: unknown,
+			_token: unknown,
+			apiKey: string
+		) => {
+			requestCredential = apiKey;
+		};
+
+		await provider.provideLanguageModelChatResponse(
+			first[0] as any,
+			[],
+			{} as any,
+			{ report() {} } as any,
+			token as any
+		);
+
+		assert.equal(cacheCredential, "sk-a");
+		assert.equal(requestCredential, "sk-a");
 	});
 
 	it("refreshes an expired silent discovery cache instead of pinning last-good data forever", async () => {
@@ -318,7 +487,7 @@ describe("InfiniAIChatModelProvider model cache", () => {
 		const results = await Promise.all(
 			Array.from({ length: 20 }, () =>
 				provider.provideLanguageModelChatInformation(
-					{ silent: true, group: "InfiniAI", configuration: { apiKey: "sk-group" } } as any,
+					{ silent: true, configuration: { apiKey: "sk-group" } } as any,
 					token as any
 				)
 			)
@@ -344,7 +513,7 @@ describe("InfiniAIChatModelProvider model cache", () => {
 		const results = await Promise.allSettled(
 			Array.from({ length: 20 }, () =>
 				provider.provideLanguageModelChatInformation(
-					{ silent: true, group: "InfiniAI", configuration: { apiKey: "sk-group" } } as any,
+					{ silent: true, configuration: { apiKey: "sk-group" } } as any,
 					token as any
 				)
 			)
@@ -357,8 +526,8 @@ describe("InfiniAIChatModelProvider model cache", () => {
 	it("starts a background retry when a discovery cooldown expires", async () => {
 		const { InfiniAIChatModelProvider } = loadProvider();
 		const provider = new InfiniAIChatModelProvider("test-agent", {} as any, { appendLine() {} } as any);
-		(provider as any)._providerGroups.set("InfiniAI", {
-			name: "InfiniAI",
+		(provider as any)._providerGroups.set("cache-key", {
+			name: "Provider configuration 1",
 			apiKey: "sk-group",
 			cacheKey: "cache-key",
 		});
@@ -406,7 +575,7 @@ describe("InfiniAIChatModelProvider model cache", () => {
 		};
 
 		await provider.provideLanguageModelChatInformation(
-			{ silent: true, group: "InfiniAI", configuration: { apiKey: "sk-group" } } as any,
+			{ silent: true, configuration: { apiKey: "sk-group" } } as any,
 			token as any
 		);
 		assert.equal(observedToken.isCancellationRequested, false);

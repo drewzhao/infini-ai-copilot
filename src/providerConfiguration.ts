@@ -2,8 +2,11 @@ import type { PrepareLanguageModelChatModelOptions } from "vscode";
 
 type ProviderConfigurationOptions = PrepareLanguageModelChatModelOptions & {
 	readonly configuration?: unknown;
-	readonly group?: unknown;
 };
+
+export function hasProviderConfiguration(options: PrepareLanguageModelChatModelOptions): boolean {
+	return (options as ProviderConfigurationOptions).configuration !== undefined;
+}
 
 export function readProviderApiKey(options: PrepareLanguageModelChatModelOptions): string | undefined {
 	const configuration = (options as ProviderConfigurationOptions).configuration;
@@ -12,9 +15,4 @@ export function readProviderApiKey(options: PrepareLanguageModelChatModelOptions
 	}
 	const apiKey = (configuration as Record<string, unknown>).apiKey;
 	return typeof apiKey === "string" && apiKey.trim().length > 0 ? apiKey.trim() : undefined;
-}
-
-export function readProviderGroupName(options: PrepareLanguageModelChatModelOptions): string | undefined {
-	const group = (options as ProviderConfigurationOptions).group;
-	return typeof group === "string" && group.trim().length > 0 ? group.trim() : undefined;
 }

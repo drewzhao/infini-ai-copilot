@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.7] - 2026-07-29
+
+### Fixed
+
+- Fixed VS Code 1.130 provider resolution so the initial groupless lookup no longer invalidates configured InfiniAI
+  credentials, cancels successful discovery, or starts a repeated `/maas/v1/models` request loop.
+- InfiniAI models now settle in the model picker after one background discovery, including when a legacy keyless
+  provider group remains beside a valid group. Configured model objects retain their exact credential without relying
+  on a provider-group name that VS Code does not expose to extensions.
+
 ## [0.6.6] - 2026-07-29
 
 ### Added

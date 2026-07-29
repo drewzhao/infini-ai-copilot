@@ -78,7 +78,7 @@ import {
 	VERIFIED_TOOL_CALLING_MODEL_PATTERNS,
 } from "./modelCapabilities";
 import { isModelHidden } from "./modelVisibility";
-import { readProviderApiKey, readProviderGroupName } from "./providerConfiguration";
+import { hasProviderConfiguration, readProviderApiKey } from "./providerConfiguration";
 import { parseModelRouteConfigs } from "./route";
 
 const DEFAULT_CONTEXT_LENGTH = 128000;
@@ -301,9 +301,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 	private readonly _modelDiscoveryRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 	private readonly _modelCredentials = new WeakMap<LanguageModelChatInformation, ModelCredentialBinding>();
 	private readonly _providerGroups = new Map<string, ProviderGroupState>();
-	private _providerGroupResolutionGeneration = 0;
-	private _providerGroupsSeenInResolution = new Set<string>();
-	private _providerGroupReconcileTimer: ReturnType<typeof setTimeout> | undefined;
+	private readonly _resolvedCacheKeysByBase = new Map<string, Map<string, string>>();
 	private _cacheGeneration = 0;
 
 	constructor(
@@ -314,9 +312,6 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 
 	dispose(): void {
 		this.cancelAllModelDiscoveries();
-		if (this._providerGroupReconcileTimer) {
-			clearTimeout(this._providerGroupReconcileTimer);
-		}
 		this._onDidChange.dispose();
 		this._onDidConsumeUsage.dispose();
 	}
@@ -342,11 +337,11 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		this._cacheByKey.clear();
 		this._lastGoodCacheByKey.clear();
 		this._modelDiscoveryFailures.clear();
-		for (const group of this._providerGroups.values()) {
-			this._providerGroups.set(group.name, {
-				...group,
-				cacheKey: this.buildCacheKey(group.apiKey),
-			});
+		const groups = [...this._providerGroups.values()];
+		this._providerGroups.clear();
+		for (const group of groups) {
+			const next = { ...group, cacheKey: this.resolveCacheKey(group.apiKey) };
+			this._providerGroups.set(next.cacheKey, next);
 		}
 		this._cacheGeneration++;
 		this._onDidChange.fire();
@@ -364,8 +359,9 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		const rebuiltByKey = new Map<string, ModelCacheEntry>();
 		this._cacheByKey.clear();
 		this._lastGoodCacheByKey.clear();
+		this._providerGroups.clear();
 		for (const group of previousGroups) {
-			const nextKey = this.buildCacheKey(group.apiKey);
+			const nextKey = this.resolveCacheKey(group.apiKey);
 			const existing = rebuiltByKey.get(nextKey);
 			const previous = previousCaches.get(group.cacheKey);
 			const rebuilt = existing ?? (previous ? this.rebuildCacheEntry(previous, nextKey) : undefined);
@@ -374,7 +370,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 				this._cacheByKey.set(nextKey, rebuilt);
 				this._lastGoodCacheByKey.set(nextKey, rebuilt);
 			}
-			this._providerGroups.set(group.name, { ...group, cacheKey: nextKey });
+			this._providerGroups.set(nextKey, { ...group, cacheKey: nextKey });
 		}
 		this._cacheGeneration++;
 		this._onDidChange.fire();
@@ -385,16 +381,21 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		_token: CancellationToken
 	): Promise<LanguageModelChatInformation[]> {
 		const apiKey = readProviderApiKey(options);
-		// VS Code resolves every configurable vendor once without a group before
-		// resolving configured groups. A groupless result would duplicate models
-		// and would not have a credential binding.
 		if (!apiKey) {
-			this.beginProviderGroupResolution();
-			return [];
+			// VS Code resolves every configurable vendor once without configuration
+			// before resolving each configured group. Start a fresh credential view
+			// without touching discovery caches or in-flight work: the configured
+			// calls arrive over later extension-host RPCs.
+			if (!hasProviderConfiguration(options)) {
+				this._providerGroups.clear();
+				return [];
+			}
+			throw new Error(
+				"InfiniAI provider group has no API key. Remove the incomplete group or add it again in Manage Models."
+			);
 		}
-		const groupName = readProviderGroupName(options) ?? "InfiniAI";
-		const key = this.buildCacheKey(apiKey);
-		const group = this.registerProviderGroup(groupName, apiKey, key);
+		const key = this.resolveCacheKey(apiKey);
+		const group = this.registerProviderCredential(apiKey, key);
 		const cached = this._cacheByKey.get(key);
 		if (cached && this.isCacheFresh(cached)) {
 			return this.filterHiddenModels(this.modelsBoundToGroup(cached.infos, group));
@@ -434,14 +435,6 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		return infos.filter((info) => !isModelHidden(info.id));
 	}
 
-	private activeCredential(binding: ModelCredentialBinding | undefined): ProviderGroupState | undefined {
-		if (!binding) {
-			return undefined;
-		}
-		const current = this._providerGroups.get(binding.name);
-		return current && current.cacheKey === binding.cacheKey && current.apiKey === binding.apiKey ? current : undefined;
-	}
-
 	async provideLanguageModelChatResponse(
 		model: LanguageModelChatInformation,
 		messages: readonly LanguageModelChatRequestMessage[],
@@ -461,13 +454,12 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 
 		try {
 			await this.applyRequestDelay(token);
-			const credential = this.activeCredential(binding);
-			if (!credential) {
+			if (!binding) {
 				throw new Error(
 					`InfiniAI model "${model.id}" is no longer bound to a VS Code provider group. Open Manage Models and select the model again.`
 				);
 			}
-			const apiKey = credential.apiKey;
+			const apiKey = binding.apiKey;
 
 			const cache = await this.getModelCache(apiKey, false, token, false, true);
 			const infiniAIModel = cache.models.find((m) => m.id === model.id);
@@ -650,7 +642,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		force = false,
 		allowStaleWhileRefreshing = false
 	): Promise<ModelCacheEntry> {
-		const key = this.buildCacheKey(apiKey);
+		const key = this.resolveCacheKey(apiKey);
 		if (force) {
 			this.cancelModelDiscovery(key);
 			this._cacheByKey.delete(key);
@@ -1415,54 +1407,25 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		}
 	}
 
-	private registerProviderGroup(name: string, apiKey: string, cacheKey: string): ProviderGroupState {
-		this._providerGroupsSeenInResolution.add(name);
-		const existing = this._providerGroups.get(name);
-		if (existing && existing.cacheKey !== cacheKey) {
-			const oldKeyStillInUse = [...this._providerGroups.entries()].some(
-				([otherName, otherGroup]) => otherName !== name && otherGroup.cacheKey === existing.cacheKey
-			);
-			if (!oldKeyStillInUse) {
-				this.cancelModelDiscovery(existing.cacheKey);
-				this._cacheByKey.delete(existing.cacheKey);
-				this._lastGoodCacheByKey.delete(existing.cacheKey);
-				this._modelDiscoveryFailures.delete(existing.cacheKey);
+	private registerProviderCredential(apiKey: string, cacheKey: string): ProviderGroupState {
+		const existing = this._providerGroups.get(cacheKey);
+		if (existing) {
+			if (existing.apiKey !== apiKey) {
+				throw new Error("InfiniAI credential cache identity collision");
 			}
+			return existing;
 		}
-		const group = { name, apiKey, cacheKey };
-		this._providerGroups.set(name, group);
+		// VS Code keeps the real provider-group name on its side of the extension
+		// host boundary. Use deterministic local labels only for diagnostics and
+		// extension-owned commands; model identity remains VS Code group-scoped.
+		const ordinal = this._providerGroups.size + 1;
+		const group = {
+			name: vscode.l10n.t("Provider configuration {0}", ordinal),
+			apiKey,
+			cacheKey,
+		};
+		this._providerGroups.set(cacheKey, group);
 		return group;
-	}
-
-	private beginProviderGroupResolution(): void {
-		const generation = ++this._providerGroupResolutionGeneration;
-		this._providerGroupsSeenInResolution = new Set<string>();
-		if (this._providerGroupReconcileTimer) {
-			clearTimeout(this._providerGroupReconcileTimer);
-		}
-		this._providerGroupReconcileTimer = setTimeout(() => {
-			this._providerGroupReconcileTimer = undefined;
-			if (generation !== this._providerGroupResolutionGeneration) {
-				return;
-			}
-			const removedKeys = new Set<string>();
-			for (const [name, group] of this._providerGroups) {
-				if (!this._providerGroupsSeenInResolution.has(name)) {
-					this._providerGroups.delete(name);
-					removedKeys.add(group.cacheKey);
-				}
-			}
-			const retainedKeys = new Set([...this._providerGroups.values()].map((group) => group.cacheKey));
-			for (const key of removedKeys) {
-				if (retainedKeys.has(key)) {
-					continue;
-				}
-				this.cancelModelDiscovery(key);
-				this._cacheByKey.delete(key);
-				this._lastGoodCacheByKey.delete(key);
-				this._modelDiscoveryFailures.delete(key);
-			}
-		}, 0);
 	}
 
 	private isCacheFresh(entry: ModelCacheEntry): boolean {
@@ -1577,7 +1540,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 					this.scheduleModelDiscoveryRetry(key, failure.retryAt);
 					return;
 				}
-				const group = [...this._providerGroups.values()].find((candidate) => candidate.cacheKey === key);
+				const group = this._providerGroups.get(key);
 				if (group) {
 					this.ensureBackgroundDiscovery(group.apiKey, key);
 				}
@@ -1701,6 +1664,22 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			throw new vscode.CancellationError();
 		}
 		return pick.group;
+	}
+
+	private resolveCacheKey(apiKey: string): string {
+		const baseKey = this.buildCacheKey(apiKey);
+		let keysByCredential = this._resolvedCacheKeysByBase.get(baseKey);
+		if (!keysByCredential) {
+			keysByCredential = new Map<string, string>();
+			this._resolvedCacheKeysByBase.set(baseKey, keysByCredential);
+		}
+		const existing = keysByCredential.get(apiKey);
+		if (existing) {
+			return existing;
+		}
+		const resolved = keysByCredential.size === 0 ? baseKey : `${baseKey}|collision:${keysByCredential.size + 1}`;
+		keysByCredential.set(apiKey, resolved);
+		return resolved;
 	}
 
 	private buildCacheKey(apiKey: string): string {
