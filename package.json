@@ -21,7 +21,7 @@
 	},
 	"version": "0.6.5",
 	"engines": {
-		"vscode": "^1.117.0"
+		"vscode": "^1.130.0"
 	},
 	"categories": [
 		"AI",
@@ -96,11 +96,6 @@
 			{
 				"command": "infiniai.switchModelProtocol",
 				"title": "%command.switchModelProtocol.title%",
-				"category": "InfiniAI"
-			},
-			{
-				"command": "infiniai.switchPlan",
-				"title": "%command.switchPlan.title%",
 				"category": "InfiniAI"
 			},
 			{
@@ -203,18 +198,6 @@
 		"configuration": {
 			"title": "%configuration.title%",
 			"properties": {
-				"infiniai.plan": {
-					"type": "string",
-					"enum": [
-						"standard",
-						"coding"
-					],
-					"enumDescriptions": [
-						"%configuration.plan.enum.standard%",
-						"%configuration.plan.enum.coding%"
-					],
-					"description": "%configuration.plan.description%"
-				},
 				"infiniai.baseUrl": {
 					"type": "string",
 					"default": "https://cloud.infini-ai.com/maas/v1",
@@ -224,16 +207,6 @@
 					"type": "string",
 					"default": "https://cloud.infini-ai.com/maas",
 					"description": "%configuration.anthropic.baseUrl.description%"
-				},
-				"infiniai.coding.baseUrl": {
-					"type": "string",
-					"default": "https://cloud.infini-ai.com/maas/coding/v1",
-					"description": "%configuration.coding.baseUrl.description%"
-				},
-				"infiniai.coding.anthropic.baseUrl": {
-					"type": "string",
-					"default": "https://cloud.infini-ai.com/maas/coding",
-					"description": "%configuration.coding.anthropic.baseUrl.description%"
 				},
 				"infiniai.retry": {
 					"type": "object",
@@ -439,7 +412,7 @@
 		"@stylistic/eslint-plugin": "^2.9.0",
 		"@types/mocha": "^10.0.6",
 		"@types/node": "^22",
-		"@types/vscode": "^1.116.0",
+		"@types/vscode": "1.125.0",
 		"@vscode/test-cli": "^0.0.11",
 		"@vscode/test-electron": "^2.5.2",
 		"@vscode/vsce": "^3.9.1",

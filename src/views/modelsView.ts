@@ -1,6 +1,13 @@
 import * as vscode from "vscode";
 
-import { getHiddenModelIds, getVisibleModelIds, isModelHidden, showAllProviderModels, updateHiddenModelIds, updateVisibleModelIds } from "../modelVisibility";
+import {
+	getHiddenModelIds,
+	getVisibleModelIds,
+	isModelHidden,
+	showAllProviderModels,
+	updateHiddenModelIds,
+	updateVisibleModelIds,
+} from "../modelVisibility";
 import { InfiniAIChatModelProvider, type InfiniAIModelDescription } from "../provider";
 import {
 	endpointKindForTransport,
@@ -12,11 +19,7 @@ import {
 	type ProtocolSwitchTransport,
 } from "../route";
 import type { ModelEndpointKind, ModelRoute } from "../types";
-import { getActivePlan, InfiniAIPlan, logDebug, sanitizeForLog } from "../utils";
-
-interface PlanNode {
-	readonly kind: "plan";
-}
+import { INFINIAI_API_KEY_SECRET_NAME, logDebug, sanitizeForLog } from "../utils";
 
 interface ModelsRootNode {
 	readonly kind: "models-root";
@@ -41,7 +44,6 @@ interface AccountRootNode {
 
 interface AccountNode {
 	readonly kind: "account";
-	readonly plan: InfiniAIPlan;
 	readonly fingerprint: string;
 }
 
@@ -63,7 +65,6 @@ interface MessageNode {
 }
 
 type InfiniNode =
-	| PlanNode
 	| ModelsRootNode
 	| ModelNode
 	| AccountRootNode
@@ -110,7 +111,7 @@ function effectiveRouteAfterChange(
 	model: InfiniAIModelDescription,
 	rawRoutes: unknown
 ): { transport: string; source: ModelRoute["source"]; endpointKind: ModelEndpointKind } {
-	const matched = parseModelRouteConfigs(rawRoutes).find(route => matchesRoutePattern(model.id, route.pattern));
+	const matched = parseModelRouteConfigs(rawRoutes).find((route) => matchesRoutePattern(model.id, route.pattern));
 	if (matched) {
 		return {
 			transport: matched.transport,
@@ -144,7 +145,7 @@ export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<Infin
 				}
 			}),
 			secrets.onDidChange((event) => {
-				if (event.key === "infiniai.apiKey" || event.key === "infiniai.codingApiKey") {
+				if (event.key === INFINIAI_API_KEY_SECRET_NAME) {
 					this._onDidChangeTreeData.fire(undefined);
 				}
 			})
@@ -164,22 +165,6 @@ export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<Infin
 
 	getTreeItem(node: InfiniNode): vscode.TreeItem {
 		switch (node.kind) {
-			case "plan": {
-				const plan = getActivePlan();
-				const label = plan === "coding" ? vscode.l10n.t("Coding Plan") : vscode.l10n.t("Standard Plan");
-				const item = new vscode.TreeItem(
-					vscode.l10n.t("Plan: {0}", label),
-					vscode.TreeItemCollapsibleState.None
-				);
-				item.iconPath = new vscode.ThemeIcon("rocket");
-				item.contextValue = "infiniai.plan";
-				item.tooltip = vscode.l10n.t("Click to switch plan");
-				item.command = {
-					command: "infiniai.switchPlan",
-					title: vscode.l10n.t("Switch Plan"),
-				};
-				return item;
-			}
 			case "models-root": {
 				const item = new vscode.TreeItem(vscode.l10n.t("Models"), vscode.TreeItemCollapsibleState.Expanded);
 				item.iconPath = new vscode.ThemeIcon("server");
@@ -202,7 +187,9 @@ export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<Infin
 					vscode.l10n.t("Max output tokens: {0}", node.maxOutputTokens.toLocaleString()),
 				];
 				item.tooltip = new vscode.MarkdownString(lines.map((l) => `- ${l}`).join("\n"));
-				item.iconPath = new vscode.ThemeIcon(node.hidden ? "eye-closed" : node.imageInput ? "device-camera" : "symbol-method");
+				item.iconPath = new vscode.ThemeIcon(
+					node.hidden ? "eye-closed" : node.imageInput ? "device-camera" : "symbol-method"
+				);
 				item.contextValue = node.hidden ? "infiniai.model.hidden" : "infiniai.model.visible";
 				return item;
 			}
@@ -213,8 +200,7 @@ export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<Infin
 				return item;
 			}
 			case "account": {
-				const planLabel = node.plan === "coding" ? vscode.l10n.t("Coding Plan") : vscode.l10n.t("Standard Plan");
-				const item = new vscode.TreeItem(planLabel, vscode.TreeItemCollapsibleState.None);
+				const item = new vscode.TreeItem(vscode.l10n.t("API Key"), vscode.TreeItemCollapsibleState.None);
 				item.description = node.fingerprint;
 				item.iconPath = new vscode.ThemeIcon("key");
 				item.contextValue = "infiniai.accountKey";
@@ -250,12 +236,7 @@ export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<Infin
 
 	async getChildren(node?: InfiniNode): Promise<InfiniNode[]> {
 		if (!node) {
-			return [
-				{ kind: "plan" },
-				{ kind: "models-root" },
-				{ kind: "account-root" },
-				{ kind: "usage" },
-			];
+			return [{ kind: "models-root" }, { kind: "account-root" }, { kind: "usage" }];
 		}
 		switch (node.kind) {
 			case "models-root":
@@ -276,7 +257,7 @@ export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<Infin
 					return [
 						{
 							kind: "message",
-							label: vscode.l10n.t("No models available. Run \"InfiniAI: Set InfiniAI API Key\"."),
+							label: vscode.l10n.t('No models available. Run "InfiniAI: Set InfiniAI API Key".'),
 						},
 					];
 				}
@@ -309,14 +290,12 @@ export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<Infin
 	}
 
 	private async getAccountChildren(): Promise<InfiniNode[]> {
-		const standardKey = await this.secrets.get("infiniai.apiKey");
-		const codingKey = await this.secrets.get("infiniai.codingApiKey");
+		const apiKey = await this.secrets.get(INFINIAI_API_KEY_SECRET_NAME);
 		const children: InfiniNode[] = [
-			{ kind: "account", plan: "standard", fingerprint: fingerprint(standardKey) },
-			{ kind: "account", plan: "coding", fingerprint: fingerprint(codingKey) },
+			{ kind: "account", fingerprint: fingerprint(apiKey) },
 			{
 				kind: "account-action",
-				label: vscode.l10n.t("Manage Keys\u2026"),
+				label: vscode.l10n.t("Manage Key\u2026"),
 				tooltip: vscode.l10n.t("Open the InfiniAI API key configuration flow."),
 				command: { command: "infiniai.setApikey", title: vscode.l10n.t("Set InfiniAI API Key") },
 			},
@@ -401,22 +380,6 @@ export function registerInfiniAIModelsTreeView(
 			}
 			await switchModelProtocol(model, provider, treeDataProvider);
 		}),
-		vscode.commands.registerCommand("infiniai.switchPlan", async () => {
-			const current = getActivePlan();
-			const next: InfiniAIPlan = current === "coding" ? "standard" : "coding";
-			const label = next === "coding" ? vscode.l10n.t("Coding Plan") : vscode.l10n.t("Standard Plan");
-			const confirm = await vscode.window.showInformationMessage(
-				vscode.l10n.t("Switch InfiniAI plan to {0}?", label),
-				{ modal: true },
-				vscode.l10n.t("Switch")
-			);
-			if (confirm !== vscode.l10n.t("Switch")) {
-				return;
-			}
-			await vscode.workspace
-				.getConfiguration("infiniai")
-				.update("plan", next, vscode.ConfigurationTarget.Global);
-		}),
 		vscode.commands.registerCommand("infiniai.openSettings", () =>
 			vscode.commands.executeCommand("workbench.action.openSettings", "infiniai")
 		),
@@ -442,7 +405,7 @@ async function resolveProtocolModel(
 		const models = await provider.getModelDescriptions(false, cancel.token);
 		const rawRoutes = vscode.workspace.getConfiguration("infiniai").get<unknown>("modelRoutes", []);
 		if (node?.kind === "model") {
-			const model = models.find(candidate => candidate.id === node.id);
+			const model = models.find((candidate) => candidate.id === node.id);
 			if (!model) {
 				void vscode.window.showInformationMessage(vscode.l10n.t("InfiniAI model {0} is not available.", node.id));
 				return undefined;
@@ -457,8 +420,8 @@ async function resolveProtocolModel(
 		}
 
 		const picks = models
-			.filter(model => isProtocolSwitchCandidate(model, rawRoutes))
-			.map<ProtocolModelPick>(model => ({
+			.filter((model) => isProtocolSwitchCandidate(model, rawRoutes))
+			.map<ProtocolModelPick>((model) => ({
 				label: model.id,
 				description: formatTransport(model.transport),
 				detail: vscode.l10n.t("Effective route: {0} ({1})", model.transport, model.routeSource),
@@ -528,12 +491,7 @@ async function switchModelProtocol(
 	const effective = effectiveRouteAfterChange(model, nextRoutes);
 	const source = effective.source === "user" && pick.reset ? vscode.l10n.t("matching override") : effective.source;
 	void vscode.window.showInformationMessage(
-		vscode.l10n.t(
-			"{0} now uses {1} ({2}).",
-			model.id,
-			formatTransport(effective.transport),
-			source
-		)
+		vscode.l10n.t("{0} now uses {1} ({2}).", model.id, formatTransport(effective.transport), source)
 	);
 }
 
@@ -549,16 +507,14 @@ async function resolveModelId(
 	try {
 		const models = await provider.getModelDescriptions(false, cancel.token);
 		const picks = models
-			.filter(model => hiddenOnly ? isModelHidden(model.id) : !isModelHidden(model.id))
-			.map(model => ({
+			.filter((model) => (hiddenOnly ? isModelHidden(model.id) : !isModelHidden(model.id)))
+			.map((model) => ({
 				label: model.id,
 				description: model.transport,
 			}));
 		if (picks.length === 0) {
 			void vscode.window.showInformationMessage(
-				hiddenOnly
-					? vscode.l10n.t("No hidden InfiniAI models.")
-					: vscode.l10n.t("No visible InfiniAI models to hide.")
+				hiddenOnly ? vscode.l10n.t("No hidden InfiniAI models.") : vscode.l10n.t("No visible InfiniAI models to hide.")
 			);
 			return undefined;
 		}

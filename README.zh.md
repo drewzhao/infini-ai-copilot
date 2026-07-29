@@ -7,9 +7,8 @@ InfiniAI Provider for VS Code 将 InfiniAI 注册为稳定的 VS Code 语言模�
 1. 从 [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=drewzhao.infiniai-copilot) 安装扩展。
 2. 打开 VS Code Chat，并使用模型选择器。
 3. 选择 **Manage Models...**，然后添加 **InfiniAI** 提供方的模型。
-4. 首次使用时选择 Standard 或 Coding 方案。
-5. 输入对应方案的 InfiniAI API Key。密钥会保存在 VS Code Secret Storage 中。
-6. 在模型选择器中选择 InfiniAI 模型。
+4. 输入 InfiniAI API Key。密钥会保存在 VS Code Secret Storage 中。
+5. 在模型选择器中选择 InfiniAI 模型。
 
 思考回放会按模型族 profile 解析。内置 round-trip 默认值已经包含 MiMo V2、DeepSeek V4、精确 `deepseek-r1`、精确 `deepseek-v3.2-thinking`、GLM 5/4.7、Kimi K2 和 MiniMax 模式；具体传输协议 profile 仍可拒绝该默认值，例如 Anthropic 路由的 DeepSeek V4 会保持 safe-off。强制要求回放的 profile 在上下文过期或缺失时仍会先在本地失败，避免发送不安全的上游请求；GLM profile 会在有缓存时回放已捕获的推理内容，但允许 VS Code compact 后生成的无推理工具调用继续发送。MiniMax 模型始终会用 `reasoning_split: true` 请求 split reasoning，并回放原生 `reasoning_details`。修改 round-trip 列表后，请从新聊天开始。
 
@@ -28,12 +27,12 @@ Kimi K2 和 DeepSeek V4 默认走 OpenAI 兼容 Chat Completions 路由，这样
 
 InfiniAI 活动栏还包含：
 
-- **模型** 树视图，用于切换方案、刷新模型、管理模型选择器可见性，以及按模型切换协议。
+- **模型** 树视图，用于查看 API Key 状态、刷新模型、管理模型选择器可见性，以及按模型切换协议。
 - **本地用量** 面板，基于流式响应在本地记录请求用量，支持导出 CSV，并通过 VS Code 原生确认对话框清空记录。
 
 ## 使用前提
 
-- VS Code `^1.117.0`
+- VS Code `^1.130.0`
 - 有效的 InfiniAI API Key，可从 [infiniai.ai](https://infiniai.ai) 获取
 - 本地开发需要 Node.js 和 npm
 
@@ -57,7 +56,7 @@ npm run build
 
 本地运行扩展：
 
-1. 使用 VS Code `1.117+` 打开本仓库。
+1. 使用 VS Code `1.130+` 打开本仓库。
 2. 按 `F5` 启动 Extension Development Host。
 3. 在开发主机中通过模型选择器添加 InfiniAI 模型，或运行 `@infiniai /doctor`。
 
@@ -73,12 +72,9 @@ npm run build
 
 常用设置：
 
-- `infiniai.plan`: 选择 `"standard"` 或 `"coding"`。如果未设置，路由默认按 `"standard"` 处理，交互式密钥录入流程会先提示选择方案。
-- `infiniai.baseUrl`: Standard Plan 的 OpenAI 兼容基础 URL。
-- `infiniai.anthropic.baseUrl`: Standard Plan 的 Anthropic 兼容基础 URL。
-- `infiniai.coding.baseUrl`: Coding Plan 的 OpenAI 兼容基础 URL。
-- `infiniai.coding.anthropic.baseUrl`: Coding Plan 的 Anthropic 兼容基础 URL。
-- `infiniai.modelDiscoveryUrl`: 可选的模型发现绝对 URL。为空时使用当前 InfiniAI 方案默认值。
+- `infiniai.baseUrl`: OpenAI 兼容 API 基础 URL。默认值为 `https://cloud.infini-ai.com/maas/v1`。
+- `infiniai.anthropic.baseUrl`: Anthropic 兼容 API 基础 URL。默认值为 `https://cloud.infini-ai.com/maas`。
+- `infiniai.modelDiscoveryUrl`: 可选的模型发现绝对 URL。为空时使用 `https://cloud.infini-ai.com/maas/v1/models`。
 - `infiniai.modelCacheTtlMs`: 模型发现缓存 TTL，单位毫秒。设为 `0` 表示每次请求都刷新。
 - `infiniai.modelRoutes`: 可选模型路由覆盖。每项支持 `pattern`、`transport`（`"openai"`、`"anthropic"` 或 `"vertex"`）以及可选 `baseUrl`。**InfiniAI: Switch Model Protocol** 命令是编辑精确 OpenAI/Anthropic 单模型覆盖的更安全入口。
 - `infiniai.imageInputModels`: 为匹配的模型 ID 强制启用图片输入能力。支持 `*` 通配符。
@@ -187,7 +183,8 @@ Completions 与 Anthropic Messages 之间切换也不会失去回放保护。
 
 ## 命令
 
-- `infiniai.setApikey`: 设置、更新或删除 Standard/Coding 方案的 API Key。
+- `infiniai.setApikey`: 设置或更新 InfiniAI API Key。
+- `infiniai.signOut`: 从 VS Code Secret Storage 中删除当前 InfiniAI API Key。
 
 聊天参与者命令：
 
@@ -227,7 +224,7 @@ Marketplace 清单不声明任何 `enabledApiProposals`，也不包含 proposed 
 
 1. 运行 `@infiniai /doctor`。
 2. 查看 `InfiniAI` 输出通道。
-3. 通过 `infiniai.setApikey` 确认对应方案的 API Key 已保存。
+3. 通过 `infiniai.setApikey` 确认 API Key 已保存。
 4. 检查 `infiniai.modelDiscoveryUrl` 和路由覆盖配置。
 5. 执行 `Developer: Reload Window` 后重试模型发现。
 
@@ -239,8 +236,8 @@ VS Code 可能会在磁盘上保留旧扩展版本目录，但它会按扩展标
 
 升级后仍会保留的 VS Code 状态可能影响行为：
 
-- Secret Storage 中的 API Key 会保留：`infiniai.apiKey` 和 `infiniai.codingApiKey`。
-- 用户/工作区设置会保留，包括 `infiniai.plan`、基础 URL、`infiniai.modelDiscoveryUrl` 和 `infiniai.modelRoutes`。
+- 扩展使用 `infiniai.apiKey` Secret Storage 条目。
+- 当前基础 URL、`infiniai.modelDiscoveryUrl` 和 `infiniai.modelRoutes` 仍会生效。扩展不会改写用户提供的路由或模型发现覆盖。
 - 已打开窗口可能继续运行旧的扩展主机，直到重新加载窗口。
 
 升级后建议运行：
@@ -250,14 +247,14 @@ VS Code 可能会在磁盘上保留旧扩展版本目录，但它会按扩展标
 @infiniai /models refresh
 ```
 
-如果诊断结果显示了意外的端点、方案或路由覆盖，请重置对应的 `infiniai.*` 设置并重新加载窗口。
+如果诊断结果显示了意外的端点或路由覆盖，请重置对应的当前 `infiniai.*` 设置并重新加载窗口。
 
 ### 没有模型出现
 
 按以下顺序检查：
 
-1. 运行 `InfiniAI: Set InfiniAI API Key`，确认 API Key 已保存到当前激活的方案。
-2. 运行 `@infiniai /doctor`，检查当前方案、密钥是否存在、模型发现端点和最近错误。
+1. 运行 `InfiniAI: Set InfiniAI API Key`，确认 API Key 已保存。
+2. 运行 `@infiniai /doctor`，检查密钥是否存在、模型发现端点和最近错误。
 3. 清空 `infiniai.modelDiscoveryUrl`，除非您明确需要自定义模型发现端点。
 4. 临时清空 `infiniai.modelRoutes`，排除错误路由覆盖的影响。
 5. 执行 `Developer: Reload Window`，然后运行 `@infiniai /models refresh`。

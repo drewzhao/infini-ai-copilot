@@ -2,17 +2,15 @@ import * as vscode from "vscode";
 import { InfiniAIChatModelProvider } from "./provider";
 import { initStatusBar } from "./statusBar";
 import { registerInfiniAIChatParticipant } from "./participant";
-import { logInfo } from "./utils";
+import { INFINIAI_API_KEY_SECRET_NAME, logInfo, promptForApiKey } from "./utils";
 import {
+	ApiKeyInputProvider,
 	INFINIAI_AUTH_PROVIDER_ID,
 	INFINIAI_AUTH_PROVIDER_LABEL,
 	InfiniAIAuthenticationProvider,
-	PlanInputProvider,
 } from "./auth/infiniaiAuthProvider";
 import { registerInfiniAIModelsTreeView } from "./views/modelsView";
 import { registerInfiniAIUsageDashboard } from "./views/usageDashboard";
-import { pickAccountToSignOut, pickPlan } from "./ui/quickPick";
-import { getActivePlan } from "./utils";
 import { registerCopilotChatDependencyCheck } from "./copilotChatDependency";
 import { registerInfiniAILanguageStatus } from "./views/languageStatusItem";
 import { getThinkingReplayStoreMode } from "./thinkingMode";
@@ -22,7 +20,10 @@ import {
 	thinkingReplayStore,
 } from "./thinkingReplayStore";
 
-async function configureThinkingReplayStore(context: vscode.ExtensionContext, output: vscode.LogOutputChannel): Promise<void> {
+async function configureThinkingReplayStore(
+	context: vscode.ExtensionContext,
+	output: vscode.LogOutputChannel
+): Promise<void> {
 	const mode = getThinkingReplayStoreMode();
 	const storageRoot = context.storageUri ?? context.globalStorageUri;
 	const storageFile = vscode.Uri.joinPath(storageRoot, "thinking-replay-v1.json");
@@ -34,7 +35,10 @@ async function configureThinkingReplayStore(context: vscode.ExtensionContext, ou
 	}
 
 	await thinkingReplayStore.initialize(new LocalPlaintextThinkingReplayStorage(storageFile.fsPath));
-	logInfo(output, `Thinking replay store initialized mode=localPlaintext entries=${thinkingReplayStore.stats().entryCount}`);
+	logInfo(
+		output,
+		`Thinking replay store initialized mode=localPlaintext entries=${thinkingReplayStore.stats().entryCount}`
+	);
 }
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -69,15 +73,13 @@ export async function activate(context: vscode.ExtensionContext) {
 				void configureThinkingReplayStore(context, output).catch((err) => {
 					logInfo(
 						output,
-						`Thinking replay store reconfiguration failed: ${
-							err instanceof Error ? err.message : String(err)
-						}`
+						`Thinking replay store reconfiguration failed: ${err instanceof Error ? err.message : String(err)}`
 					);
 				});
 			}
 		}),
 		context.secrets.onDidChange((event) => {
-			if (event.key === "infiniai.apiKey" || event.key === "infiniai.codingApiKey") {
+			if (event.key === INFINIAI_API_KEY_SECRET_NAME) {
 				provider.refreshModels();
 			}
 		})
@@ -85,55 +87,30 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	logInfo(output, "InfiniAI Chat Model Provider activated.");
 
-	const planInputProvider: PlanInputProvider = {
-		async promptPlan(currentPlan) {
-			return pickPlan(currentPlan ?? getActivePlan());
-		},
-		async promptApiKey(plan, existing) {
-			const planLabel = plan === "coding" ? vscode.l10n.t("Coding Plan") : vscode.l10n.t("Standard Plan");
-			const entered = await vscode.window.showInputBox({
-				title: vscode.l10n.t("InfiniAI {0} API Key", planLabel),
-				prompt: existing
-					? vscode.l10n.t("Update your {0} API key", planLabel)
-					: vscode.l10n.t("Enter your {0} API key", planLabel),
-				ignoreFocusOut: true,
-				password: true,
-				value: existing ?? "",
-			});
-			return entered?.trim() ? entered.trim() : undefined;
+	const apiKeyInputProvider: ApiKeyInputProvider = {
+		async promptApiKey(existing) {
+			return promptForApiKey(existing);
 		},
 	};
 
-	const authProvider = new InfiniAIAuthenticationProvider(context.secrets, planInputProvider);
+	const authProvider = new InfiniAIAuthenticationProvider(context.secrets, apiKeyInputProvider);
 	context.subscriptions.push(
 		authProvider,
 		vscode.authentication.registerAuthenticationProvider(
 			INFINIAI_AUTH_PROVIDER_ID,
 			INFINIAI_AUTH_PROVIDER_LABEL,
 			authProvider,
-			{ supportsMultipleAccounts: true }
+			{ supportsMultipleAccounts: false }
 		)
 	);
 
-	// Management command to configure API key (with plan picker). Thin wrapper
-	// over the AuthenticationProvider so the Accounts menu and the command
-	// share the same persistence path.
+	// Management commands use the same canonical SecretStorage entry surfaced
+	// by the AuthenticationProvider.
 	context.subscriptions.push(
 		vscode.commands.registerCommand("infiniai.setApikey", async () => {
-			const plan = await planInputProvider.promptPlan(undefined);
-			if (!plan) {
-				return;
-			}
-			const config = vscode.workspace.getConfiguration("infiniai");
-			if (config.get<string>("plan") !== plan) {
-				await config.update("plan", plan, vscode.ConfigurationTarget.Global);
-			}
-			const planLabel = plan === "coding" ? vscode.l10n.t("Coding Plan") : vscode.l10n.t("Standard Plan");
-			try {
-				await vscode.authentication.getSession(INFINIAI_AUTH_PROVIDER_ID, [plan], { createIfNone: true });
-				vscode.window.showInformationMessage(vscode.l10n.t("InfiniAI {0} API key saved.", planLabel));
-			} catch {
-				// User canceled, nothing to do.
+			const session = await authProvider.configureSession();
+			if (session) {
+				void vscode.window.showInformationMessage(vscode.l10n.t("InfiniAI API key saved."));
 			}
 		}),
 		vscode.commands.registerCommand("infiniai.signOut", async () => {
@@ -142,11 +119,16 @@ export async function activate(context: vscode.ExtensionContext) {
 				vscode.window.showInformationMessage(vscode.l10n.t("No InfiniAI accounts are signed in."));
 				return;
 			}
-			const sessionId = await pickAccountToSignOut(sessions);
-			if (!sessionId) {
+			const signOut = vscode.l10n.t("Sign Out");
+			const confirm = await vscode.window.showWarningMessage(
+				vscode.l10n.t("Sign out of InfiniAI and remove the saved API key?"),
+				{ modal: true },
+				signOut
+			);
+			if (confirm !== signOut) {
 				return;
 			}
-			await authProvider.removeSession(sessionId);
+			await authProvider.removeSession(sessions[0].id);
 		}),
 		vscode.commands.registerCommand("infiniai.clearThinkingReplayCache", async () => {
 			await thinkingReplayStore.clear();

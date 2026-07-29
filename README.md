@@ -7,9 +7,8 @@ InfiniAI Provider for VS Code registers InfiniAI as a stable VS Code language mo
 1. Install the extension from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=drewzhao.infiniai-copilot).
 2. Open VS Code Chat and use the model picker.
 3. Choose **Manage Models...**, then add models from the **InfiniAI** provider.
-4. Pick the Standard or Coding plan when prompted.
-5. Enter the matching InfiniAI API key. The key is stored in VS Code Secret Storage.
-6. Select an InfiniAI model from the model picker.
+4. Enter your InfiniAI API key. The key is stored in VS Code Secret Storage.
+5. Select an InfiniAI model from the model picker.
 
 Thinking replay is resolved through model-family profiles. The built-in round-trip defaults include MiMo V2, DeepSeek
 V4, exact `deepseek-r1`, exact `deepseek-v3.2-thinking`, GLM 5/4.7, Kimi K2, and MiniMax patterns, so new tool-call chats
@@ -34,12 +33,12 @@ The participant is diagnostic only. It is not a replacement chat assistant.
 
 The InfiniAI activity bar also includes:
 
-- A **Models** tree for plan switching, model refresh, picker visibility, and per-model protocol switching.
+- A **Models** tree for API key status, model refresh, picker visibility, and per-model protocol switching.
 - A **Local Usage** dashboard that records streamed request usage locally, exports CSV, and clears records through a native VS Code confirmation dialog.
 
 ## Requirements
 
-- VS Code `^1.117.0`
+- VS Code `^1.130.0`
 - A valid InfiniAI API key from [infiniai.ai](https://infiniai.ai)
 - Node.js and npm for local development
 
@@ -63,7 +62,7 @@ npm run build
 
 To run the extension locally:
 
-1. Open this repository in VS Code `1.117+`.
+1. Open this repository in VS Code `1.130+`.
 2. Press `F5` to launch the Extension Development Host.
 3. In the development host, use the model picker to add InfiniAI models or run `@infiniai /doctor`.
 
@@ -79,12 +78,9 @@ Useful log fields include request id, model id, provider transport, endpoint hos
 
 Common settings:
 
-- `infiniai.plan`: Select `"standard"` or `"coding"`. If unset, routing defaults to `"standard"` and the key-entry flow prompts for a plan.
-- `infiniai.baseUrl`: OpenAI-compatible Standard Plan base URL.
-- `infiniai.anthropic.baseUrl`: Anthropic-compatible Standard Plan base URL.
-- `infiniai.coding.baseUrl`: OpenAI-compatible Coding Plan base URL.
-- `infiniai.coding.anthropic.baseUrl`: Anthropic-compatible Coding Plan base URL.
-- `infiniai.modelDiscoveryUrl`: Optional absolute URL for model discovery. Empty uses the selected InfiniAI plan default.
+- `infiniai.baseUrl`: OpenAI-compatible API base URL. Defaults to `https://cloud.infini-ai.com/maas/v1`.
+- `infiniai.anthropic.baseUrl`: Anthropic-compatible API base URL. Defaults to `https://cloud.infini-ai.com/maas`.
+- `infiniai.modelDiscoveryUrl`: Optional absolute URL for model discovery. Empty uses `https://cloud.infini-ai.com/maas/v1/models`.
 - `infiniai.modelCacheTtlMs`: Model discovery cache TTL in milliseconds. Set `0` to refresh every request.
 - `infiniai.modelRoutes`: Optional model routing overrides. Each item supports `pattern`, `transport` (`"openai"`, `"anthropic"`, or `"vertex"`), and optional `baseUrl`. The **InfiniAI: Switch Model Protocol** command is the safer editor for exact OpenAI/Anthropic per-model overrides.
 - `infiniai.imageInputModels`: Force-enable image input for matching model IDs. Supports `*` wildcards.
@@ -188,7 +184,8 @@ Anthropic Messages without losing the replay guard, as long as the required repl
 
 ## Commands
 
-- `infiniai.setApikey`: Set, update, or delete the Standard or Coding plan API key.
+- `infiniai.setApikey`: Set or update the InfiniAI API key.
+- `infiniai.signOut`: Remove the current InfiniAI API key from VS Code Secret Storage.
 
 Chat participant commands:
 
@@ -228,7 +225,7 @@ If InfiniAI models do not appear:
 
 1. Run `@infiniai /doctor`.
 2. Check the `InfiniAI` output channel.
-3. Confirm that the correct plan key is stored with `infiniai.setApikey`.
+3. Confirm that the API key is stored with `infiniai.setApikey`.
 4. Check `infiniai.modelDiscoveryUrl` and route overrides.
 5. Run `Developer: Reload Window` and retry model discovery.
 
@@ -240,8 +237,8 @@ VS Code may leave older extension version folders on disk, but it scans installe
 
 Persistent VS Code state can still affect upgraded installs:
 
-- API keys in Secret Storage are preserved: `infiniai.apiKey` and `infiniai.codingApiKey`.
-- User/workspace settings are preserved, including `infiniai.plan`, base URLs, `infiniai.modelDiscoveryUrl`, and `infiniai.modelRoutes`.
+- The extension uses the `infiniai.apiKey` Secret Storage entry.
+- Current base URLs, `infiniai.modelDiscoveryUrl`, and `infiniai.modelRoutes` remain effective. User-supplied route and discovery overrides are not rewritten.
 - Already-open windows may keep the old extension host running until reload.
 
 After upgrading, run:
@@ -251,14 +248,14 @@ After upgrading, run:
 @infiniai /models refresh
 ```
 
-If the diagnostics show an unexpected endpoint, plan, or route override, reset the corresponding `infiniai.*` setting and reload the window.
+If the diagnostics show an unexpected endpoint or route override, reset the corresponding current `infiniai.*` setting and reload the window.
 
 ### No Models Appear
 
 Check these in order:
 
-1. Run `InfiniAI: Set InfiniAI API Key` and confirm the key is stored for the active plan.
-2. Run `@infiniai /doctor` and verify the active plan, key presence, discovery endpoint, and last error.
+1. Run `InfiniAI: Set InfiniAI API Key` and confirm the API key is stored.
+2. Run `@infiniai /doctor` and verify key presence, the discovery endpoint, and the last error.
 3. Clear `infiniai.modelDiscoveryUrl` unless you intentionally use a custom discovery endpoint.
 4. Temporarily clear `infiniai.modelRoutes` to rule out a bad route override.
 5. Run `Developer: Reload Window`, then `@infiniai /models refresh`.

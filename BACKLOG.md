@@ -36,24 +36,23 @@ This backlog enumerates stable VS Code APIs (from `vscode.d.ts`) that could mean
 **API.** `vscode.window.registerUriHandler({ handleUri(uri) { … } })`.
 
 **Design.**
-- Handle `vscode://drewzhao.infiniai-copilot/setApiKey?plan=standard&key=…`.
+- Handle `vscode://drewzhao.infiniai-copilot/setApiKey?key=…`.
 - After parsing, **always confirm** with a modal dialog ("Save API key from infini-ai.com?") before storing — never store silently.
-- Optional: support `?plan=coding` and `?openWalkthrough=true`.
+- Optional: support `?openWalkthrough=true`.
 
 **Implementation guidance.**
 ```ts
 context.subscriptions.push(vscode.window.registerUriHandler({
   async handleUri(uri) {
     const params = new URLSearchParams(uri.query);
-    const plan = params.get("plan") === "coding" ? "coding" : "standard";
     const key = params.get("key")?.trim();
     if (!key) return;
     const confirm = await vscode.window.showInformationMessage(
-      vscode.l10n.t("Save InfiniAI {0} API key received from {1}?", plan, uri.authority),
+      vscode.l10n.t("Save InfiniAI API key received from {0}?", uri.authority),
       { modal: true }, vscode.l10n.t("Save")
     );
     if (confirm) {
-      await context.secrets.store(plan === "coding" ? "infiniai.codingApiKey" : "infiniai.apiKey", key);
+      await context.secrets.store("infiniai.apiKey", key);
     }
   }
 }));
@@ -69,7 +68,7 @@ context.subscriptions.push(vscode.window.registerUriHandler({
 
 ### 8. TreeView sidebar — Usage node (8b)
 
-> **Status: Partially shipped.** Part 8a (Plan / Models / Account nodes) shipped in 0.5.0. Part **8b** (Usage node) is **deferred — blocked on an InfiniAI account-level quota / billing query API**.
+> **Status: Partially shipped.** Part 8a (Models / Account nodes) shipped in 0.5.0. Part **8b** (Usage node) is **deferred — blocked on an InfiniAI account-level quota / billing query API**.
 
 **Problem.** The Models tree lacks a **Usage** node showing account-level quota and billing data.
 
@@ -136,10 +135,9 @@ Add and surface in the command palette + tree view actions:
 
 | Command id | Title | Notes |
 |---|---|---|
-| `infiniai.switchPlan` | InfiniAI: Switch Plan | Quick pick + updates `infiniai.plan` |
 | `infiniai.refreshModels` | InfiniAI: Refresh Models | Wired to `withProgress` |
 | `infiniai.showLastRequest` | InfiniAI: Show Last Request | Reveals log channel and scrolls to last entry |
-| `infiniai.clearApiKey` | InfiniAI: Clear API Key | Per-plan picker + confirm |
+| `infiniai.clearApiKey` | InfiniAI: Clear API Key | Confirm removal of the single saved key |
 | `infiniai.openDashboard` | InfiniAI: Open Dashboard | `env.openExternal` |
 | `infiniai.showUsage` | InfiniAI: Show Token Usage | Focuses the WebviewView |
 | `infiniai.openWalkthrough` | InfiniAI: Open Walkthrough | Reopens item #21 |
@@ -181,7 +179,7 @@ Use `category: "InfiniAI"` for all commands and group them in the palette.
 
 ### 20. workspace.registerTaskProvider — usage report task
 
-> **Status: Deferred — blocked on the same InfiniAI usage / billing query API as #9b.** A CSV that only reports locally-observed activity would mislead Coding-Plan customers tracking real spend, so this should not ship until the backing API does.
+> **Status: Deferred — blocked on the same InfiniAI usage / billing query API as #9b.** A CSV that only reports locally-observed activity would mislead customers tracking real spend, so this should not ship until the backing API does.
 
 **Problem.** Power users want a one-keystroke "give me a monthly usage CSV".
 
@@ -189,7 +187,7 @@ Use `category: "InfiniAI"` for all commands and group them in the palette.
 
 **Design.** Contribute `provideTasks` returning a `Task` of kind `"infiniai"`, type `"usage-report"`, with `presentationOptions: { reveal: Always }`. The task spawns no shell; instead it uses a `CustomExecution` to run an in-process function that fetches usage, writes to `globalStorageUri/usage-YYYY-MM.csv`, and opens the file.
 
-Niche but appreciated by Coding-Plan customers tracking spend.
+Niche but appreciated by customers tracking spend.
 
 ---
 
@@ -197,20 +195,18 @@ Niche but appreciated by Coding-Plan customers tracking spend.
 
 ### 21. Get-Started Walkthrough
 
-**Problem.** First-run users currently have to read the README to discover the multi-step path: open Copilot Chat → model picker → "Manage Models" → "Add Models" → "InfiniAI" → choose plan → enter API key → select models. Drop-off here is high.
+**Problem.** First-run users currently have to read the README to discover the multi-step path: open Copilot Chat → model picker → "Manage Models" → "Add Models" → "InfiniAI" → enter API key → select models. Drop-off here is high.
 
 > Deprioritized: most early adopters arrive via the README and dashboard deep links. Revisit once telemetry (#10) confirms onboarding drop-off is a real bottleneck, or after the dashboard's "Open in VS Code" flow (#7) is live and we want a guided fallback.
 
 **API.** Manifest contribution `walkthroughs` (declared in `package.json`; rendered by VS Code under **Welcome → Get Started**).
 
 **Design.**
-- 4–5 steps, each with a Markdown body, a media asset (PNG/SVG/MP4) and a `command:` link that performs the step.
+- 3–4 steps, each with a Markdown body, a media asset (PNG/SVG/MP4) and a `command:` link that performs the step.
 - Steps:
-  1. **Pick your plan** — runs `infiniai.pickPlan` (new command, just sets `infiniai.plan`).
-  2. **Add your API key** — runs `infiniai.setApikey` (existing).
-  3. **Open Copilot Chat & select InfiniAI** — runs `workbench.action.chat.open`.
-  4. **Pin your favorite models** — runs a new `infiniai.pinModels` quick pick (or links to the model picker).
-  5. **Optional: switch to Coding Plan** — runs `infiniai.switchPlan`.
+  1. **Add your API key** — runs `infiniai.setApikey` (existing).
+  2. **Open Copilot Chat & select InfiniAI** — runs `workbench.action.chat.open`.
+  3. **Pin your favorite models** — runs a new `infiniai.pinModels` quick pick (or links to the model picker).
 - Each step uses `completionEvents` like `onCommand:infiniai.setApikey` so the checkmark auto-ticks when the user completes it through any path.
 
 **Implementation guidance.**

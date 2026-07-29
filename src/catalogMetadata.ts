@@ -1,6 +1,5 @@
 import {
 	BUILT_IN_INFINIAI_MODEL_METADATA,
-	BUILT_IN_INFINIAI_NON_CHAT_MODELS,
 	type BuiltInInfiniAIModelMetadata,
 } from "./generated/infiniaiCatalogMetadata.generated";
 import type { InfiniAIModelInfo, ModelEndpointKind, ModelTransport } from "./types";
@@ -31,10 +30,6 @@ export function getBuiltInInfiniAIModelMetadata(modelId: string): BuiltInInfiniA
 		BUILT_IN_INFINIAI_MODEL_METADATA_OVERRIDES[modelId] ??
 		BUILT_IN_INFINIAI_MODEL_METADATA[modelId as keyof typeof BUILT_IN_INFINIAI_MODEL_METADATA]
 	);
-}
-
-export function isBuiltInNonChatModel(modelId: string): boolean {
-	return modelId in BUILT_IN_INFINIAI_NON_CHAT_MODELS;
 }
 
 export function inferModelFamily(modelId: string): string {
@@ -84,12 +79,60 @@ function mergeCapabilities(
 	};
 }
 
+function positiveInteger(value: number | undefined): number | undefined {
+	if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+		return undefined;
+	}
+	return Math.floor(value);
+}
+
+function normalizedCreated(value: number | undefined, fallback?: number): number {
+	return positiveInteger(value) ?? positiveInteger(fallback) ?? 0;
+}
+
+function normalizedOwner(value: string | undefined, fallback?: string): string {
+	return value?.trim() || fallback?.trim() || "InfiniAI";
+}
+
+function refreshLiveTokenMetadata(
+	tooltip: string | undefined,
+	contextLength: number | undefined,
+	maxOutputTokens: number | undefined
+): string | undefined {
+	if (!tooltip) {
+		return tooltip;
+	}
+	let refreshed = tooltip;
+	for (const [label, value] of [
+		["Context", contextLength],
+		["Max output", maxOutputTokens],
+	] as const) {
+		if (value === undefined) {
+			continue;
+		}
+		const line = `${label}: ${value.toLocaleString("en-US")} tokens`;
+		const pattern = new RegExp(`^${label}:.*$`, "m");
+		refreshed = pattern.test(refreshed) ? refreshed.replace(pattern, line) : `${refreshed}\n${line}`;
+	}
+	return refreshed;
+}
+
 export function enrichModelWithBuiltInMetadata(model: InfiniAIModelInfo): InfiniAIModelInfo {
 	const builtIn = getBuiltInInfiniAIModelMetadata(model.id);
+	const liveContextLength = positiveInteger(model.context_length);
+	const liveMaxOutput =
+		positiveInteger(model.max_output_length) ??
+		positiveInteger(model.max_tokens) ??
+		positiveInteger(model.maxOutputTokens);
 	if (!builtIn) {
 		return {
 			...model,
+			created: normalizedCreated(model.created),
+			owned_by: normalizedOwner(model.owned_by),
 			family: model.family ?? inferModelFamily(model.id),
+			max_output_length: liveMaxOutput,
+			max_tokens: liveMaxOutput,
+			maxOutputTokens: liveMaxOutput,
 		};
 	}
 
@@ -98,19 +141,20 @@ export function enrichModelWithBuiltInMetadata(model: InfiniAIModelInfo): Infini
 
 	return {
 		...model,
-		created: model.created || builtIn.created || 0,
-		owned_by: model.owned_by || builtIn.manufacturer || "InfiniAI",
+		created: normalizedCreated(model.created, builtIn.created),
+		owned_by: normalizedOwner(model.owned_by, builtIn.manufacturer),
 		family: model.family ?? builtIn.family ?? inferModelFamily(model.id),
 		apiMode: model.apiMode ?? (builtIn.apiMode as ModelTransport | undefined),
 		endpointKind: model.endpointKind ?? (builtIn.endpointKind as ModelEndpointKind | undefined),
-		context_length: model.context_length ?? builtIn.maxContextTokens,
-		max_tokens: model.max_tokens ?? builtIn.maxOutputTokens,
+		context_length: liveContextLength ?? builtIn.maxContextTokens,
+		max_output_length: liveMaxOutput,
+		max_tokens: liveMaxOutput ?? builtIn.maxOutputTokens,
 		maxInputTokens: model.maxInputTokens ?? builtIn.maxInputTokens,
-		maxOutputTokens: model.maxOutputTokens ?? builtIn.maxOutputTokens,
+		maxOutputTokens: liveMaxOutput ?? builtIn.maxOutputTokens,
 		displayName: model.displayName ?? builtIn.name,
 		version: model.version ?? builtIn.version,
 		detail: model.detail ?? builtIn.detail,
-		tooltip: model.tooltip ?? builtIn.tooltip,
+		tooltip: model.tooltip ?? refreshLiveTokenMetadata(builtIn.tooltip, liveContextLength, liveMaxOutput),
 		vision: model.vision ?? imageInput,
 		input_modalities: model.input_modalities ?? (imageInput ? ["text", "image"] : undefined),
 		capabilities,

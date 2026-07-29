@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 
-import { getActivePlan } from "./utils";
 import type { InfiniAIModelInfo, ModelEndpointKind, ModelRoute, ModelRouteConfig, ModelTransport } from "./types";
 
 export type ProtocolSwitchTransport = Extract<ModelTransport, "openai" | "anthropic">;
@@ -53,7 +52,7 @@ function rawPattern(item: unknown): string | undefined {
 }
 
 export function getExactModelRouteOverride(value: unknown, modelId: string): ModelRouteConfig | undefined {
-	return parseModelRouteConfigs(value).find(route => route.pattern === modelId && !route.pattern.includes("*"));
+	return parseModelRouteConfigs(value).find((route) => route.pattern === modelId && !route.pattern.includes("*"));
 }
 
 export function countModelRouteOverrides(value: unknown): {
@@ -63,7 +62,8 @@ export function countModelRouteOverrides(value: unknown): {
 	const routes = parseModelRouteConfigs(value);
 	return {
 		routeConfigCount: routes.length,
-		exactModelRouteOverrideCount: routes.filter(route => route.pattern !== "*" && !route.pattern.includes("*")).length,
+		exactModelRouteOverrideCount: routes.filter((route) => route.pattern !== "*" && !route.pattern.includes("*"))
+			.length,
 	};
 }
 
@@ -129,7 +129,7 @@ export function resetExactModelRouteOverride(value: unknown, modelId: string): u
 	if (!Array.isArray(value)) {
 		return [];
 	}
-	return value.filter(item => !isExactModelPattern(item, modelId));
+	return value.filter((item) => !isExactModelPattern(item, modelId));
 }
 
 export function endpointKindForTransport(transport: ModelTransport): ModelEndpointKind {
@@ -185,25 +185,15 @@ function getCatalogPreferredTransport(model: InfiniAIModelInfo): ModelTransport 
 }
 
 function defaultBaseUrl(transport: ModelTransport): string {
-	const plan = getActivePlan();
 	const config = vscode.workspace.getConfiguration();
 	switch (transport) {
 		case "anthropic":
-			return config.get<string>(
-				plan === "coding" ? "infiniai.coding.anthropic.baseUrl" : "infiniai.anthropic.baseUrl",
-				plan === "coding" ? "https://cloud.infini-ai.com/maas/coding" : "https://cloud.infini-ai.com/maas"
-			);
+			return config.get<string>("infiniai.anthropic.baseUrl", "https://cloud.infini-ai.com/maas");
 		case "vertex":
-			return config.get<string>(
-				plan === "coding" ? "infiniai.coding.baseUrl" : "infiniai.baseUrl",
-				plan === "coding" ? "https://cloud.infini-ai.com/maas/coding/v1" : "https://cloud.infini-ai.com/maas/v1"
-			);
+			return config.get<string>("infiniai.baseUrl", "https://cloud.infini-ai.com/maas/v1");
 		case "openai":
 		default:
-			return config.get<string>(
-				plan === "coding" ? "infiniai.coding.baseUrl" : "infiniai.baseUrl",
-				plan === "coding" ? "https://cloud.infini-ai.com/maas/coding/v1" : "https://cloud.infini-ai.com/maas/v1"
-			);
+			return config.get<string>("infiniai.baseUrl", "https://cloud.infini-ai.com/maas/v1");
 	}
 }
 

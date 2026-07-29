@@ -1,11 +1,6 @@
 import assert from "assert/strict";
 
-import {
-	enrichModelWithBuiltInMetadata,
-	getBuiltInInfiniAIModelMetadata,
-	inferModelFamily,
-	isBuiltInNonChatModel,
-} from "./catalogMetadata";
+import { enrichModelWithBuiltInMetadata, getBuiltInInfiniAIModelMetadata, inferModelFamily } from "./catalogMetadata";
 import type { InfiniAIModelInfo } from "./types";
 
 function liveModel(id: string, overrides: Partial<InfiniAIModelInfo> = {}): InfiniAIModelInfo {
@@ -51,6 +46,34 @@ describe("built-in InfiniAI catalog metadata", () => {
 		assert.equal(enriched.capabilities?.imageInput, true);
 	});
 
+	it("keeps a positive live output ceiling authoritative over stale built-in metadata", () => {
+		const enriched = enrichModelWithBuiltInMetadata(
+			liveModel("kimi-k2.6", {
+				context_length: 300000,
+				max_output_length: 262144,
+			})
+		);
+
+		assert.equal(enriched.max_output_length, 262144);
+		assert.equal(enriched.max_tokens, 262144);
+		assert.equal(enriched.maxOutputTokens, 262144);
+		assert.match(enriched.tooltip ?? "", /Context: 300,000 tokens/);
+		assert.match(enriched.tooltip ?? "", /Max output: 262,144 tokens/);
+		assert.doesNotMatch(enriched.tooltip ?? "", /Max output: 131,072 tokens/);
+	});
+
+	it("replaces placeholder ownership for live-only models", () => {
+		const enriched = enrichModelWithBuiltInMetadata(
+			liveModel("future-model", {
+				created: 0,
+				owned_by: "",
+			})
+		);
+
+		assert.equal(enriched.created, 0);
+		assert.equal(enriched.owned_by, "InfiniAI");
+	});
+
 	it("defaults GLM models to the OpenClaw Z.AI OpenAI-compatible protocol", () => {
 		for (const id of ["glm-4.5", "glm-4.5-air", "glm-4.6", "glm-4.7", "glm-5", "glm-5.1", "glm-5.2"]) {
 			const enriched = enrichModelWithBuiltInMetadata(liveModel(id));
@@ -60,13 +83,6 @@ describe("built-in InfiniAI catalog metadata", () => {
 			assert.doesNotMatch(enriched.detail ?? "", /Claude-compatible/, id);
 			assert.doesNotMatch(enriched.tooltip ?? "", /Endpoint: Claude兼容/, id);
 		}
-	});
-
-	it("marks built-in non-chat catalog entries", () => {
-		assert.equal(isBuiltInNonChatModel("bge-m3"), true);
-		assert.equal(isBuiltInNonChatModel("bge-reranker-v2-m3"), true);
-		assert.equal(isBuiltInNonChatModel("seedance-1.0"), true);
-		assert.equal(isBuiltInNonChatModel("deepseek-v4-pro"), false);
 	});
 
 	it("does not turn missing tool scene tags into hard tool-calling negatives", () => {

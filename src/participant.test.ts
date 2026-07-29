@@ -70,10 +70,17 @@ describe("chat participant", () => {
 			{
 				getDiagnostics: async () => ({
 					vscodeVersion: "1.117.0",
-					plan: "standard",
-					hasStandardKey: true,
-					hasCodingKey: false,
+					hasApiKey: true,
 					modelCount: 2,
+					discoveryStats: {
+						rawModelCount: 5,
+						chatModelCount: 2,
+						nonChatModelCount: 2,
+						unknownModelTypeCount: 1,
+						malformedModelCount: 0,
+						duplicateModelCount: 0,
+						liveOutputLimitCount: 2,
+					},
 					routeConfigCount: 3,
 					exactModelRouteOverrideCount: 2,
 					cacheAgeMs: 1500,
@@ -90,7 +97,8 @@ describe("chat participant", () => {
 		assert.equal(participant.id, "infiniai");
 		assert.equal(participant.iconPath.id, "sparkle");
 		assert.match(out.chunks[0], /InfiniAI Doctor/);
-		assert.match(out.chunks[0], /Standard key present: yes/);
+		assert.match(out.chunks[0], /API key present: yes/);
+		assert.match(out.chunks[0], /Discovery summary: 5 rows; 2 chat-eligible; 2 non-chat filtered/);
 		assert.match(out.chunks[0], /Route overrides: 3/);
 		assert.match(out.chunks[0], /Exact model route overrides: 2/);
 		assert.match(out.chunks[0], /\[REDACTED\]/);

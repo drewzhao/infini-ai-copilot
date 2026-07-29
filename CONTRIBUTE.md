@@ -1,6 +1,6 @@
 # Contributing Guide
 
-This extension targets VS Code `^1.117.0` and uses stable VS Code APIs only. Do not add Copilot private APIs, proposed API shims, or standalone Copilot Chat extension dependencies.
+This extension targets VS Code `^1.130.0` and uses stable VS Code APIs only. Do not add Copilot private APIs, proposed API shims, or standalone Copilot Chat extension dependencies.
 
 ## Development Setup
 

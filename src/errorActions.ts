@@ -95,23 +95,25 @@ async function showAuthError(): Promise<void> {
 
 async function showQuotaError(): Promise<void> {
 	const dashboard = vscode.l10n.t("Open Dashboard");
-	const switchPlan = vscode.l10n.t("Switch Plan");
+	const setKey = vscode.l10n.t("Set API Key");
 	const choice = await vscode.window.showErrorMessage(
-		vscode.l10n.t("InfiniAI quota exceeded. Top up your plan or switch accounts."),
+		vscode.l10n.t("InfiniAI quota exceeded. Top up your account or update your API key."),
 		dashboard,
-		switchPlan
+		setKey
 	);
 	if (choice === dashboard) {
 		await vscode.env.openExternal(vscode.Uri.parse(DASHBOARD_URL));
-	} else if (choice === switchPlan) {
-		await vscode.commands.executeCommand("infiniai.switchPlan");
+	} else if (choice === setKey) {
+		await vscode.commands.executeCommand("infiniai.setApikey");
 	}
 }
 
 async function showRateLimitError(): Promise<void> {
 	const settings = vscode.l10n.t("Open Settings");
 	const choice = await vscode.window.showWarningMessage(
-		vscode.l10n.t("InfiniAI rate limit hit. The request will be retried automatically; consider lowering request frequency."),
+		vscode.l10n.t(
+			"InfiniAI rate limit hit. The request will be retried automatically; consider lowering request frequency."
+		),
 		settings
 	);
 	if (choice === settings) {

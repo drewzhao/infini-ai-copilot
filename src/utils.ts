@@ -1,9 +1,11 @@
 import * as vscode from "vscode";
-import { RetryConfig, InfiniAIModelInfo } from "./types";
+import { RetryConfig } from "./types";
 import { OpenAIFunctionToolDef } from "./openai/openaiTypes";
+import { normalizeInfiniAIModelsResponse, type NormalizedInfiniAIModelsResponse } from "./modelDiscovery";
 
-export type InfiniAIPlan = "standard" | "coding";
 export type InfiniAILogger = vscode.OutputChannel | vscode.LogOutputChannel;
+
+export const INFINIAI_API_KEY_SECRET_NAME = "infiniai.apiKey";
 
 export class HttpError extends Error {
 	constructor(
@@ -173,50 +175,24 @@ export async function fetchWithCancellation(
 	}
 }
 
-/**
- * Get the active InfiniAI plan from user settings.
- * @returns "standard" or "coding"
- */
-export function getActivePlan(): InfiniAIPlan {
-	return getConfiguredPlan() === "coding" ? "coding" : "standard";
+export async function promptForApiKey(existing: string | undefined): Promise<string | undefined> {
+	const entered = await vscode.window.showInputBox({
+		title: vscode.l10n.t("InfiniAI API Key"),
+		prompt: existing ? vscode.l10n.t("Update your InfiniAI API key") : vscode.l10n.t("Enter your InfiniAI API key"),
+		ignoreFocusOut: true,
+		password: true,
+		value: existing ?? "",
+	});
+	return entered?.trim() ? entered.trim() : undefined;
 }
 
-/**
- * Get the secret storage key name for the active plan's API key.
- */
-export function getApiKeySecretName(plan?: InfiniAIPlan): string {
-	const p = plan ?? getActivePlan();
-	return p === "coding" ? "infiniai.codingApiKey" : "infiniai.apiKey";
-}
-
-/**
- * Get the configured plan value without applying defaults.
- */
-export function getConfiguredPlan(): InfiniAIPlan | undefined {
-	const value = vscode.workspace.getConfiguration().get<string>("infiniai.plan");
-	if (value === "coding" || value === "standard") {
-		return value;
+export async function configureApiKey(secrets: vscode.SecretStorage): Promise<string | undefined> {
+	const existing = await secrets.get(INFINIAI_API_KEY_SECRET_NAME);
+	const apiKey = await promptForApiKey(existing);
+	if (apiKey) {
+		await secrets.store(INFINIAI_API_KEY_SECRET_NAME, apiKey);
 	}
-	return undefined;
-}
-
-/**
- * Resolve the plan to use for prompting, optionally persisting a user choice.
- */
-export async function resolvePlanForApiKey(options: {
-	configuredPlan: InfiniAIPlan | undefined;
-	promptPlan: () => Promise<InfiniAIPlan | undefined>;
-	updatePlan: (plan: InfiniAIPlan) => Promise<void>;
-}): Promise<InfiniAIPlan | undefined> {
-	if (options.configuredPlan) {
-		return options.configuredPlan;
-	}
-	const selected = await options.promptPlan();
-	if (!selected) {
-		return undefined;
-	}
-	await options.updatePlan(selected);
-	return selected;
+	return apiKey;
 }
 
 /**
@@ -225,56 +201,11 @@ export async function resolvePlanForApiKey(options: {
  * @param secrets vscode.SecretStorage
  */
 export async function ensureApiKey(silent: boolean, secrets: vscode.SecretStorage): Promise<string | undefined> {
-	const config = vscode.workspace.getConfiguration("infiniai");
-	const configuredPlan = getConfiguredPlan();
-	let plan = configuredPlan ?? "standard";
-
-	if (!silent) {
-		const selectedPlan = await resolvePlanForApiKey({
-			configuredPlan,
-			promptPlan: async () => {
-				const choice = await vscode.window.showQuickPick(
-					[
-						{ label: vscode.l10n.t("Standard Plan"), description: vscode.l10n.t("Pay-per-token billing"), plan: "standard" as const },
-						{ label: vscode.l10n.t("Coding Plan"), description: vscode.l10n.t("Coding Plan subscription"), plan: "coding" as const },
-					],
-					{
-						title: vscode.l10n.t("InfiniAI: Select Plan"),
-						placeHolder: vscode.l10n.t("Which plan's API key do you want to configure?"),
-					}
-				);
-				return choice?.plan;
-			},
-			updatePlan: async (selected) => {
-				if (config.get<string>("plan") !== selected) {
-					await config.update("plan", selected, vscode.ConfigurationTarget.Global);
-				}
-			},
-		});
-		if (!selectedPlan) {
-			return undefined;
-		}
-		plan = selectedPlan;
+	const apiKey = await secrets.get(INFINIAI_API_KEY_SECRET_NAME);
+	if (apiKey || silent) {
+		return apiKey;
 	}
-
-	const secretKey = getApiKeySecretName(plan);
-	const planLabel = plan === "coding" ? vscode.l10n.t("Coding Plan") : vscode.l10n.t("Standard Plan");
-
-	let apiKey = await secrets.get(secretKey);
-
-	if (!apiKey && !silent) {
-		const entered = await vscode.window.showInputBox({
-			title: vscode.l10n.t("InfiniAI {0} API Key", planLabel),
-			prompt: vscode.l10n.t("Enter your InfiniAI {0} API key", planLabel),
-			ignoreFocusOut: true,
-			password: true,
-		});
-		if (entered && entered.trim()) {
-			apiKey = entered.trim();
-			await secrets.store(secretKey, apiKey);
-		}
-	}
-	return apiKey;
+	return configureApiKey(secrets);
 }
 
 /**
@@ -286,12 +217,10 @@ export async function fetchModels(
 	userAgent: string,
 	output: InfiniAILogger,
 	token: vscode.CancellationToken
-): Promise<{ models: InfiniAIModelInfo[] }> {
-	const plan = getActivePlan();
-	const pathPrefix = plan === "coding" ? "/coding" : "";
+): Promise<NormalizedInfiniAIModelsResponse> {
 	const configured = vscode.workspace.getConfiguration("infiniai").get<string>("modelDiscoveryUrl", "").trim();
-	const modelsUrl = configured || `https://cloud.infini-ai.com/maas${pathPrefix}/v1/models`;
-	logInfo(output, `Fetching models from ${endpointForLog(modelsUrl)} (plan: ${plan})`);
+	const modelsUrl = configured || "https://cloud.infini-ai.com/maas/v1/models";
+	logInfo(output, `Fetching models from ${endpointForLog(modelsUrl)}`);
 
 	const modelsList = (async () => {
 		const resp = await fetchWithCancellation(
@@ -308,28 +237,23 @@ export async function fetchModels(
 		if (!resp.ok) {
 			throw await readHttpErrorResponse(resp);
 		}
-		const parsed = (await resp.json()) as Record<string, any>;
-		// Handle both response formats:
-		// Standard API: { object: "list", data: [...] }
-		// Coding API:   { code: 0, msg: "Success", data: { object: "list", data: [...] } }
-		let models: InfiniAIModelInfo[];
-		if (Array.isArray(parsed.data)) {
-			// Standard format: data is the array directly
-			models = parsed.data;
-		} else if (parsed.data && Array.isArray(parsed.data.data)) {
-			// Coding format: data is an envelope with nested data array
-			models = parsed.data.data;
-		} else {
-			logWarn(output, `Unexpected models response structure: ${sanitizeForLog(JSON.stringify(parsed), 500)}`);
-			models = [];
+		const normalized = normalizeInfiniAIModelsResponse(await resp.json());
+		if (!normalized.ok) {
+			throw new ProviderProtocolError(normalized.error);
 		}
-		logInfo(output, `Parsed ${models.length} models from API response`);
-		return models;
+		const result = normalized.value;
+		logInfo(output, `Parsed ${result.models.length} unique models from ${result.rawModelCount} API rows`);
+		if (result.malformedModelCount > 0 || result.duplicateModelCount > 0) {
+			logWarn(
+				output,
+				`Ignored ${result.malformedModelCount} malformed and ${result.duplicateModelCount} duplicate model rows`
+			);
+		}
+		return result;
 	})();
 
 	try {
-		const models = await modelsList;
-		return { models };
+		return await modelsList;
 	} catch (err) {
 		if (err instanceof Error) {
 			logError(output, `Failed to fetch InfiniAI models: ${sanitizeForLog(err.message)}`);

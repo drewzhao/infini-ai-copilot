@@ -16,9 +16,10 @@ import type {
 	AnthropicThinkingBlock,
 	AnthropicToolUseBlock,
 } from "./anthropic/anthropicTypes";
-import { enrichModelWithBuiltInMetadata, inferModelFamily, isBuiltInNonChatModel } from "./catalogMetadata";
+import { enrichModelWithBuiltInMetadata, inferModelFamily } from "./catalogMetadata";
 import { surfaceActionableError } from "./errorActions";
 import { makeUserSelectableLanguageModelInfo } from "./grayLanguageModelMetadata";
+import { formatInfiniAIModelType, resolveInfiniAIModelVersion, selectInfiniAIChatModels } from "./modelDiscovery";
 import {
 	appendModelConfigurationSummaryToTooltip,
 	buildInfiniAIModelConfigurationSchema,
@@ -55,7 +56,7 @@ import {
 	executeWithRetry,
 	fetchModels,
 	fetchWithCancellation,
-	getActivePlan,
+	INFINIAI_API_KEY_SECRET_NAME,
 	InfiniAILogger,
 	logDebug,
 	logError,
@@ -79,8 +80,19 @@ interface ModelCacheEntry {
 	models: InfiniAIModelInfo[];
 	infos: LanguageModelChatInformation[];
 	routes: Map<string, ModelRoute>;
+	discoveryStats: ModelDiscoveryStats;
 	fetchedAt: number;
 	lastError?: string;
+}
+
+interface ModelDiscoveryStats {
+	rawModelCount: number;
+	chatModelCount: number;
+	nonChatModelCount: number;
+	unknownModelTypeCount: number;
+	malformedModelCount: number;
+	duplicateModelCount: number;
+	liveOutputLimitCount: number;
 }
 
 interface InfiniAITestModelPick extends vscode.QuickPickItem {
@@ -89,10 +101,9 @@ interface InfiniAITestModelPick extends vscode.QuickPickItem {
 
 interface DiagnosticSnapshot {
 	vscodeVersion: string;
-	plan: string;
-	hasStandardKey: boolean;
-	hasCodingKey: boolean;
+	hasApiKey: boolean;
 	modelCount: number;
+	discoveryStats?: ModelDiscoveryStats;
 	routeConfigCount: number;
 	exactModelRouteOverrideCount: number;
 	cacheAgeMs?: number;
@@ -353,27 +364,25 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 	}
 
 	async getDiagnostics(token: CancellationToken): Promise<DiagnosticSnapshot> {
-		const plan = getActivePlan();
-		const standardKey = await this.secrets.get("infiniai.apiKey");
-		const codingKey = await this.secrets.get("infiniai.codingApiKey");
+		const apiKey = await this.secrets.get(INFINIAI_API_KEY_SECRET_NAME);
 		const discoveryUrl = this.getModelDiscoveryUrl();
 		const routeCounts = countModelRouteOverrides(
 			vscode.workspace.getConfiguration("infiniai").get<unknown>("modelRoutes", [])
 		);
 		let modelCount = this._lastGoodCache?.infos.length ?? 0;
-		if (!modelCount && !token.isCancellationRequested) {
-			const apiKey = plan === "coding" ? codingKey : standardKey;
+		let discoveryStats = this._lastGoodCache?.discoveryStats;
+		if (!discoveryStats && !token.isCancellationRequested) {
 			if (apiKey) {
 				const entry = await this.getModelCache(apiKey, true, token);
 				modelCount = entry.infos.length;
+				discoveryStats = entry.discoveryStats;
 			}
 		}
 		return {
 			vscodeVersion: vscode.version,
-			plan,
-			hasStandardKey: !!standardKey,
-			hasCodingKey: !!codingKey,
+			hasApiKey: !!apiKey,
 			modelCount,
+			discoveryStats,
 			routeConfigCount: routeCounts.routeConfigCount,
 			exactModelRouteOverrideCount: routeCounts.exactModelRouteOverrideCount,
 			cacheAgeMs: this._lastGoodCache ? Date.now() - this._lastGoodCache.fetchedAt : undefined,
@@ -558,36 +567,51 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		key: string,
 		token: CancellationToken
 	): Promise<ModelCacheEntry> {
-		const { models } = await fetchModels(apiKey, this.userAgent, this.output, token);
+		const discovery = await fetchModels(apiKey, this.userAgent, this.output, token);
+		const selection = selectInfiniAIChatModels(discovery.models);
 		const routeConfigs = this.getRouteConfigs();
 		const routes = new Map<string, ModelRoute>();
-		const enrichedModels = models
-			.map(enrichModelWithBuiltInMetadata)
-			.filter((model) => !isBuiltInNonChatModel(model.id));
+		const enrichedModels = selection.models.map(enrichModelWithBuiltInMetadata);
 		const infos = enrichedModels.map((model) => {
 			const route = resolveModelRoute(model, routeConfigs);
 			routes.set(model.id, route);
 			return this.toLanguageModelInfo(model, route);
 		});
-		const filteredCount = models.length - enrichedModels.length;
+		const discoveryStats: ModelDiscoveryStats = {
+			rawModelCount: discovery.rawModelCount,
+			chatModelCount: enrichedModels.length,
+			nonChatModelCount: selection.nonChatModelCount,
+			unknownModelTypeCount: selection.unknownModelTypeCount,
+			malformedModelCount: discovery.malformedModelCount,
+			duplicateModelCount: discovery.duplicateModelCount,
+			liveOutputLimitCount: selection.liveOutputLimitCount,
+		};
 		logInfo(
 			this.output,
-			filteredCount > 0
-				? `Fetched ${models.length} models from InfiniAI API; using ${enrichedModels.length} chat models after built-in catalog filtering`
-				: `Fetched ${models.length} models from InfiniAI API`
+			`Discovered ${discoveryStats.rawModelCount} model rows: ${discoveryStats.chatModelCount} chat-eligible, ` +
+				`${discoveryStats.nonChatModelCount} non-chat filtered, ${discoveryStats.unknownModelTypeCount} unknown-type filtered, ` +
+				`${discoveryStats.malformedModelCount} malformed, ${discoveryStats.duplicateModelCount} duplicate; ` +
+				`${discoveryStats.liveOutputLimitCount} live output limits applied`
 		);
+		if (discoveryStats.unknownModelTypeCount > 0) {
+			logWarn(
+				this.output,
+				`Excluded ${discoveryStats.unknownModelTypeCount} models with unknown or missing model_type values`
+			);
+		}
 		return {
 			key,
 			models: enrichedModels,
 			infos,
 			routes,
+			discoveryStats,
 			fetchedAt: Date.now(),
 		};
 	}
 
 	private toLanguageModelInfo(model: InfiniAIModelInfo, route: ModelRoute): LanguageModelChatInformation {
 		const contextLength = model.context_length ?? this.inferContextLength(model.id) ?? DEFAULT_CONTEXT_LENGTH;
-		const providerMaxOutput = model.max_tokens ?? model.maxOutputTokens;
+		const providerMaxOutput = model.max_output_length ?? model.max_tokens ?? model.maxOutputTokens;
 		const { maxInputTokens: maxInput, maxOutputTokens: maxOutput } = computeLanguageModelTokenBudget(
 			contextLength,
 			providerMaxOutput,
@@ -605,18 +629,28 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		);
 
 		const modelConfigSchema = buildInfiniAIModelConfigurationSchema(model, maxOutput, route.transport);
+		const modelTypeLabel = formatInfiniAIModelType(model.model_type);
+		const defaultTooltip = [
+			`InfiniAI Model ${model.id}`,
+			modelTypeLabel ? `Type: ${modelTypeLabel}` : undefined,
+			model.context_length ? `Context: ${model.context_length.toLocaleString("en-US")} tokens` : undefined,
+			providerMaxOutput ? `Max output: ${providerMaxOutput.toLocaleString("en-US")} tokens` : undefined,
+		].filter((line): line is string => line !== undefined);
+		const defaultDetail = ["InfiniAI", modelTypeLabel, route.transport].filter(
+			(part): part is string => part !== undefined
+		);
 
 		return makeUserSelectableLanguageModelInfo(
 			{
 				id: model.id,
 				name: model.displayName ?? model.id,
 				tooltip: appendModelConfigurationSummaryToTooltip(
-					model.tooltip ?? `InfiniAI Model ${model.id}`,
+					model.tooltip ?? defaultTooltip.join("\n"),
 					modelConfigSchema
 				),
-				detail: model.detail ?? `InfiniAI ${route.transport}`,
+				detail: model.detail ?? defaultDetail.join(" · "),
 				family: model.family ?? inferModelFamily(model.id),
-				version: model.version ?? model.created?.toString() ?? "1.0.0",
+				version: resolveInfiniAIModelVersion(model),
 				maxInputTokens: maxInput,
 				maxOutputTokens: maxOutput,
 				capabilities: {
@@ -693,8 +727,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		const replayCarrier = isStoredReplayCarrier(reasoningProfile.replayCarrier)
 			? reasoningProfile.replayCarrier
 			: "reasoning_content";
-		const allowMissingReplay =
-			reasoningProfile.replayRisk === "reasoning-content-best-effort-after-tool-call";
+		const allowMissingReplay = reasoningProfile.replayRisk === "reasoning-content-best-effort-after-tool-call";
 		const replayDecision = decideThinkingReplayRequest({
 			userOptedIntoRoundTrip,
 			replayRequiredByProfile,
@@ -852,8 +885,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		const replayCarrier = isStoredReplayCarrier(reasoningProfile.replayCarrier)
 			? reasoningProfile.replayCarrier
 			: "anthropic_thinking_block";
-		const allowMissingReplay =
-			reasoningProfile.replayRisk === "reasoning-content-best-effort-after-tool-call";
+		const allowMissingReplay = reasoningProfile.replayRisk === "reasoning-content-best-effort-after-tool-call";
 		const replayDecision = decideThinkingReplayRequest({
 			userOptedIntoRoundTrip,
 			replayRequiredByProfile,
@@ -1112,22 +1144,17 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			enable: cfg.get<string[]>("imageInputModels", []),
 			disable: cfg.get<string[]>("disableImageInputModels", []),
 		});
-		return [
-			getActivePlan(),
-			this.getModelDiscoveryUrl(),
-			hashString(apiKey),
-			hashString(routeConfig),
-			hashString(imageConfig),
-		].join("|");
+		return [this.getModelDiscoveryUrl(), hashString(apiKey), hashString(routeConfig), hashString(imageConfig)].join(
+			"|"
+		);
 	}
 
 	private getModelDiscoveryUrl(): string {
-		const plan = getActivePlan();
 		const configured = vscode.workspace.getConfiguration("infiniai").get<string>("modelDiscoveryUrl", "").trim();
 		if (configured) {
 			return configured;
 		}
-		return `https://cloud.infini-ai.com/maas${plan === "coding" ? "/coding" : ""}/v1/models`;
+		return "https://cloud.infini-ai.com/maas/v1/models";
 	}
 
 	private getCacheTtlMs(): number {

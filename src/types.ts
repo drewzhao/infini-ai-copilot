@@ -115,7 +115,9 @@ export interface InfiniAIModelInfo {
 	apiMode?: ModelTransport | "ollama";
 	baseUrl?: string;
 	endpointKind?: ModelEndpointKind;
+	model_type?: string;
 	context_length?: number;
+	max_output_length?: number;
 	max_tokens?: number;
 	maxInputTokens?: number;
 	maxOutputTokens?: number;

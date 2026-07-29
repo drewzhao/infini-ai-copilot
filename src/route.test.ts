@@ -29,7 +29,6 @@ function loadRoute(configValues: Record<string, unknown>) {
 describe("model routing", () => {
 	it("prefers OpenAI-compatible routing for DeepSeek V4 defaults even when catalog metadata says Anthropic", () => {
 		const route = loadRoute({
-			"infiniai.plan": "standard",
 			"infiniai.baseUrl": "https://openai.example/v1",
 			"infiniai.anthropic.baseUrl": "https://anthropic.example",
 		});
@@ -48,7 +47,6 @@ describe("model routing", () => {
 
 	it("routes GLM catalog models like the bundled OpenClaw Z.AI provider", () => {
 		const route = loadRoute({
-			"infiniai.plan": "standard",
 			"infiniai.baseUrl": "https://openai.example/v1",
 			"infiniai.anthropic.baseUrl": "https://anthropic.example",
 		});
@@ -67,7 +65,6 @@ describe("model routing", () => {
 
 	it("prefers OpenAI-compatible routing for Kimi K2 defaults even when catalog metadata says Anthropic", () => {
 		const route = loadRoute({
-			"infiniai.plan": "standard",
 			"infiniai.baseUrl": "https://openai.example/v1",
 			"infiniai.anthropic.baseUrl": "https://anthropic.example",
 		});
@@ -86,7 +83,6 @@ describe("model routing", () => {
 
 	it("prefers OpenAI-compatible routing for MiMo defaults even when catalog metadata says Anthropic", () => {
 		const route = loadRoute({
-			"infiniai.plan": "standard",
 			"infiniai.baseUrl": "https://openai.example/v1",
 			"infiniai.anthropic.baseUrl": "https://anthropic.example",
 		});
@@ -105,7 +101,6 @@ describe("model routing", () => {
 
 	it("still lets user route overrides send Kimi K2 through Anthropic Messages", () => {
 		const route = loadRoute({
-			"infiniai.plan": "standard",
 			"infiniai.baseUrl": "https://openai.example/v1",
 			"infiniai.anthropic.baseUrl": "https://anthropic.example",
 		});
@@ -124,7 +119,6 @@ describe("model routing", () => {
 
 	it("matches wildcard route overrides before metadata", () => {
 		const route = loadRoute({
-			"infiniai.plan": "standard",
 			"infiniai.baseUrl": "https://openai.example/v1",
 			"infiniai.anthropic.baseUrl": "https://anthropic.example",
 		});
@@ -142,7 +136,6 @@ describe("model routing", () => {
 
 	it("matches exact route overrides before catalog metadata", () => {
 		const route = loadRoute({
-			"infiniai.plan": "standard",
 			"infiniai.baseUrl": "https://openai.example/v1",
 			"infiniai.anthropic.baseUrl": "https://anthropic.example",
 		});
@@ -160,7 +153,6 @@ describe("model routing", () => {
 
 	it("falls back to OpenAI-compatible routing", () => {
 		const route = loadRoute({
-			"infiniai.plan": "standard",
 			"infiniai.baseUrl": "https://openai.example/v1",
 		});
 
@@ -169,6 +161,24 @@ describe("model routing", () => {
 		assert.equal(result.transport, "openai");
 		assert.equal(result.endpointKind, "chat.completions");
 		assert.equal(result.baseUrl, "https://openai.example/v1");
+	});
+
+	it("uses the unified default endpoints", () => {
+		const route = loadRoute({});
+
+		const openai = route.resolveModelRoute({ id: "generic-chat", object: "model", created: 1, owned_by: "infini" }, []);
+		const anthropic = route.resolveModelRoute(
+			{ id: "claude-test", object: "model", created: 1, owned_by: "infini", apiMode: "anthropic" },
+			[]
+		);
+		const vertex = route.resolveModelRoute(
+			{ id: "gemini-test", object: "model", created: 1, owned_by: "infini", apiMode: "vertex" },
+			[]
+		);
+
+		assert.equal(openai.baseUrl, "https://cloud.infini-ai.com/maas/v1");
+		assert.equal(anthropic.baseUrl, "https://cloud.infini-ai.com/maas");
+		assert.equal(vertex.baseUrl, "https://cloud.infini-ai.com/maas/v1");
 	});
 
 	it("parses only valid user route configs", () => {
@@ -257,7 +267,6 @@ describe("model routing", () => {
 
 	it("resets exact overrides without removing wildcard behavior", () => {
 		const route = loadRoute({
-			"infiniai.plan": "standard",
 			"infiniai.baseUrl": "https://openai.example/v1",
 			"infiniai.anthropic.baseUrl": "https://anthropic.example",
 		});
@@ -280,7 +289,6 @@ describe("model routing", () => {
 
 	it("returns DeepSeek V4 catalog models to the safer OpenAI-compatible default after exact reset", () => {
 		const route = loadRoute({
-			"infiniai.plan": "standard",
 			"infiniai.baseUrl": "https://openai.example/v1",
 			"infiniai.anthropic.baseUrl": "https://anthropic.example",
 		});

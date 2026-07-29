@@ -44,7 +44,9 @@ function findObjectPathsWithKey(value: unknown, key: string, prefix = "$"): stri
 	const record = value as Record<string, unknown>;
 	return [
 		...(Object.prototype.hasOwnProperty.call(record, key) ? [`${prefix}.${key}`] : []),
-		...Object.entries(record).flatMap(([childKey, child]) => findObjectPathsWithKey(child, key, `${prefix}.${childKey}`)),
+		...Object.entries(record).flatMap(([childKey, child]) =>
+			findObjectPathsWithKey(child, key, `${prefix}.${childKey}`)
+		),
 	];
 }
 
@@ -57,6 +59,19 @@ describe("Stable API guardrails", () => {
 				label: "InfiniAI",
 			},
 		]);
+	});
+
+	it("declares the unified endpoint defaults", () => {
+		const pkg = readPackageJson();
+		const properties = pkg.contributes?.configuration?.properties ?? {};
+		assert.equal(properties["infiniai.baseUrl"]?.default, "https://cloud.infini-ai.com/maas/v1");
+		assert.equal(properties["infiniai.anthropic.baseUrl"]?.default, "https://cloud.infini-ai.com/maas");
+	});
+
+	it("pins the intended Stable host floor and development typings", () => {
+		const pkg = readPackageJson();
+		assert.equal(pkg.engines?.vscode, "^1.130.0");
+		assert.equal(pkg.devDependencies?.["@types/vscode"], "1.125.0");
 	});
 
 	it("does not declare proposed API usage in the manifest", () => {

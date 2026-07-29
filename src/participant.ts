@@ -34,11 +34,21 @@ export function registerInfiniAIChatParticipant(
 						`## ${vscode.l10n.t("InfiniAI Doctor")}`,
 						"",
 						`- ${vscode.l10n.t("VS Code")}: ${diagnostic.vscodeVersion}`,
-						`- ${vscode.l10n.t("Active plan")}: ${diagnostic.plan}`,
-						`- ${vscode.l10n.t("Standard key present")}: ${boolText(diagnostic.hasStandardKey)}`,
-						`- ${vscode.l10n.t("Coding key present")}: ${boolText(diagnostic.hasCodingKey)}`,
+						`- ${vscode.l10n.t("API key present")}: ${boolText(diagnostic.hasApiKey)}`,
 						`- ${vscode.l10n.t("Discovery endpoint")}: ${diagnostic.modelDiscoveryUrl}`,
 						`- ${vscode.l10n.t("Cached models")}: ${diagnostic.modelCount}`,
+						...(diagnostic.discoveryStats
+							? [
+									`- ${vscode.l10n.t("Discovery summary")}: ` +
+										`${diagnostic.discoveryStats.rawModelCount} ${vscode.l10n.t("rows")}; ` +
+										`${diagnostic.discoveryStats.chatModelCount} ${vscode.l10n.t("chat-eligible")}; ` +
+										`${diagnostic.discoveryStats.nonChatModelCount} ${vscode.l10n.t("non-chat filtered")}; ` +
+										`${diagnostic.discoveryStats.unknownModelTypeCount} ${vscode.l10n.t("unknown-type filtered")}; ` +
+										`${diagnostic.discoveryStats.malformedModelCount} ${vscode.l10n.t("malformed")}; ` +
+										`${diagnostic.discoveryStats.duplicateModelCount} ${vscode.l10n.t("duplicate")}; ` +
+										`${diagnostic.discoveryStats.liveOutputLimitCount} ${vscode.l10n.t("live output limits")}`,
+								]
+							: []),
 						`- ${vscode.l10n.t("Route overrides")}: ${diagnostic.routeConfigCount}`,
 						`- ${vscode.l10n.t("Exact model route overrides")}: ${diagnostic.exactModelRouteOverrideCount}`,
 						`- ${vscode.l10n.t("Cache age")}: ${formatAge(diagnostic.cacheAgeMs)}`,

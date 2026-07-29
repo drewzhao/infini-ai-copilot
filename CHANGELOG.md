@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- InfiniAI authentication now uses one canonical `infiniai.apiKey` secret and one Accounts-menu session.
+- Default model discovery and request routing now use the unified `/maas` endpoints. Explicit `modelDiscoveryUrl` and `modelRoutes[].baseUrl` overrides remain authoritative.
+- Live model discovery now validates and deduplicates catalog rows, registers only chat-capable model types, applies provider-published context and output limits, and reports filtering diagnostics.
+- The Marketplace minimum is now VS Code `^1.130.0`; development typings remain aligned to stable API version `1.125.0`.
+
+### Removed
+
+- Removed the public plan picker, plan tree node, dual-account UI, `infiniai.plan` and `infiniai.coding.*` settings, and the contributed `infiniai.switchPlan` command.
+
 ## [0.6.5] - 2026-06-17
 
 ### Added
