@@ -19,7 +19,7 @@
 		"type": "git",
 		"url": "https://github.com/drewzhao/infini-ai-copilot.git"
 	},
-	"version": "0.6.5",
+	"version": "0.6.6",
 	"engines": {
 		"vscode": "^1.130.0"
 	},
@@ -39,36 +39,32 @@
 	},
 	"license": "MIT",
 	"activationEvents": [
-		"onCommand:infiniai.setApikey",
-		"onCommand:infiniai.signOut",
 		"onCommand:infiniai.clearThinkingReplayCache",
-		"onAuthenticationRequest:infiniai",
 		"onView:infiniai.modelsView",
 		"onView:infiniai.usageView"
 	],
 	"contributes": {
-		"authentication": [
-			{
-				"id": "infiniai",
-				"label": "InfiniAI"
-			}
-		],
 		"languageModelChatProviders": [
 			{
 				"vendor": "infiniai",
 				"displayName": "InfiniAI",
-				"managementCommand": "infiniai.setApikey"
+				"configuration": {
+					"type": "object",
+					"properties": {
+						"apiKey": {
+							"type": "string",
+							"secret": true,
+							"title": "%provider.configuration.apiKey.title%",
+							"description": "%provider.configuration.apiKey.description%"
+						}
+					},
+					"required": [
+						"apiKey"
+					]
+				}
 			}
 		],
 		"commands": [
-			{
-				"command": "infiniai.setApikey",
-				"title": "%command.setApikey.title%"
-			},
-			{
-				"command": "infiniai.signOut",
-				"title": "%command.signOut.title%"
-			},
 			{
 				"command": "infiniai.refreshModels",
 				"title": "%command.refreshModels.title%",
@@ -103,6 +99,18 @@
 				"title": "%command.openSettings.title%",
 				"category": "InfiniAI",
 				"icon": "$(gear)"
+			},
+			{
+				"command": "infiniai.openManageModels",
+				"title": "%command.openManageModels.title%",
+				"category": "InfiniAI",
+				"icon": "$(list-selection)"
+			},
+			{
+				"command": "infiniai.openLogs",
+				"title": "%command.openLogs.title%",
+				"category": "InfiniAI",
+				"icon": "$(output)"
 			},
 			{
 				"command": "infiniai.clearThinkingReplayCache",
@@ -145,9 +153,14 @@
 					"group": "navigation@2"
 				},
 				{
-					"command": "infiniai.openSettings",
+					"command": "infiniai.openManageModels",
 					"when": "view == infiniai.modelsView",
 					"group": "navigation@3"
+				},
+				{
+					"command": "infiniai.openSettings",
+					"when": "view == infiniai.modelsView",
+					"group": "navigation@4"
 				}
 			],
 			"view/item/context": [
@@ -254,6 +267,13 @@
 					"default": "",
 					"description": "%configuration.modelDiscoveryUrl.description%"
 				},
+				"infiniai.modelDiscoveryTimeoutMs": {
+					"type": "number",
+					"default": 15000,
+					"minimum": 1000,
+					"maximum": 120000,
+					"description": "%configuration.modelDiscoveryTimeoutMs.description%"
+				},
 				"infiniai.modelCacheTtlMs": {
 					"type": "number",
 					"default": 300000,
@@ -336,6 +356,22 @@
 					},
 					"description": "%configuration.disableImageInputModels.description%"
 				},
+				"infiniai.toolCallingModels": {
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					},
+					"description": "%configuration.toolCallingModels.description%"
+				},
+				"infiniai.disableToolCallingModels": {
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					},
+					"description": "%configuration.disableToolCallingModels.description%"
+				},
 				"infiniai.disableThinkingForModels": {
 					"type": "array",
 					"default": [
@@ -355,7 +391,8 @@
 					"type": "array",
 					"default": [
 						"mimo-v2*",
-						"deepseek-v4*",
+						"deepseek-v4-pro",
+						"deepseek-v4-flash",
 						"deepseek-r1",
 						"deepseek-v3.2-thinking",
 						"glm-5*",

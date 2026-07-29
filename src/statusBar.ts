@@ -7,8 +7,8 @@ export function initStatusBar(context: vscode.ExtensionContext): vscode.StatusBa
 	const tokenCountStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
 	tokenCountStatusBarItem.name = "Token Count";
 	tokenCountStatusBarItem.text = "$(symbol-numeric) Ready";
-	tokenCountStatusBarItem.tooltip = "Current model token usage - Click to Manage ApiKeys";
-	tokenCountStatusBarItem.command = "infiniai.setApikey";
+	tokenCountStatusBarItem.tooltip = "Current model token usage - Click to Manage Models";
+	tokenCountStatusBarItem.command = "infiniai.openManageModels";
 	context.subscriptions.push(tokenCountStatusBarItem);
 	// Show the status bar item initially
 	tokenCountStatusBarItem.show();
@@ -79,7 +79,7 @@ export async function updateContextStatusBar(
 	const progressBar = createProgressBar(totalTokenCount, maxTokens);
 	const displayText = `$(symbol-parameter) ${progressBar}`;
 	statusBarItem.text = displayText;
-	statusBarItem.tooltip = `Token Usage: ${formatTokenCount(totalTokenCount)} / ${formatTokenCount(maxTokens)}\n\n${progressBar}\n\nClick to Manage ApiKeys`;
+	statusBarItem.tooltip = `Token Usage: ${formatTokenCount(totalTokenCount)} / ${formatTokenCount(maxTokens)}\n\n${progressBar}\n\nClick to Manage Models`;
 
 	// Add color coding based on token usage
 	const usagePercentage = (totalTokenCount / maxTokens) * 100;

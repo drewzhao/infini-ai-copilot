@@ -7,16 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-07-29
+
+### Added
+
+- Added exact Kimi K2.x and K3 reasoning profiles for `kimi-k2-thinking`, `kimi-k2.5`, `kimi-k2.6`,
+  `kimi-k2.7-code`, `kimi-k2.7-code-highspeed`, and `kimi-k3`. K2.5/K2.6 expose their verified thinking toggle,
+  K2.7 Code and K3 enforce preserved thinking, and K3 exposes `Low`, `High`, and `Max` reasoning effort with a
+  replay-safe `Max` automatic default.
+- Added whole-history reasoning replay for Kimi K2.7 Code and K3, including ordinary assistant turns that do not
+  contain tool calls, plus explicit local failures when required historical reasoning cannot be restored safely.
+- Added VS Code 1.130 Agents-window eligibility for models with confirmed tool-calling support. New
+  `infiniai.toolCallingModels` and `infiniai.disableToolCallingModels` settings allow explicit capability overrides,
+  while unknown models remain ineligible by default.
+- Added a configurable full-response model discovery timeout, `infiniai.modelDiscoveryTimeoutMs`, with a 15-second
+  default that remains active through response-body download and parsing.
+- Added provider-group status, retry timing, and model counts to the Models tree and `@infiniai /doctor`, together
+  with direct **Manage Models**, **Retry Model Discovery**, and **Open Logs** actions.
+
 ### Changed
 
-- InfiniAI authentication now uses one canonical `infiniai.apiKey` secret and one Accounts-menu session.
+- InfiniAI credentials now come exclusively from VS Code model-provider groups. Models retain the exact group
+  credential that resolved them, and multiple groups can use separate credentials without an extension-owned
+  fallback key.
 - Default model discovery and request routing now use the unified `/maas` endpoints. Explicit `modelDiscoveryUrl` and `modelRoutes[].baseUrl` overrides remain authoritative.
 - Live model discovery now validates and deduplicates catalog rows, registers only chat-capable model types, applies provider-published context and output limits, and reports filtering diagnostics.
+- Model discovery is now provider-owned and non-blocking: cached models return immediately, initial network work runs
+  in the background, concurrent resolutions share one request, unchanged metadata does not trigger redundant VS Code
+  refreshes, and last-good data remains available during transient failures.
+- Discovery failures now use category-aware cooldowns and automatic background retries. Authentication failures wait
+  for a credential change or explicit retry; rate limits honor `Retry-After`; network/server failures use bounded
+  exponential backoff.
+- Model configuration controls now use localized **Automatic** semantics and explain provider/profile defaults.
+  Persisted output-token values above a model's current advertised maximum are ignored instead of being sent upstream.
+- DeepSeek V4 reasoning replay and effort controls now apply only to the verified `deepseek-v4-pro` and
+  `deepseek-v4-flash` IDs. Other V4 variants use a conservative safe-off profile until independently verified.
+- Provider capability handling is conservative and evidence-based: explicit catalog values are authoritative, known
+  probed DeepSeek V4/MiMo models receive tool-calling fallbacks only when metadata is silent, and explicit
+  `vision: false` prevents image-capability name heuristics from overriding the provider.
+- Configuration changes now invalidate only the affected layer: discovery endpoint/timeout changes restart discovery,
+  routing/capability changes rebuild cached metadata locally, visibility changes only refresh the provider list, and
+  request-only settings no longer refetch models.
 - The Marketplace minimum is now VS Code `^1.130.0`; development typings remain aligned to stable API version `1.125.0`.
+
+### Fixed
+
+- Prevented **Fetch available models** from blocking VS Code's shared language-model provider sequence when InfiniAI
+  discovery is slow, stalled after response headers, or unavailable.
+- Fixed provider-group lifecycle handling so deleted or updated groups cannot leave requestable models bound to stale
+  credentials. Groups sharing one key now retain isolated model bindings while safely sharing discovery cache state.
+- Classified InfiniAI's live `503 Wrong Bearer Token` response and localized `401` invalid-key response as
+  authentication failures, while keeping model-specific access errors from automatically invalidating every group.
+- Explicit model refresh is now cancellable, aborts superseded discovery, and surfaces direct Manage Models/log
+  remedies instead of leaving the Models window in an unrecoverable progress state.
+- Kimi and other tool requests now enforce each verified profile's required-tool-choice shape and reject unsupported
+  combinations locally instead of sending speculative payloads.
 
 ### Removed
 
 - Removed the public plan picker, plan tree node, dual-account UI, `infiniai.plan` and `infiniai.coding.*` settings, and the contributed `infiniai.switchPlan` command.
+- Removed the extension-managed authentication provider, `infiniai.setApikey` and `infiniai.signOut` commands,
+  standalone fallback credential storage, and related compatibility paths.
+- Removed the obsolete prompt to install the standalone `github.copilot-chat` extension; VS Code 1.130's built-in
+  stable Chat and language-model provider surfaces are sufficient.
 
 ## [0.6.5] - 2026-06-17
 

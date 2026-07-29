@@ -1,6 +1,9 @@
 export type ModelLike = {
 	id: string;
 	vision?: boolean;
+	capabilities?: {
+		toolCalling?: boolean | number;
+	};
 	architecture?: {
 		input_modalities?: string[];
 	};
@@ -20,6 +23,33 @@ export type ImageInputCapabilityConfig = {
 	 */
 	disablePatterns?: string[];
 };
+
+export type ToolCallingCapabilityConfig = {
+	/**
+	 * Model ID patterns to force-enable tool calling.
+	 * Supports '*' wildcard.
+	 */
+	enablePatterns?: string[];
+	/**
+	 * Provider-verified fallback patterns used only when metadata is silent.
+	 */
+	verifiedPatterns?: readonly string[];
+	/**
+	 * Model ID patterns to force-disable tool calling.
+	 * Supports '*' wildcard. Disable wins over enable.
+	 */
+	disablePatterns?: string[];
+};
+
+export const VERIFIED_TOOL_CALLING_MODEL_PATTERNS = [
+	"deepseek-v4-pro",
+	"deepseek-v4-flash",
+	"mimo-v2-pro",
+	"mimo-v2-omni",
+	"mimo-v2.5",
+	"mimo-v2.5-pro",
+	"mimo-v2.6-pro",
+] as const;
 
 function toStringArray(value: unknown): string[] {
 	if (!Array.isArray(value)) {
@@ -78,6 +108,9 @@ export function resolveImageInputCapability(model: ModelLike, config: ImageInput
 	if (model.vision === true) {
 		return true;
 	}
+	if (model.vision === false) {
+		return false;
+	}
 	if (hasImageInModalities(model.architecture?.input_modalities)) {
 		return true;
 	}
@@ -90,4 +123,30 @@ export function resolveImageInputCapability(model: ModelLike, config: ImageInput
 
 	// 3) Fallback heuristics (best-effort)
 	return modelId.includes("-vision") || modelId.includes("-vl-") || (modelId.startsWith("glm") && /\dv$/.test(modelId));
+}
+
+export function resolveToolCallingCapability(model: ModelLike, config: ToolCallingCapabilityConfig = {}): boolean {
+	const modelId = model?.id ?? "";
+
+	// User overrides are intentional; disable wins if both lists match.
+	if (matchesAny(modelId, config.disablePatterns)) {
+		return false;
+	}
+	if (matchesAny(modelId, config.enablePatterns)) {
+		return true;
+	}
+
+	const explicit = model.capabilities?.toolCalling;
+	if (typeof explicit === "boolean") {
+		return explicit;
+	}
+	if (typeof explicit === "number" && Number.isFinite(explicit)) {
+		return explicit > 0;
+	}
+	if (matchesAny(modelId, config.verifiedPatterns)) {
+		return true;
+	}
+
+	// Unknown capability is not Agent-eligible until metadata or a user override confirms it.
+	return false;
 }

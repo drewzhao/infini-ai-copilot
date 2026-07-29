@@ -10,6 +10,10 @@ InfiniAI Provider for VS Code 将 InfiniAI 注册为稳定的 VS Code 语言模�
 4. 输入 InfiniAI API Key。密钥会保存在 VS Code Secret Storage 中。
 5. 在模型选择器中选择 InfiniAI 模型。
 
+InfiniAI 凭据只来自 VS Code 提供方分组。每个已发现模型都会绑定到解析它的分组，因此多个 InfiniAI
+分组可以使用不同凭据。提供方会立即返回缓存模型，并在后台执行模型发现；上游超时或失败不会一直阻塞
+VS Code 的提供方队列。需要显式重试时，使用可取消的 **InfiniAI: Refresh Models**。
+
 思考回放会按模型族 profile 解析。内置 round-trip 默认值已经包含 MiMo V2、DeepSeek V4、精确 `deepseek-r1`、精确 `deepseek-v3.2-thinking`、GLM 5/4.7、Kimi K2 和 MiniMax 模式；具体传输协议 profile 仍可拒绝该默认值，例如 Anthropic 路由的 DeepSeek V4 会保持 safe-off。强制要求回放的 profile 在上下文过期或缺失时仍会先在本地失败，避免发送不安全的上游请求；GLM profile 会在有缓存时回放已捕获的推理内容，但允许 VS Code compact 后生成的无推理工具调用继续发送。MiniMax 模型始终会用 `reasoning_split: true` 请求 split reasoning，并回放原生 `reasoning_details`。修改 round-trip 列表后，请从新聊天开始。
 
 Kimi K2 和 DeepSeek V4 默认走 OpenAI 兼容 Chat Completions 路由，这样 preserved thinking 使用已验证的提供方原生形态。
@@ -18,7 +22,7 @@ Kimi K2 和 DeepSeek V4 默认走 OpenAI 兼容 Chat Completions 路由，这样
 
 也可以在 Chat 中使用 `@infiniai` 进行诊断：
 
-- `@infiniai /doctor` 检查配置、密钥是否存在、端点设置、路由覆盖数量、缓存状态以及最近一次脱敏后的提供方错误。
+- `@infiniai /doctor` 检查已解析的提供方分组、端点设置、路由覆盖数量、缓存状态以及最近一次脱敏后的提供方错误。
 - `@infiniai /models` 列出本地缓存中的模型、有效传输协议、路由来源和路由能力。
 - `@infiniai /models refresh` 刷新模型发现结果后再列出模型。
 - `@infiniai /test` 选择一个可见的 InfiniAI 模型，并针对它的有效路由执行一个最小的、可取消的健康检查请求。
@@ -27,7 +31,7 @@ Kimi K2 和 DeepSeek V4 默认走 OpenAI 兼容 Chat Completions 路由，这样
 
 InfiniAI 活动栏还包含：
 
-- **模型** 树视图，用于查看 API Key 状态、刷新模型、管理模型选择器可见性，以及按模型切换协议。
+- **模型** 树视图，用于查看提供方分组状态、刷新模型、管理模型选择器可见性，以及按模型切换协议。
 - **本地用量** 面板，基于流式响应在本地记录请求用量，支持导出 CSV，并通过 VS Code 原生确认对话框清空记录。
 
 ## 使用前提
@@ -62,7 +66,8 @@ npm run build
 
 ## 激活与日志
 
-扩展保持懒加载。VS Code 会在稳定语言模型提供方、聊天参与者贡献点被使用时自动激活扩展，或在执行 `infiniai.setApikey` 时激活扩展。
+扩展保持懒加载。VS Code 会在稳定语言模型提供方、聊天参与者贡献点被使用时，或打开 InfiniAI
+视图和命令时自动激活扩展。
 
 日志写入名为 `InfiniAI` 的 VS Code `LogOutputChannel`。扩展会脱敏 API Key、认证头、提示词、工具结果、图片数据和完整响应体。
 
@@ -75,6 +80,7 @@ npm run build
 - `infiniai.baseUrl`: OpenAI 兼容 API 基础 URL。默认值为 `https://cloud.infini-ai.com/maas/v1`。
 - `infiniai.anthropic.baseUrl`: Anthropic 兼容 API 基础 URL。默认值为 `https://cloud.infini-ai.com/maas`。
 - `infiniai.modelDiscoveryUrl`: 可选的模型发现绝对 URL。为空时使用 `https://cloud.infini-ai.com/maas/v1/models`。
+- `infiniai.modelDiscoveryTimeoutMs`: 完整模型发现超时，包括响应体下载与解析。默认 15 秒。
 - `infiniai.modelCacheTtlMs`: 模型发现缓存 TTL，单位毫秒。设为 `0` 表示每次请求都刷新。
 - `infiniai.modelRoutes`: 可选模型路由覆盖。每项支持 `pattern`、`transport`（`"openai"`、`"anthropic"` 或 `"vertex"`）以及可选 `baseUrl`。**InfiniAI: Switch Model Protocol** 命令是编辑精确 OpenAI/Anthropic 单模型覆盖的更安全入口。
 - `infiniai.imageInputModels`: 为匹配的模型 ID 强制启用图片输入能力。支持 `*` 通配符。
@@ -183,8 +189,9 @@ Completions 与 Anthropic Messages 之间切换也不会失去回放保护。
 
 ## 命令
 
-- `infiniai.setApikey`: 设置或更新 InfiniAI API Key。
-- `infiniai.signOut`: 从 VS Code Secret Storage 中删除当前 InfiniAI API Key。
+- `infiniai.refreshModels`: 取消进行中的发现操作，并显式重试所有已解析的 InfiniAI 提供方分组。
+- `infiniai.openManageModels`: 打开 VS Code“管理模型”。
+- `infiniai.openLogs`: 打开 InfiniAI 输出通道。
 
 聊天参与者命令：
 
@@ -224,9 +231,9 @@ Marketplace 清单不声明任何 `enabledApiProposals`，也不包含 proposed 
 
 1. 运行 `@infiniai /doctor`。
 2. 查看 `InfiniAI` 输出通道。
-3. 通过 `infiniai.setApikey` 确认 API Key 已保存。
+3. 打开 **VS Code 管理模型**，确认 InfiniAI 提供方分组存在；必要时使用 **Update API Key**。
 4. 检查 `infiniai.modelDiscoveryUrl` 和路由覆盖配置。
-5. 执行 `Developer: Reload Window` 后重试模型发现。
+5. 运行 **InfiniAI: Refresh Models**。只有提供方分组本身未重新解析时才需要重载窗口。
 
 ## 故障排查
 
@@ -236,7 +243,8 @@ VS Code 可能会在磁盘上保留旧扩展版本目录，但它会按扩展标
 
 升级后仍会保留的 VS Code 状态可能影响行为：
 
-- 扩展使用 `infiniai.apiKey` Secret Storage 条目。
+- InfiniAI 凭据只从 VS Code 提供方分组读取。从使用扩展自管凭据的旧版本升级后，如果没有提供方
+  分组，请通过 **管理模型** 添加 InfiniAI。
 - 当前基础 URL、`infiniai.modelDiscoveryUrl` 和 `infiniai.modelRoutes` 仍会生效。扩展不会改写用户提供的路由或模型发现覆盖。
 - 已打开窗口可能继续运行旧的扩展主机，直到重新加载窗口。
 
@@ -253,11 +261,12 @@ VS Code 可能会在磁盘上保留旧扩展版本目录，但它会按扩展标
 
 按以下顺序检查：
 
-1. 运行 `InfiniAI: Set InfiniAI API Key`，确认 API Key 已保存。
-2. 运行 `@infiniai /doctor`，检查密钥是否存在、模型发现端点和最近错误。
+1. 打开 **VS Code 管理模型**，按需添加 InfiniAI，并确认提供方分组的 API Key。
+2. 运行 `@infiniai /doctor`，检查提供方分组状态、模型发现端点和最近错误。
 3. 清空 `infiniai.modelDiscoveryUrl`，除非您明确需要自定义模型发现端点。
 4. 临时清空 `infiniai.modelRoutes`，排除错误路由覆盖的影响。
-5. 执行 `Developer: Reload Window`，然后运行 `@infiniai /models refresh`。
+5. 运行 **InfiniAI: Refresh Models**。该操作可取消；失败提示会直接提供 **管理模型** 和 **打开日志**
+   补救入口。
 
 ### Anthropic 或 Vertex 路由请求失败
 

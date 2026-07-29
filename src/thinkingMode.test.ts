@@ -6,7 +6,8 @@ const Module = require("module") as any;
 
 const DEFAULT_ROUND_TRIP_PATTERNS = [
 	"mimo-v2*",
-	"deepseek-v4*",
+	"deepseek-v4-pro",
+	"deepseek-v4-flash",
 	"deepseek-r1",
 	"deepseek-v3.2-thinking",
 	"glm-5*",
@@ -103,7 +104,7 @@ describe("getDisableThinkingPatterns", () => {
 });
 
 describe("getThinkingRoundTripPatterns", () => {
-	it("includes built-in replay-capable model family defaults", () => {
+	it("includes built-in replay-capable model defaults", () => {
 		const { DEFAULT_ENABLE_THINKING_ROUND_TRIP_PATTERNS, getThinkingRoundTripPatterns, shouldEnableThinkingRoundTrip } =
 			loadThinkingMode();
 
@@ -113,6 +114,7 @@ describe("getThinkingRoundTripPatterns", () => {
 		for (const id of [
 			"mimo-v2.5-pro",
 			"deepseek-v4-pro",
+			"deepseek-v4-flash",
 			"deepseek-r1",
 			"deepseek-v3.2-thinking",
 			"glm-5.2",
@@ -129,6 +131,7 @@ describe("getThinkingRoundTripPatterns", () => {
 			assert.equal(shouldEnableThinkingRoundTrip(id, patterns), true, id);
 		}
 		assert.equal(shouldEnableThinkingRoundTrip("deepseek-v3.2", patterns), false);
+		assert.equal(shouldEnableThinkingRoundTrip("deepseek-v4-experimental", patterns), false);
 		assert.equal(shouldEnableThinkingRoundTrip("deepseek-r1-distill-qwen-32b", patterns), false);
 		assert.equal(shouldEnableThinkingRoundTrip("pro-deepseek-r1", patterns), false);
 		assert.equal(shouldEnableThinkingRoundTrip("qwen3-32b", patterns), false);
@@ -153,7 +156,8 @@ describe("getThinkingRoundTripPatterns", () => {
 			getThinkingRoundTripPatterns
 		);
 		assert.equal(shouldEnableThinkingRoundTrip("mimo-v2.5-pro", patterns), true);
-		assert.equal(shouldEnableThinkingRoundTrip("deepseek-v4", patterns), true);
+		assert.equal(shouldEnableThinkingRoundTrip("deepseek-v4-flash", patterns), true);
+		assert.equal(shouldEnableThinkingRoundTrip("deepseek-v4", patterns), false);
 		assert.equal(shouldEnableThinkingRoundTrip("custom-thinker", patterns), true);
 	});
 });

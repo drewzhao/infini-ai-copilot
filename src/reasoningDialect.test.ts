@@ -88,22 +88,42 @@ describe("reasoning dialect profiles", () => {
 		assert.equal(profile.replayRisk, "reasoning-content-required-after-tool-call");
 	});
 
-	it("resolves DeepSeek V4 OpenAI routes as toggleable reasoning with default high effort", () => {
+	it("resolves verified DeepSeek V4 OpenAI routes without forcing a reasoning effort", () => {
+		for (const modelId of ["deepseek-v4-pro", "deepseek-v4-flash"]) {
+			const profile = resolveReasoningDialectProfile({
+				modelId,
+				transport: "openai",
+			});
+
+			assert.equal(profile.id, "deepseek-v4-openai", modelId);
+			assert.equal(profile.transport, "openai", modelId);
+			assert.equal(profile.defaultThinking, "unknown", modelId);
+			assert.equal(profile.currentTurnControl.kind, "thinking-type", modelId);
+			assert.equal(profile.replayCarrier, "reasoning_content", modelId);
+			assert.equal(profile.canDisableThinking, true, modelId);
+			assert.equal(profile.canEnableThinking, true, modelId);
+			assert.equal(profile.reasoningEffortControl, "openai-reasoning-effort", modelId);
+			assert.equal(profile.defaultReasoningEffort, undefined, modelId);
+			assert.equal(profile.requiredToolChoiceControl, "required-string", modelId);
+			assert.equal(profile.replayRisk, "reasoning-content-best-effort-after-tool-call", modelId);
+		}
+	});
+
+	it("keeps unverified DeepSeek V4 OpenAI variants safe-off", () => {
 		const profile = resolveReasoningDialectProfile({
-			modelId: "deepseek-v4-pro",
+			modelId: "deepseek-v4-experimental",
 			transport: "openai",
 		});
 
-		assert.equal(profile.id, "deepseek-v4-openai");
-		assert.equal(profile.transport, "openai");
-		assert.equal(profile.defaultThinking, "unknown");
+		assert.equal(profile.id, "deepseek-v4-openai-safe-off");
+		assert.equal(profile.defaultThinking, "off");
+		assert.equal(profile.defaultRequestThinkingMode, "disabled");
 		assert.equal(profile.currentTurnControl.kind, "thinking-type");
-		assert.equal(profile.replayCarrier, "reasoning_content");
 		assert.equal(profile.canDisableThinking, true);
-		assert.equal(profile.canEnableThinking, true);
-		assert.equal(profile.reasoningEffortControl, "openai-reasoning-effort");
-		assert.equal(profile.defaultReasoningEffort, "high");
-		assert.equal(profile.replayRisk, "reasoning-content-best-effort-after-tool-call");
+		assert.equal(profile.canEnableThinking, false);
+		assert.equal(profile.reasoningEffortControl, "none");
+		assert.equal(profile.requiredToolChoiceControl, "required-string");
+		assert.equal(profile.replayRisk, "none");
 	});
 
 	it("resolves DeepSeek V3.2 Anthropic routes as toggleable default-off thinking", () => {

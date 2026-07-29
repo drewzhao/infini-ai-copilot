@@ -10,6 +10,8 @@ import { applyReasoningRequestControls } from "./reasoningRequest";
 import type { InfiniAIModelInfo, ModelTransport } from "./types";
 
 type ModelConfigurationRecord = Record<string, unknown>;
+type TranslationArgument = string | number | boolean;
+export type ModelConfigurationTranslate = (message: string, ...args: readonly TranslationArgument[]) => string;
 
 export type ReasoningEffort = ReasoningEffortLevel;
 export type ThinkingMode = "enabled" | "disabled";
@@ -42,6 +44,17 @@ export interface ApplyOpenAIModelConfigurationOptions {
 	readonly useDefaultReasoningEffort?: boolean;
 }
 
+export interface InfiniAIModelConfigurationConstraints {
+	readonly maxOutputTokens?: number;
+}
+
+function defaultTranslate(message: string, ...args: readonly TranslationArgument[]): string {
+	return message.replace(/\{(\d+)\}/g, (match, index: string) => {
+		const value = args[Number(index)];
+		return value === undefined ? match : String(value);
+	});
+}
+
 function getConfigurableControlLabels(schema: InfiniAIModelConfigurationSchema): string[] {
 	return Object.values(schema.properties)
 		.filter((property) => Array.isArray(property.enum) && property.enum.length >= 2)
@@ -61,12 +74,21 @@ function normalizeThinkingMode(value: unknown): ThinkingMode | undefined {
 	return value === "enabled" || value === "disabled" ? value : undefined;
 }
 
-function normalizeMaxOutputTokens(value: unknown): number | undefined {
+function normalizeMaxOutputTokens(value: unknown, maximum?: number): number | undefined {
 	if (typeof value !== "number" || !Number.isFinite(value)) {
 		return undefined;
 	}
 	const normalized = Math.floor(value);
-	return normalized > 0 ? normalized : undefined;
+	if (normalized <= 0) {
+		return undefined;
+	}
+	if (maximum !== undefined) {
+		const normalizedMaximum = Math.floor(maximum);
+		if (!Number.isFinite(normalizedMaximum) || normalizedMaximum <= 0 || normalized > normalizedMaximum) {
+			return undefined;
+		}
+	}
+	return normalized;
 }
 
 function uniqueNumbers(values: readonly number[]): number[] {
@@ -85,15 +107,59 @@ function getMaxOutputTokenChoices(maxOutputTokens: number): number[] {
 	return uniqueNumbers([0, 1024, 4096, 8192, 16384, bounded].filter((value) => value === 0 || value <= bounded));
 }
 
-function getReasoningEffortDescription(control: ReasoningEffortControl): string {
-	switch (control) {
-		case "openai-reasoning-effort":
-			return "Selected values send reasoning_effort on OpenAI-compatible routes. Unset sends nothing.";
-		case "anthropic-output-config-effort":
-			return "Selected values send output_config.effort on Anthropic Messages routes. Unset sends nothing.";
-		case "none":
-			return "";
+function getReasoningEffortParameterName(control: ReasoningEffortControl): string {
+	return control === "anthropic-output-config-effort" ? "output_config.effort" : "reasoning_effort";
+}
+
+function getReasoningEffortDescription(
+	profile: ReasoningDialectProfile,
+	translate: ModelConfigurationTranslate
+): string {
+	const parameterName = getReasoningEffortParameterName(profile.reasoningEffortControl);
+	const selectedDescription =
+		profile.reasoningEffortControl === "anthropic-output-config-effort"
+			? translate("Selected values send output_config.effort on Anthropic Messages routes.")
+			: translate("Selected values send reasoning_effort on OpenAI-compatible routes.");
+	const automaticDescription = profile.defaultReasoningEffort
+		? translate(
+				"Automatic may send {0}={1} when thinking is explicitly enabled or replay safety requires the profile default.",
+				parameterName,
+				profile.defaultReasoningEffort
+			)
+		: translate("Automatic does not send {0}.", parameterName);
+	const disabledDescription = profile.canDisableThinking
+		? ` ${translate("Reasoning effort is ignored while thinking is disabled.")}`
+		: "";
+	return `${selectedDescription} ${automaticDescription}${disabledDescription}`;
+}
+
+function getAutomaticReasoningEffortDescription(
+	profile: ReasoningDialectProfile,
+	translate: ModelConfigurationTranslate
+): string {
+	const parameterName = getReasoningEffortParameterName(profile.reasoningEffortControl);
+	if (profile.defaultReasoningEffort) {
+		return translate(
+			"Use automatic profile behavior; explicitly enabled or replay-safe thinking may send {0}={1}.",
+			parameterName,
+			profile.defaultReasoningEffort
+		);
 	}
+	return translate("Do not send {0}.", parameterName);
+}
+
+function getThinkingAutomaticDescription(
+	profile: ReasoningDialectProfile,
+	translate: ModelConfigurationTranslate
+): string {
+	if (profile.defaultRequestThinkingMode === "disabled") {
+		return translate(
+			"Use the profile safety default, which disables thinking unless Enabled is explicitly selected and supported."
+		);
+	}
+	return translate(
+		"Use automatic provider and profile behavior, including any required safety or replay-preservation controls."
+	);
 }
 
 function getReasoningEffortLevels(profile: ReasoningDialectProfile): readonly ReasoningEffort[] {
@@ -111,11 +177,20 @@ function formatReasoningEffortLabel(effort: ReasoningEffort): string {
 }
 
 function getReasoningEffortEnumDescriptions(
-	control: ReasoningEffortControl,
-	levels: readonly ReasoningEffort[]
+	profile: ReasoningDialectProfile,
+	levels: readonly ReasoningEffort[],
+	translate: ModelConfigurationTranslate
 ): string[] {
-	const parameterName = control === "anthropic-output-config-effort" ? "output_config.effort" : "reasoning_effort";
-	return [`Do not send ${parameterName}.`, ...levels.map((level) => `Send ${parameterName}=${level}.`)];
+	const parameterName = getReasoningEffortParameterName(profile.reasoningEffortControl);
+	const selectedSuffix = profile.canDisableThinking
+		? translate("This setting is ignored while thinking is disabled.")
+		: "";
+	return [
+		getAutomaticReasoningEffortDescription(profile, translate),
+		...levels.map(
+			(level) => `${translate("Send {0}={1}.", parameterName, level)}${selectedSuffix ? ` ${selectedSuffix}` : ""}`
+		),
+	];
 }
 
 function readRawModelConfiguration(options: ProvideLanguageModelChatResponseOptions): ModelConfigurationRecord {
@@ -132,11 +207,12 @@ function readRawModelConfiguration(options: ProvideLanguageModelChatResponseOpti
 }
 
 export function resolveInfiniAIModelConfiguration(
-	options: ProvideLanguageModelChatResponseOptions
+	options: ProvideLanguageModelChatResponseOptions,
+	constraints: InfiniAIModelConfigurationConstraints = {}
 ): InfiniAIModelConfiguration {
 	const raw = readRawModelConfiguration(options);
 	const resolved: InfiniAIModelConfiguration = {
-		maxOutputTokens: normalizeMaxOutputTokens(raw.maxOutputTokens),
+		maxOutputTokens: normalizeMaxOutputTokens(raw.maxOutputTokens, constraints.maxOutputTokens),
 		reasoningEffort: normalizeReasoningEffort(raw.reasoningEffort),
 		thinkingMode: normalizeThinkingMode(raw.thinkingMode),
 	};
@@ -146,20 +222,22 @@ export function resolveInfiniAIModelConfiguration(
 export function buildInfiniAIModelConfigurationSchema(
 	model: InfiniAIModelInfo,
 	maxOutputTokens: number,
-	transport: ModelTransport = "openai"
+	transport: ModelTransport = "openai",
+	translate: ModelConfigurationTranslate = defaultTranslate
 ): InfiniAIModelConfigurationSchema {
 	const profile = resolveReasoningDialectProfile({ modelId: model.id, transport });
 	const outputChoices = getMaxOutputTokenChoices(maxOutputTokens);
-	const outputLabels = outputChoices.map((value) => (value === 0 ? "Model default" : formatTokenLabel(value)));
+	const outputLabels = outputChoices.map((value) =>
+		value === 0 ? translate("Model default") : formatTokenLabel(value)
+	);
 	const properties: Record<string, InfiniAIModelConfigurationPropertySchema> = {
 		maxOutputTokens: {
 			type: "number",
-			title: "Max output tokens",
-			description: "Caps the number of tokens the model may produce for a response.",
+			title: translate("Max output tokens"),
+			description: translate("Caps the number of tokens the model may produce for a response."),
 			enum: outputChoices,
 			enumItemLabels: outputLabels,
 			default: 0,
-			group: "tokens",
 			minimum: 0,
 			maximum: Math.max(1, Math.floor(maxOutputTokens)),
 		},
@@ -168,34 +246,37 @@ export function buildInfiniAIModelConfigurationSchema(
 		const effortLevels = getReasoningEffortLevels(profile);
 		properties.reasoningEffort = {
 			type: "string",
-			title: "Reasoning effort",
-			description: getReasoningEffortDescription(profile.reasoningEffortControl),
+			title: translate("Reasoning effort"),
+			description: getReasoningEffortDescription(profile, translate),
 			enum: ["unset", ...effortLevels],
-			enumItemLabels: ["Unset", ...effortLevels.map(formatReasoningEffortLabel)],
-			enumDescriptions: getReasoningEffortEnumDescriptions(profile.reasoningEffortControl, effortLevels),
+			enumItemLabels: [
+				translate("Automatic"),
+				...effortLevels.map((effort) => translate(formatReasoningEffortLabel(effort))),
+			],
+			enumDescriptions: getReasoningEffortEnumDescriptions(profile, effortLevels, translate),
 			default: "unset",
 			group: "navigation",
 		};
 	}
 
 	const thinkingModes: string[] = ["unset"];
-	const thinkingLabels: string[] = ["Unset"];
-	const thinkingDescriptions: string[] = ["Use the provider default for this model profile."];
+	const thinkingLabels: string[] = [translate("Automatic")];
+	const thinkingDescriptions: string[] = [getThinkingAutomaticDescription(profile, translate)];
 	if (profile.canDisableThinking) {
 		thinkingModes.push("disabled");
-		thinkingLabels.push("Disabled");
-		thinkingDescriptions.push("Send the disable-thinking control supported by this model profile.");
+		thinkingLabels.push(translate("Disabled"));
+		thinkingDescriptions.push(translate("Send the disable-thinking control supported by this model profile."));
 	}
 	if (profile.canEnableThinking) {
 		thinkingModes.push("enabled");
-		thinkingLabels.push("Enabled");
-		thinkingDescriptions.push("Send the enable-thinking control supported by this model profile.");
+		thinkingLabels.push(translate("Enabled"));
+		thinkingDescriptions.push(translate("Send the enable-thinking control supported by this model profile."));
 	}
 	if (thinkingModes.length > 1) {
 		properties.thinkingMode = {
 			type: "string",
-			title: "Thinking mode",
-			description: "Controls thinking only for model profiles with a confirmed request parameter.",
+			title: translate("Thinking mode"),
+			description: translate("Controls thinking only for model profiles with a confirmed request parameter."),
 			enum: thinkingModes,
 			enumItemLabels: thinkingLabels,
 			enumDescriptions: thinkingDescriptions,
@@ -208,13 +289,14 @@ export function buildInfiniAIModelConfigurationSchema(
 
 export function appendModelConfigurationSummaryToTooltip(
 	tooltip: string,
-	schema: InfiniAIModelConfigurationSchema
+	schema: InfiniAIModelConfigurationSchema,
+	translate: ModelConfigurationTranslate = defaultTranslate
 ): string {
 	const labels = getConfigurableControlLabels(schema);
 	if (labels.length === 0) {
 		return tooltip;
 	}
-	const summary = `Configurable: ${labels.join(", ")}`;
+	const summary = translate("Configurable in Manage Models: {0}", labels.join(", "));
 	if (tooltip.includes(summary)) {
 		return tooltip;
 	}

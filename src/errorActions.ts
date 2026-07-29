@@ -1,15 +1,36 @@
 import * as vscode from "vscode";
 
-import { HttpError, NetworkError, RateLimitError } from "./utils";
+import { HttpError, NetworkError, RateLimitError, RequestTimeoutError } from "./utils";
 
 const DASHBOARD_URL = "https://cloud.infini-ai.com";
 
-type ErrorCategory = "auth" | "quota" | "rate-limit" | "network" | "model-not-found" | "server" | "unknown";
+export type ErrorCategory =
+	| "auth"
+	| "quota"
+	| "rate-limit"
+	| "network"
+	| "timeout"
+	| "model-not-found"
+	| "server"
+	| "unknown";
 
-interface CategorizedError {
+export interface CategorizedError {
 	readonly category: ErrorCategory;
 	readonly status?: number;
 	readonly message: string;
+}
+
+export interface ActionableErrorContext {
+	readonly providerGroup?: string;
+	readonly modelId?: string;
+}
+
+function isInfiniAIAuthenticationRejection(err: HttpError): boolean {
+	return (
+		err.status === 401 ||
+		err.status === 403 ||
+		/wrong\s+bearer\s+token|api\s*key/i.test(err.body)
+	);
 }
 
 export function categorizeError(err: unknown): CategorizedError | undefined {
@@ -20,7 +41,7 @@ export function categorizeError(err: unknown): CategorizedError | undefined {
 		return { category: "rate-limit", status: err.status, message: err.message };
 	}
 	if (err instanceof HttpError) {
-		if (err.status === 401 || err.status === 403) {
+		if (isInfiniAIAuthenticationRejection(err)) {
 			return { category: "auth", status: err.status, message: err.message };
 		}
 		if (err.status === 402) {
@@ -37,6 +58,9 @@ export function categorizeError(err: unknown): CategorizedError | undefined {
 	if (err instanceof NetworkError) {
 		return { category: "network", message: err.message };
 	}
+	if (err instanceof RequestTimeoutError) {
+		return { category: "timeout", message: err.message };
+	}
 	const message = err instanceof Error ? err.message : String(err);
 	if (/InfiniAI API key not found/i.test(message)) {
 		return { category: "auth", message };
@@ -45,14 +69,17 @@ export function categorizeError(err: unknown): CategorizedError | undefined {
 }
 
 /** Show an actionable error toast for recoverable categories. Returns true if a toast was shown. */
-export async function surfaceActionableError(err: unknown): Promise<boolean> {
+export async function surfaceActionableError(
+	err: unknown,
+	context: ActionableErrorContext = {}
+): Promise<boolean> {
 	const info = categorizeError(err);
 	if (!info) {
 		return false;
 	}
 	switch (info.category) {
 		case "auth":
-			await showAuthError();
+			await showAuthError(context);
 			return true;
 		case "quota":
 			await showQuotaError();
@@ -61,6 +88,9 @@ export async function surfaceActionableError(err: unknown): Promise<boolean> {
 			await showRateLimitError();
 			return true;
 		case "network":
+			await showNetworkError(info.message);
+			return true;
+		case "timeout":
 			await showNetworkError(info.message);
 			return true;
 		case "model-not-found":
@@ -74,37 +104,39 @@ export async function surfaceActionableError(err: unknown): Promise<boolean> {
 	}
 }
 
-async function showAuthError(): Promise<void> {
-	const setKey = vscode.l10n.t("Set API Key");
+async function showAuthError(context: ActionableErrorContext): Promise<void> {
+	const manageModels = vscode.l10n.t("Manage Models");
 	const getKey = vscode.l10n.t("Get API Key");
-	const settings = vscode.l10n.t("Open Settings");
+	const subject =
+		context.modelId && context.providerGroup
+			? vscode.l10n.t('InfiniAI rejected access to model "{0}" for provider group "{1}".', context.modelId, context.providerGroup)
+			: context.providerGroup
+				? vscode.l10n.t('InfiniAI rejected the API key for provider group "{0}".', context.providerGroup)
+				: vscode.l10n.t("InfiniAI rejected this request.");
 	const choice = await vscode.window.showErrorMessage(
-		vscode.l10n.t("InfiniAI API key is missing or invalid."),
-		setKey,
-		getKey,
-		settings
+		`${subject} ${vscode.l10n.t("Verify model access or update the provider-group API key.")}`,
+		manageModels,
+		getKey
 	);
-	if (choice === setKey) {
-		await vscode.commands.executeCommand("infiniai.setApikey");
+	if (choice === manageModels) {
+		await vscode.commands.executeCommand("infiniai.openManageModels");
 	} else if (choice === getKey) {
 		await vscode.env.openExternal(vscode.Uri.parse(DASHBOARD_URL));
-	} else if (choice === settings) {
-		await vscode.commands.executeCommand("workbench.action.openSettings", "infiniai");
 	}
 }
 
 async function showQuotaError(): Promise<void> {
 	const dashboard = vscode.l10n.t("Open Dashboard");
-	const setKey = vscode.l10n.t("Set API Key");
+	const manageModels = vscode.l10n.t("Manage Models");
 	const choice = await vscode.window.showErrorMessage(
 		vscode.l10n.t("InfiniAI quota exceeded. Top up your account or update your API key."),
 		dashboard,
-		setKey
+		manageModels
 	);
 	if (choice === dashboard) {
 		await vscode.env.openExternal(vscode.Uri.parse(DASHBOARD_URL));
-	} else if (choice === setKey) {
-		await vscode.commands.executeCommand("infiniai.setApikey");
+	} else if (choice === manageModels) {
+		await vscode.commands.executeCommand("infiniai.openManageModels");
 	}
 }
 
@@ -150,7 +182,7 @@ async function showModelNotFoundError(detail: string): Promise<void> {
 async function showServerError(status: number): Promise<void> {
 	const dashboard = vscode.l10n.t("Open Dashboard");
 	const choice = await vscode.window.showErrorMessage(
-		vscode.l10n.t("InfiniAI server error (HTTP {0}). The request will be retried automatically.", status),
+		vscode.l10n.t("InfiniAI server error (HTTP {0}). Automatic retries were exhausted.", status),
 		dashboard
 	);
 	if (choice === dashboard) {

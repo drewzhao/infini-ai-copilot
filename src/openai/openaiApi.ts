@@ -229,7 +229,8 @@ export class OpenaiApi extends CommonApi {
 		rb: any,
 		um: InfiniAIModelInfo | undefined,
 		options: ProvideLanguageModelChatResponseOptions,
-		replayPreflightSafe = false
+		replayPreflightSafe = false,
+		maxOutputTokens?: number
 	): any {
 		const orb = rb as Record<string, unknown>;
 		// // temperature
@@ -320,9 +321,14 @@ export class OpenaiApi extends CommonApi {
 			orb.tool_choice = toolConfig.tool_choice;
 		}
 
-		applyOpenAIModelConfiguration(orb, resolveInfiniAIModelConfiguration(options), reasoningProfile, {
-			useDefaultReasoningEffort: replayPreflightSafe,
-		});
+		applyOpenAIModelConfiguration(
+			orb,
+			resolveInfiniAIModelConfiguration(options, { maxOutputTokens }),
+			reasoningProfile,
+			{
+				useDefaultReasoningEffort: replayPreflightSafe,
+			}
+		);
 
 		// // Configure user-defined additional parameters
 		// if (um?.top_k !== undefined) {

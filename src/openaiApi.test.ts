@@ -160,6 +160,32 @@ describe("OpenaiApi.prepareRequestBody thinking-mode guard", () => {
 		});
 	});
 
+	it("uses string required tool choice without a default effort for verified DeepSeek V4 models", () => {
+		const { openai, withVscode } = loadOpenaiApi();
+
+		for (const modelId of ["deepseek-v4-pro", "deepseek-v4-flash"]) {
+			const api = new openai.OpenaiApi();
+			const rb = withVscode(() =>
+				api.prepareRequestBody(
+					{ model: modelId },
+					{ id: modelId } as any,
+					{
+						modelOptions: {},
+						toolMode: 1,
+						tools: [
+							{ name: "search", inputSchema: { type: "object", properties: {} } },
+							{ name: "read", inputSchema: { type: "object", properties: {} } },
+						],
+					} as any,
+					true
+				)
+			);
+
+			assert.equal(rb.tool_choice, "required", modelId);
+			assert.equal(rb.reasoning_effort, undefined, modelId);
+		}
+	});
+
 	it("rejects required tool mode locally for Kimi K2.6 and K2.7", () => {
 		const { openai, withVscode } = loadOpenaiApi();
 
@@ -288,6 +314,26 @@ describe("OpenaiApi.prepareRequestBody thinking-mode guard", () => {
 		assert.equal(rb.enable_thinking, undefined);
 		assert.equal(rb.thinking, undefined);
 	});
+
+	it("does not send a persisted output limit above the current model maximum", () => {
+		const { openai, withVscode } = loadOpenaiApi();
+		const api = new openai.OpenaiApi();
+
+		const rb = withVscode(() =>
+			api.prepareRequestBody(
+				{ model: "custom-model" },
+				{ id: "custom-model" } as any,
+				{
+					modelOptions: {},
+					modelConfiguration: { maxOutputTokens: 16384 },
+				} as any,
+				false,
+				8192
+			)
+		);
+
+		assert.equal(rb.max_tokens, undefined);
+	});
 });
 
 describe("OpenaiApi thinking replay streaming capture", () => {
@@ -324,10 +370,7 @@ describe("OpenaiApi thinking replay streaming capture", () => {
 				{
 					role: vscode.LanguageModelChatMessageRole.Assistant,
 					name: undefined,
-					content: [
-						new vscode.LanguageModelTextPart("Final"),
-						new vscode.LanguageModelTextPart(", answer"),
-					],
+					content: [new vscode.LanguageModelTextPart("Final"), new vscode.LanguageModelTextPart(", answer")],
 				},
 			],
 			{ includeReasoningInRequest: false }
@@ -363,10 +406,7 @@ describe("OpenaiApi thinking replay streaming capture", () => {
 		const reported: string[] = [];
 
 		await api.processStreamingResponse(
-			streamFromChunks([
-				'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
-				"data: [DONE]\n\n",
-			]),
+			streamFromChunks(['data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n', "data: [DONE]\n\n"]),
 			{
 				report(part: any) {
 					reported.push(part.value);

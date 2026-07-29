@@ -3,12 +3,15 @@ import { readdirSync, readFileSync, statSync } from "fs";
 import path from "path";
 import type * as vscode from "vscode";
 
-import { withStableSafeGrayLanguageModelMetadata } from "./grayLanguageModelMetadata";
+import {
+	makeUserSelectableLanguageModelInfo,
+	withStableSafeGrayLanguageModelMetadata,
+} from "./grayLanguageModelMetadata";
 
 const REPO_ROOT = process.cwd();
 const RUNTIME_SOURCE_ROOT = path.join(REPO_ROOT, "src");
 const HELPER_PATH = path.join("src", "grayLanguageModelMetadata.ts");
-const STABLE_SAFE_GRAY_FIELDS = ["isUserSelectable", "statusIcon", "configurationSchema"] as const;
+const STABLE_SAFE_GRAY_FIELDS = ["isBYOK", "isUserSelectable", "statusIcon", "configurationSchema"] as const;
 
 function baseLanguageModelInfo(): vscode.LanguageModelChatInformation {
 	return {
@@ -48,7 +51,15 @@ describe("gray language model metadata", () => {
 		assert.equal(result.id, base.id);
 		assert.equal(result.family, base.family);
 		assert.equal(result.isUserSelectable, true);
+		assert.equal("isBYOK" in result, false);
 		assert.equal("statusIcon" in result, false);
+	});
+
+	it("adds BYOK metadata only when explicitly provided", () => {
+		const result = withStableSafeGrayLanguageModelMetadata(baseLanguageModelInfo(), { isBYOK: true });
+
+		assert.equal(result.isBYOK, true);
+		assert.equal("isUserSelectable" in result, false);
 	});
 
 	it("adds status icons only when explicitly provided", () => {
@@ -57,6 +68,19 @@ describe("gray language model metadata", () => {
 
 		assert.equal(result.statusIcon, statusIcon);
 		assert.equal("isUserSelectable" in result, false);
+	});
+
+	it("exports only confirmed tool-capable models to the 1.130 Agents bridge", () => {
+		const toolCapable = makeUserSelectableLanguageModelInfo(baseLanguageModelInfo());
+		const textOnly = makeUserSelectableLanguageModelInfo({
+			...baseLanguageModelInfo(),
+			capabilities: { toolCalling: false, imageInput: false },
+		});
+
+		assert.equal(toolCapable.isBYOK, true);
+		assert.equal(textOnly.isBYOK, false);
+		assert.equal(toolCapable.isUserSelectable, true);
+		assert.equal(textOnly.isUserSelectable, true);
 	});
 
 	it("adds model configuration schemas only when explicitly provided", () => {
@@ -91,7 +115,11 @@ describe("gray language model metadata", () => {
 		}
 
 		assert.ok(matches.some((match) => match === `${HELPER_PATH}:isUserSelectable`));
+		assert.ok(matches.some((match) => match === `${HELPER_PATH}:isBYOK`));
 		assert.ok(matches.some((match) => match === `${HELPER_PATH}:configurationSchema`));
-		assert.deepEqual(matches.filter((match) => !match.startsWith(`${HELPER_PATH}:`)), []);
+		assert.deepEqual(
+			matches.filter((match) => !match.startsWith(`${HELPER_PATH}:`)),
+			[]
+		);
 	});
 });

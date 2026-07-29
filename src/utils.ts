@@ -6,8 +6,6 @@ import type { RequiredToolChoiceControl } from "./reasoningDialect";
 
 export type InfiniAILogger = vscode.OutputChannel | vscode.LogOutputChannel;
 
-export const INFINIAI_API_KEY_SECRET_NAME = "infiniai.apiKey";
-
 export class HttpError extends Error {
 	constructor(
 		readonly status: number,
@@ -34,6 +32,16 @@ export class NetworkError extends Error {
 	) {
 		super(message);
 		this.name = "NetworkError";
+	}
+}
+
+export class RequestTimeoutError extends Error {
+	constructor(
+		message: string,
+		readonly timeoutMs: number
+	) {
+		super(message);
+		this.name = "RequestTimeoutError";
 	}
 }
 
@@ -176,37 +184,45 @@ export async function fetchWithCancellation(
 	}
 }
 
-export async function promptForApiKey(existing: string | undefined): Promise<string | undefined> {
-	const entered = await vscode.window.showInputBox({
-		title: vscode.l10n.t("InfiniAI API Key"),
-		prompt: existing ? vscode.l10n.t("Update your InfiniAI API key") : vscode.l10n.t("Enter your InfiniAI API key"),
-		ignoreFocusOut: true,
-		password: true,
-		value: existing ?? "",
-	});
-	return entered?.trim() ? entered.trim() : undefined;
-}
-
-export async function configureApiKey(secrets: vscode.SecretStorage): Promise<string | undefined> {
-	const existing = await secrets.get(INFINIAI_API_KEY_SECRET_NAME);
-	const apiKey = await promptForApiKey(existing);
-	if (apiKey) {
-		await secrets.store(INFINIAI_API_KEY_SECRET_NAME, apiKey);
+export async function fetchWithCancellationAndTimeout<T>(
+	input: RequestInfo | URL,
+	init: RequestInit,
+	token: vscode.CancellationToken,
+	timeoutMs: number,
+	consume: (response: Response) => Promise<T>
+): Promise<T> {
+	if (token.isCancellationRequested) {
+		throw new vscode.CancellationError();
 	}
-	return apiKey;
-}
-
-/**
- * Ensure an API key exists in SecretStorage, optionally prompting the user when not silent.
- * @param silent If true, do not prompt the user.
- * @param secrets vscode.SecretStorage
- */
-export async function ensureApiKey(silent: boolean, secrets: vscode.SecretStorage): Promise<string | undefined> {
-	const apiKey = await secrets.get(INFINIAI_API_KEY_SECRET_NAME);
-	if (apiKey || silent) {
-		return apiKey;
+	const controller = new AbortController();
+	let timedOut = false;
+	const timeout = setTimeout(() => {
+		timedOut = true;
+		controller.abort();
+	}, Math.max(1, timeoutMs));
+	const disposable = token.onCancellationRequested(() => controller.abort());
+	try {
+		const response = await fetch(input, { ...init, signal: controller.signal });
+		// Keep the cancellation listener and deadline alive until the response
+		// body has been completely consumed. A fetch() promise can resolve after
+		// headers while response.text()/json() remains stalled.
+		return await consume(response);
+	} catch (err) {
+		if (token.isCancellationRequested) {
+			throw new vscode.CancellationError();
+		}
+		if (timedOut) {
+			throw new RequestTimeoutError(`Request timed out after ${timeoutMs}ms`, timeoutMs);
+		}
+		if (err instanceof HttpError || err instanceof ProviderProtocolError) {
+			throw err;
+		}
+		const message = err instanceof Error ? err.message : String(err);
+		throw new NetworkError(message, err);
+	} finally {
+		clearTimeout(timeout);
+		disposable.dispose();
 	}
-	return configureApiKey(secrets);
 }
 
 /**
@@ -221,10 +237,14 @@ export async function fetchModels(
 ): Promise<NormalizedInfiniAIModelsResponse> {
 	const configured = vscode.workspace.getConfiguration("infiniai").get<string>("modelDiscoveryUrl", "").trim();
 	const modelsUrl = configured || "https://cloud.infini-ai.com/maas/v1/models";
+	const timeoutMs = Math.max(
+		1000,
+		vscode.workspace.getConfiguration("infiniai").get<number>("modelDiscoveryTimeoutMs", 15000)
+	);
 	logInfo(output, `Fetching models from ${endpointForLog(modelsUrl)}`);
 
-	const modelsList = (async () => {
-		const resp = await fetchWithCancellation(
+	try {
+		return await fetchWithCancellationAndTimeout(
 			modelsUrl,
 			{
 				method: "GET",
@@ -233,28 +253,35 @@ export async function fetchModels(
 					"User-Agent": userAgent,
 				},
 			},
-			token
+			token,
+			timeoutMs,
+			async (resp) => {
+				if (!resp.ok) {
+					throw await readHttpErrorResponse(resp);
+				}
+				let payload: unknown;
+				try {
+					payload = await resp.json();
+				} catch (err) {
+					throw new ProviderProtocolError(
+						`InfiniAI models response was not valid JSON: ${err instanceof Error ? err.message : String(err)}`
+					);
+				}
+				const normalized = normalizeInfiniAIModelsResponse(payload);
+				if (!normalized.ok) {
+					throw new ProviderProtocolError(normalized.error);
+				}
+				const result = normalized.value;
+				logInfo(output, `Parsed ${result.models.length} unique models from ${result.rawModelCount} API rows`);
+				if (result.malformedModelCount > 0 || result.duplicateModelCount > 0) {
+					logWarn(
+						output,
+						`Ignored ${result.malformedModelCount} malformed and ${result.duplicateModelCount} duplicate model rows`
+					);
+				}
+				return result;
+			}
 		);
-		if (!resp.ok) {
-			throw await readHttpErrorResponse(resp);
-		}
-		const normalized = normalizeInfiniAIModelsResponse(await resp.json());
-		if (!normalized.ok) {
-			throw new ProviderProtocolError(normalized.error);
-		}
-		const result = normalized.value;
-		logInfo(output, `Parsed ${result.models.length} unique models from ${result.rawModelCount} API rows`);
-		if (result.malformedModelCount > 0 || result.duplicateModelCount > 0) {
-			logWarn(
-				output,
-				`Ignored ${result.malformedModelCount} malformed and ${result.duplicateModelCount} duplicate model rows`
-			);
-		}
-		return result;
-	})();
-
-	try {
-		return await modelsList;
 	} catch (err) {
 		if (err instanceof Error) {
 			logError(output, `Failed to fetch InfiniAI models: ${sanitizeForLog(err.message)}`);

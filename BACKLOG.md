@@ -2,14 +2,13 @@
 
 This backlog enumerates stable VS Code APIs (from `vscode.d.ts`) that could meaningfully improve the user experience of **InfiniAI Provider for Copilot**. Each item is grouped by impact tier, with design rationale, implementation guidance, suggested file layout, and acceptance criteria.
 
-> Items #2–#6 and #11–#16 shipped in 0.5.0 and have been removed. Items #8a and #9a also shipped in 0.5.0; only their deferred 8b/9b follow-ups remain below.
+> Completed items have been removed. Items #8a and #9a shipped in 0.5.0; only their deferred 8b/9b follow-ups remain below.
 
 ---
 
 ## Table of Contents
 
 - [Tier 2 — Strong UX upgrades](#tier-2--strong-ux-upgrades)
-  - [7. UriHandler for one-click setup](#7-urihandler-for-one-click-setup)
   - [8. TreeView sidebar — Usage node (8b deferred)](#8-treeview-sidebar--infiniai-models)
   - [9. WebviewView usage dashboard (9b deferred)](#9-webviewview-usage-dashboard)
   - [10. Telemetry via env.createTelemetryLogger](#10-telemetry-via-envcreatetelemetrylogger)
@@ -26,45 +25,6 @@ This backlog enumerates stable VS Code APIs (from `vscode.d.ts`) that could mean
 ---
 
 ## Tier 2 — Strong UX upgrades
-
-### 7. UriHandler for one-click setup
-
-> **Status: Deferred — blocked on the InfiniAI dashboard frontend.** The extension code is trivial (a `registerUriHandler` callback plus a confirmation modal); shipping it without the dashboard's matching "Open in VS Code" button would expose a publicly callable `vscode://…/setApiKey` URL with no real entry point. Revisit once the dashboard team adds the deep-link button (no new HTTP API required, just frontend work).
-
-**Problem.** Copy/pasting a long API key from the dashboard is friction; users mis-paste with spaces.
-
-**API.** `vscode.window.registerUriHandler({ handleUri(uri) { … } })`.
-
-**Design.**
-- Handle `vscode://drewzhao.infiniai-copilot/setApiKey?key=…`.
-- After parsing, **always confirm** with a modal dialog ("Save API key from infini-ai.com?") before storing — never store silently.
-- Optional: support `?openWalkthrough=true`.
-
-**Implementation guidance.**
-```ts
-context.subscriptions.push(vscode.window.registerUriHandler({
-  async handleUri(uri) {
-    const params = new URLSearchParams(uri.query);
-    const key = params.get("key")?.trim();
-    if (!key) return;
-    const confirm = await vscode.window.showInformationMessage(
-      vscode.l10n.t("Save InfiniAI API key received from {0}?", uri.authority),
-      { modal: true }, vscode.l10n.t("Save")
-    );
-    if (confirm) {
-      await context.secrets.store("infiniai.apiKey", key);
-    }
-  }
-}));
-```
-- Coordinate with the InfiniAI dashboard team to render a "Open in VS Code" button that builds this URL.
-- **Security:** never accept keys from `?source=` redirects; show the source in the dialog.
-
-**Acceptance criteria.**
-- Clicking the dashboard's "Open in VS Code" link launches VS Code, surfaces a modal, and stores the key on confirmation.
-- Plain `vscode://…` invocations without the user pressing the dashboard button cannot silently store keys.
-
----
 
 ### 8. TreeView sidebar — Usage node (8b)
 
@@ -195,19 +155,20 @@ Niche but appreciated by customers tracking spend.
 
 ### 21. Get-Started Walkthrough
 
-**Problem.** First-run users currently have to read the README to discover the multi-step path: open Copilot Chat → model picker → "Manage Models" → "Add Models" → "InfiniAI" → enter API key → select models. Drop-off here is high.
+**Problem.** First-run users currently have to read the README to discover the multi-step path: open VS Code Chat →
+model picker → "Manage Models" → "Add Models" → "InfiniAI" → enter API key → select models. Drop-off here is high.
 
-> Deprioritized: most early adopters arrive via the README and dashboard deep links. Revisit once telemetry (#10) confirms onboarding drop-off is a real bottleneck, or after the dashboard's "Open in VS Code" flow (#7) is live and we want a guided fallback.
+> Deprioritized: most early adopters arrive via the README. Revisit once telemetry (#10) confirms onboarding drop-off is a real bottleneck.
 
 **API.** Manifest contribution `walkthroughs` (declared in `package.json`; rendered by VS Code under **Welcome → Get Started**).
 
 **Design.**
 - 3–4 steps, each with a Markdown body, a media asset (PNG/SVG/MP4) and a `command:` link that performs the step.
 - Steps:
-  1. **Add your API key** — runs `infiniai.setApikey` (existing).
-  2. **Open Copilot Chat & select InfiniAI** — runs `workbench.action.chat.open`.
+  1. **Add an InfiniAI provider group** — runs `infiniai.openManageModels`.
+  2. **Open VS Code Chat & select InfiniAI** — runs `workbench.action.chat.open`.
   3. **Pin your favorite models** — runs a new `infiniai.pinModels` quick pick (or links to the model picker).
-- Each step uses `completionEvents` like `onCommand:infiniai.setApikey` so the checkmark auto-ticks when the user completes it through any path.
+- Each step uses `completionEvents` like `onCommand:infiniai.openManageModels` so the checkmark auto-ticks after the user opens the provider-group flow.
 
 **Implementation guidance.**
 - Add to `package.json`:
@@ -216,7 +177,7 @@ Niche but appreciated by customers tracking spend.
     "walkthroughs": [{
       "id": "infiniai.gettingStarted",
       "title": "Get Started with InfiniAI",
-      "description": "Set up the InfiniAI provider for GitHub Copilot Chat",
+      "description": "Set up the InfiniAI provider for VS Code Chat",
       "steps": [ /* 4–5 step entries */ ]
     }]
   }
@@ -245,9 +206,9 @@ Niche but appreciated by customers tracking spend.
 
 | Sprint | Items | Rationale |
 |---|---|---|
-| **S1–S6** ✅ | ~~#2 LogOutputChannel, #3 withProgress, #4 onDidChangeConfiguration, #5 Localization, #6 AuthenticationProvider, #8a TreeView, #9a local usage dashboard, #11 error toasts, #12 QuickPick builder, #13 SecretStorage.onDidChange, #14 dependency detection, #15 LanguageStatusItem, #16 env.uiKind~~ | All shipped in 0.5.0 |
+| **S1–S6** ✅ | ~~#2 LogOutputChannel, #3 withProgress, #4 onDidChangeConfiguration, #5 Localization, #8a TreeView, #9a local usage dashboard, #11 error toasts, #12 QuickPick builder, #15 LanguageStatusItem, #16 env.uiKind~~ | Shipped capabilities retained |
 | **Pending** | #17 additional commands, #18a `infiniai_list_models` tool | Not yet implemented; no server-side dependency |
-| **Deferred — server-side dependency** | #7 UriHandler *(needs dashboard "Open in VS Code" button)*, #8b Usage tree node, #9b account-wide dashboard, #10 telemetry, #18b cost / picker tools, #19 MCP provider, #20 usage-report task | Pulled out of the active roadmap until the matching InfiniAI backend / dashboard capability ships |
+| **Deferred — server-side dependency** | #8b Usage tree node, #9b account-wide dashboard, #10 telemetry, #18b cost / picker tools, #19 MCP provider, #20 usage-report task | Pulled out of the active roadmap until the matching InfiniAI backend capability ships |
 | **Nice to have** | #21 Walkthrough | Revisit only if onboarding telemetry shows drop-off |
 
 ---

@@ -17,9 +17,14 @@ import type {
 	AnthropicToolUseBlock,
 } from "./anthropic/anthropicTypes";
 import { enrichModelWithBuiltInMetadata, inferModelFamily } from "./catalogMetadata";
-import { surfaceActionableError } from "./errorActions";
+import { categorizeError, surfaceActionableError, type ErrorCategory } from "./errorActions";
 import { makeUserSelectableLanguageModelInfo } from "./grayLanguageModelMetadata";
-import { formatInfiniAIModelType, resolveInfiniAIModelVersion, selectInfiniAIChatModels } from "./modelDiscovery";
+import {
+	formatInfiniAIModelType,
+	resolveInfiniAIModelVersion,
+	selectInfiniAIChatModels,
+	type NormalizedInfiniAIModelsResponse,
+} from "./modelDiscovery";
 import {
 	appendModelConfigurationSummaryToTooltip,
 	buildInfiniAIModelConfigurationSchema,
@@ -53,11 +58,10 @@ import { InfiniAIModelInfo, ModelRoute, ModelRouteConfig } from "./types";
 import {
 	cancellableDelay,
 	createRetryConfig,
-	ensureApiKey,
 	executeWithRetry,
 	fetchModels,
 	fetchWithCancellation,
-	INFINIAI_API_KEY_SECRET_NAME,
+	HttpError,
 	InfiniAILogger,
 	logDebug,
 	logError,
@@ -68,13 +72,21 @@ import {
 } from "./utils";
 import { VertexApi } from "./vertex/vertexApi";
 import { VertexRequestBody } from "./vertex/vertexTypes";
-import { resolveImageInputCapability } from "./modelCapabilities";
+import {
+	resolveImageInputCapability,
+	resolveToolCallingCapability,
+	VERIFIED_TOOL_CALLING_MODEL_PATTERNS,
+} from "./modelCapabilities";
 import { isModelHidden } from "./modelVisibility";
+import { readProviderApiKey, readProviderGroupName } from "./providerConfiguration";
 import { parseModelRouteConfigs } from "./route";
 
 const DEFAULT_CONTEXT_LENGTH = 128000;
 const DEFAULT_MAX_TOKENS = 4096;
 const DEFAULT_CACHE_TTL_MS = 300000;
+const DISCOVERY_FAILURE_BACKOFF_BASE_MS = 15000;
+const DISCOVERY_FAILURE_BACKOFF_MAX_MS = 120000;
+const DISCOVERY_PROTOCOL_BACKOFF_MS = 300000;
 
 interface ModelCacheEntry {
 	key: string;
@@ -83,8 +95,29 @@ interface ModelCacheEntry {
 	routes: Map<string, ModelRoute>;
 	discoveryStats: ModelDiscoveryStats;
 	fetchedAt: number;
-	lastError?: string;
+	signature: string;
 }
+
+interface ModelDiscoveryOperation {
+	readonly promise: Promise<ModelCacheEntry>;
+	readonly cancellation: vscode.CancellationTokenSource;
+}
+
+interface ModelDiscoveryFailure {
+	readonly error: Error;
+	readonly category: ErrorCategory;
+	readonly failedAt: number;
+	readonly retryAt: number;
+	readonly failureCount: number;
+}
+
+interface ProviderGroupState {
+	readonly name: string;
+	readonly apiKey: string;
+	readonly cacheKey: string;
+}
+
+type ModelCredentialBinding = ProviderGroupState;
 
 interface ModelDiscoveryStats {
 	rawModelCount: number;
@@ -102,7 +135,7 @@ interface InfiniAITestModelPick extends vscode.QuickPickItem {
 
 interface DiagnosticSnapshot {
 	vscodeVersion: string;
-	hasApiKey: boolean;
+	providerGroupCount: number;
 	modelCount: number;
 	discoveryStats?: ModelDiscoveryStats;
 	routeConfigCount: number;
@@ -110,10 +143,20 @@ interface DiagnosticSnapshot {
 	cacheAgeMs?: number;
 	modelDiscoveryUrl: string;
 	lastError?: string;
+	groups: readonly ProviderGroupDiagnostic[];
+}
+
+export interface ProviderGroupDiagnostic {
+	readonly name: string;
+	readonly modelCount: number;
+	readonly cacheAgeMs?: number;
+	readonly lastError?: string;
+	readonly retryAt?: number;
 }
 
 export interface InfiniAIModelDescription {
 	id: string;
+	group: string;
 	transport: ModelRoute["transport"];
 	endpointKind: ModelRoute["endpointKind"];
 	routeSource: ModelRoute["source"];
@@ -251,57 +294,152 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 	readonly onDidConsumeUsage = this._onDidConsumeUsage.event;
 
 	private _lastRequestTime: number | null = null;
-	private _cache?: ModelCacheEntry;
-	private _lastGoodCache?: ModelCacheEntry;
-	private _modelsFetchPromise?: Promise<ModelCacheEntry>;
-	private _modelsFetchPromiseKey?: string;
-	private _lastError?: string;
+	private readonly _cacheByKey = new Map<string, ModelCacheEntry>();
+	private readonly _lastGoodCacheByKey = new Map<string, ModelCacheEntry>();
+	private readonly _modelDiscoveryOperations = new Map<string, ModelDiscoveryOperation>();
+	private readonly _modelDiscoveryFailures = new Map<string, ModelDiscoveryFailure>();
+	private readonly _modelDiscoveryRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	private readonly _modelCredentials = new WeakMap<LanguageModelChatInformation, ModelCredentialBinding>();
+	private readonly _providerGroups = new Map<string, ProviderGroupState>();
+	private _providerGroupResolutionGeneration = 0;
+	private _providerGroupsSeenInResolution = new Set<string>();
+	private _providerGroupReconcileTimer: ReturnType<typeof setTimeout> | undefined;
+	private _cacheGeneration = 0;
 
 	constructor(
-		private readonly secrets: vscode.SecretStorage,
 		private readonly userAgent: string,
 		private readonly statusBarItem: vscode.StatusBarItem,
 		private readonly output: InfiniAILogger
 	) {}
 
 	dispose(): void {
+		this.cancelAllModelDiscoveries();
+		if (this._providerGroupReconcileTimer) {
+			clearTimeout(this._providerGroupReconcileTimer);
+		}
 		this._onDidChange.dispose();
 		this._onDidConsumeUsage.dispose();
 	}
 
+	getProviderGroupDiagnostics(): readonly ProviderGroupDiagnostic[] {
+		return [...this._providerGroups.values()]
+			.sort((a, b) => a.name.localeCompare(b.name))
+			.map((group) => {
+				const cache = this._lastGoodCacheByKey.get(group.cacheKey);
+				const failure = this._modelDiscoveryFailures.get(group.cacheKey);
+				return {
+					name: group.name,
+					modelCount: cache?.infos.length ?? 0,
+					cacheAgeMs: cache ? Date.now() - cache.fetchedAt : undefined,
+					lastError: failure?.error.message,
+					retryAt: failure && Number.isFinite(failure.retryAt) ? failure.retryAt : undefined,
+				};
+			});
+	}
+
 	refreshModels(): void {
-		this._cache = undefined;
-		this._modelsFetchPromise = undefined;
-		this._modelsFetchPromiseKey = undefined;
+		this.cancelAllModelDiscoveries();
+		this._cacheByKey.clear();
+		this._lastGoodCacheByKey.clear();
+		this._modelDiscoveryFailures.clear();
+		for (const group of this._providerGroups.values()) {
+			this._providerGroups.set(group.name, {
+				...group,
+				cacheKey: this.buildCacheKey(group.apiKey),
+			});
+		}
+		this._cacheGeneration++;
+		this._onDidChange.fire();
+	}
+
+	notifyModelVisibilityChanged(): void {
+		this._onDidChange.fire();
+	}
+
+	rebuildCachedModelMetadata(): void {
+		this.cancelAllModelDiscoveries();
+		this._modelDiscoveryFailures.clear();
+		const previousGroups = [...this._providerGroups.values()];
+		const previousCaches = new Map(this._lastGoodCacheByKey);
+		const rebuiltByKey = new Map<string, ModelCacheEntry>();
+		this._cacheByKey.clear();
+		this._lastGoodCacheByKey.clear();
+		for (const group of previousGroups) {
+			const nextKey = this.buildCacheKey(group.apiKey);
+			const existing = rebuiltByKey.get(nextKey);
+			const previous = previousCaches.get(group.cacheKey);
+			const rebuilt = existing ?? (previous ? this.rebuildCacheEntry(previous, nextKey) : undefined);
+			if (rebuilt) {
+				rebuiltByKey.set(nextKey, rebuilt);
+				this._cacheByKey.set(nextKey, rebuilt);
+				this._lastGoodCacheByKey.set(nextKey, rebuilt);
+			}
+			this._providerGroups.set(group.name, { ...group, cacheKey: nextKey });
+		}
+		this._cacheGeneration++;
 		this._onDidChange.fire();
 	}
 
 	async provideLanguageModelChatInformation(
 		options: vscode.PrepareLanguageModelChatModelOptions,
-		token: CancellationToken
+		_token: CancellationToken
 	): Promise<LanguageModelChatInformation[]> {
-		try {
-			const apiKey = await ensureApiKey(options.silent, this.secrets);
-			if (!apiKey) {
-				if (options.silent) {
-					return [];
-				}
-				throw new Error("InfiniAI API key not found");
-			}
-			const entry = await this.getModelCache(apiKey, options.silent, token);
-			return this.filterHiddenModels(entry.infos);
-		} catch (err) {
-			this._lastError = err instanceof Error ? err.message : String(err);
-			logError(this.output, `Failed to provide model information: ${sanitizeForLog(this._lastError)}`);
-			if (options.silent) {
-				return this.filterHiddenModels(this._lastGoodCache?.infos ?? []);
-			}
-			throw err;
+		const apiKey = readProviderApiKey(options);
+		// VS Code resolves every configurable vendor once without a group before
+		// resolving configured groups. A groupless result would duplicate models
+		// and would not have a credential binding.
+		if (!apiKey) {
+			this.beginProviderGroupResolution();
+			return [];
 		}
+		const groupName = readProviderGroupName(options) ?? "InfiniAI";
+		const key = this.buildCacheKey(apiKey);
+		const group = this.registerProviderGroup(groupName, apiKey, key);
+		const cached = this._cacheByKey.get(key);
+		if (cached && this.isCacheFresh(cached)) {
+			return this.filterHiddenModels(this.modelsBoundToGroup(cached.infos, group));
+		}
+
+		const lastGood = this._lastGoodCacheByKey.get(key);
+		const failure = this.activeDiscoveryFailure(key);
+		if (failure && !lastGood) {
+			throw failure.error;
+		}
+		if (!failure) {
+			this.ensureBackgroundDiscovery(apiKey, key);
+		}
+		if (!lastGood) {
+			// Never hold VS Code's provider sequencer on network I/O. The
+			// background operation fires onDidChange when models or status arrive.
+			return [];
+		}
+		return this.filterHiddenModels(this.modelsBoundToGroup(lastGood.infos, group));
+	}
+
+	private modelsBoundToGroup(
+		infos: readonly LanguageModelChatInformation[],
+		group: ProviderGroupState
+	): LanguageModelChatInformation[] {
+		return infos.map((info) => {
+			// Discovery caches are shared by credentials, but model instances are
+			// group-specific. Cloning prevents two provider groups that use the
+			// same key from overwriting each other's request/remediation context.
+			const bound = { ...info };
+			this._modelCredentials.set(bound, group);
+			return bound;
+		});
 	}
 
 	private filterHiddenModels(infos: LanguageModelChatInformation[]): LanguageModelChatInformation[] {
 		return infos.filter((info) => !isModelHidden(info.id));
+	}
+
+	private activeCredential(binding: ModelCredentialBinding | undefined): ProviderGroupState | undefined {
+		if (!binding) {
+			return undefined;
+		}
+		const current = this._providerGroups.get(binding.name);
+		return current && current.cacheKey === binding.cacheKey && current.apiKey === binding.apiKey ? current : undefined;
 	}
 
 	async provideLanguageModelChatResponse(
@@ -319,15 +457,19 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		});
 
 		const streamedProgress = this.createTrackingProgress(model, progress);
+		const binding = this._modelCredentials.get(model);
 
 		try {
 			await this.applyRequestDelay(token);
-			const apiKey = await ensureApiKey(false, this.secrets);
-			if (!apiKey) {
-				throw new Error("InfiniAI API key not found");
+			const credential = this.activeCredential(binding);
+			if (!credential) {
+				throw new Error(
+					`InfiniAI model "${model.id}" is no longer bound to a VS Code provider group. Open Manage Models and select the model again.`
+				);
 			}
+			const apiKey = credential.apiKey;
 
-			const cache = await this.getModelCache(apiKey, false, token);
+			const cache = await this.getModelCache(apiKey, false, token, false, true);
 			const infiniAIModel = cache.models.find((m) => m.id === model.id);
 			const route =
 				cache.routes.get(model.id) ?? resolveModelRoute(this.toModelInfo(model, infiniAIModel), this.getRouteConfigs());
@@ -346,9 +488,12 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			}
 		} catch (err) {
 			if (!(err instanceof vscode.CancellationError)) {
-				this._lastError = err instanceof Error ? err.message : String(err);
-				logError(this.output, `Chat request failed model=${model.id} error=${sanitizeForLog(this._lastError)}`);
-				void surfaceActionableError(err);
+				const message = err instanceof Error ? err.message : String(err);
+				logError(this.output, `Chat request failed model=${model.id} error=${sanitizeForLog(message)}`);
+				void surfaceActionableError(err, {
+					modelId: model.id,
+					providerGroup: binding?.name,
+				});
 			}
 			throw err;
 		} finally {
@@ -365,66 +510,71 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 	}
 
 	async getDiagnostics(token: CancellationToken): Promise<DiagnosticSnapshot> {
-		const apiKey = await this.secrets.get(INFINIAI_API_KEY_SECRET_NAME);
+		if (token.isCancellationRequested) {
+			throw new vscode.CancellationError();
+		}
 		const discoveryUrl = this.getModelDiscoveryUrl();
 		const routeCounts = countModelRouteOverrides(
 			vscode.workspace.getConfiguration("infiniai").get<unknown>("modelRoutes", [])
 		);
-		let modelCount = this._lastGoodCache?.infos.length ?? 0;
-		let discoveryStats = this._lastGoodCache?.discoveryStats;
-		if (!discoveryStats && !token.isCancellationRequested) {
-			if (apiKey) {
-				const entry = await this.getModelCache(apiKey, true, token);
-				modelCount = entry.infos.length;
-				discoveryStats = entry.discoveryStats;
-			}
-		}
+		const groups = this.getProviderGroupDiagnostics();
+		const caches = this.uniqueProviderGroupCaches();
+		const discoveryStats = this.sumDiscoveryStats(caches);
+		const cacheAges = caches.map((cache) => Date.now() - cache.fetchedAt);
+		const firstFailure = [...this._providerGroups.values()]
+			.map((group) => this._modelDiscoveryFailures.get(group.cacheKey))
+			.find((failure) => failure !== undefined);
 		return {
 			vscodeVersion: vscode.version,
-			hasApiKey: !!apiKey,
-			modelCount,
+			providerGroupCount: groups.length,
+			modelCount: groups.reduce((sum, group) => sum + group.modelCount, 0),
 			discoveryStats,
 			routeConfigCount: routeCounts.routeConfigCount,
 			exactModelRouteOverrideCount: routeCounts.exactModelRouteOverrideCount,
-			cacheAgeMs: this._lastGoodCache ? Date.now() - this._lastGoodCache.fetchedAt : undefined,
+			cacheAgeMs: cacheAges.length > 0 ? Math.max(...cacheAges) : undefined,
 			modelDiscoveryUrl: discoveryUrl,
-			lastError: this._lastError,
+			lastError: firstFailure?.error.message,
+			groups,
 		};
 	}
 
 	async getModelDescriptions(refresh: boolean, token: CancellationToken): Promise<InfiniAIModelDescription[]> {
-		const apiKey = await ensureApiKey(false, this.secrets);
-		if (!apiKey) {
-			return [];
+		if (refresh) {
+			await this.refreshProviderGroups(token);
 		}
-		const entry = await this.getModelCache(apiKey, false, token, refresh);
-		return entry.infos.map((info) => {
-			const model = entry.models.find((candidate) => candidate.id === info.id);
-			const route =
-				entry.routes.get(info.id) ?? resolveModelRoute(this.toModelInfo(info, model), this.getRouteConfigs());
-			const defaultRoute = resolveModelRoute(this.toModelInfo(info, model), []);
-			return {
-				id: info.id,
-				transport: route.transport,
-				endpointKind: route.endpointKind,
-				routeSource: route.source,
-				defaultTransport: defaultRoute.transport,
-				defaultEndpointKind: defaultRoute.endpointKind,
-				defaultRouteSource: defaultRoute.source,
-				toolCalling: info.capabilities.toolCalling,
-				imageInput: info.capabilities.imageInput,
-				maxInputTokens: info.maxInputTokens,
-				maxOutputTokens: info.maxOutputTokens,
-			};
-		});
+		const descriptions: InfiniAIModelDescription[] = [];
+		for (const group of [...this._providerGroups.values()].sort((a, b) => a.name.localeCompare(b.name))) {
+			const entry = this._lastGoodCacheByKey.get(group.cacheKey);
+			if (!entry) {
+				continue;
+			}
+			for (const info of entry.infos) {
+				const model = entry.models.find((candidate) => candidate.id === info.id);
+				const route =
+					entry.routes.get(info.id) ?? resolveModelRoute(this.toModelInfo(info, model), this.getRouteConfigs());
+				const defaultRoute = resolveModelRoute(this.toModelInfo(info, model), []);
+				descriptions.push({
+					id: info.id,
+					group: group.name,
+					transport: route.transport,
+					endpointKind: route.endpointKind,
+					routeSource: route.source,
+					defaultTransport: defaultRoute.transport,
+					defaultEndpointKind: defaultRoute.endpointKind,
+					defaultRouteSource: defaultRoute.source,
+					toolCalling: info.capabilities.toolCalling,
+					imageInput: info.capabilities.imageInput,
+					maxInputTokens: info.maxInputTokens,
+					maxOutputTokens: info.maxOutputTokens,
+				});
+			}
+		}
+		return descriptions;
 	}
 
 	async testRoute(prompt: string, token: CancellationToken): Promise<string> {
-		const apiKey = await ensureApiKey(false, this.secrets);
-		if (!apiKey) {
-			throw new Error("InfiniAI API key not found");
-		}
-		const entry = await this.getModelCache(apiKey, false, token);
+		const group = await this.pickProviderGroup(token);
+		const entry = await this.getModelCache(group.apiKey, false, token);
 		const candidates = getVisibleInfiniAITestModels(entry.infos, entry.models, isModelHidden);
 		if (candidates.length === 0) {
 			throw new Error("No visible InfiniAI chat-capable models are available");
@@ -436,12 +586,12 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		const body = this.createTestRequestBody(selected.id, prompt || "Reply with OK.", route.transport);
 		const response = await this.postJsonWithRetry(
 			this.requestUrl(route, selected.id),
-			this.requestHeaders(route, apiKey),
+			this.requestHeaders(route, group.apiKey),
 			body,
 			token
 		);
 		await response.body?.cancel();
-		return `OK: ${selected.id} via ${route.transport} (${response.status})`;
+		return `OK: ${selected.id} via ${route.transport} in ${group.name} (${response.status})`;
 	}
 
 	private async pickInfiniAITestModel(
@@ -495,72 +645,118 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 
 	private async getModelCache(
 		apiKey: string,
-		silent: boolean,
+		_silent: boolean,
 		token: CancellationToken,
-		force = false
+		force = false,
+		allowStaleWhileRefreshing = false
 	): Promise<ModelCacheEntry> {
 		const key = this.buildCacheKey(apiKey);
-		const ttl = this.getCacheTtlMs();
-		if (!force && this._cache?.key === key && (ttl === 0 ? false : Date.now() - this._cache.fetchedAt < ttl)) {
-			return this._cache;
+		if (force) {
+			this.cancelModelDiscovery(key);
+			this._cacheByKey.delete(key);
+			this._modelDiscoveryFailures.delete(key);
 		}
-		if (!force && silent && this._lastGoodCache?.key === key) {
-			return this._lastGoodCache;
+		const cached = this._cacheByKey.get(key);
+		if (!force && cached && this.isCacheFresh(cached)) {
+			return cached;
 		}
-		if (!force && this._modelsFetchPromise && this._modelsFetchPromiseKey === key) {
-			return this._modelsFetchPromise;
+		const lastGood = this._lastGoodCacheByKey.get(key);
+		if (!force && allowStaleWhileRefreshing && lastGood) {
+			if (!this.activeDiscoveryFailure(key)) {
+				this.ensureBackgroundDiscovery(apiKey, key);
+			}
+			return lastGood;
+		}
+		const failure = !force ? this.activeDiscoveryFailure(key) : undefined;
+		if (failure) {
+			if (lastGood) {
+				return lastGood;
+			}
+			throw failure.error;
 		}
 
-		this._modelsFetchPromiseKey = key;
-		const fetchPromise = silent
-			? this.fetchAndNormalizeModels(apiKey, key, token)
-			: this.fetchAndNormalizeModelsWithProgress(apiKey, key, token);
-		this._modelsFetchPromise = fetchPromise
+		try {
+			return await this.waitForDiscovery(this.startModelDiscovery(apiKey, key, force).promise, token);
+		} catch (err) {
+			if (err instanceof vscode.CancellationError) {
+				throw err;
+			}
+			const fallback = this._lastGoodCacheByKey.get(key);
+			if (fallback) {
+				logWarn(
+					this.output,
+					`Model discovery failed; using last-known models: ${sanitizeForLog(
+						err instanceof Error ? err.message : String(err)
+					)}`
+				);
+				return fallback;
+			}
+			throw err;
+		}
+	}
+
+	private startModelDiscovery(apiKey: string, key: string, force = false): ModelDiscoveryOperation {
+		if (force) {
+			this.cancelModelDiscovery(key);
+			this._cacheByKey.delete(key);
+			this._modelDiscoveryFailures.delete(key);
+		}
+		const existing = this._modelDiscoveryOperations.get(key);
+		if (existing) {
+			return existing;
+		}
+
+		const generation = this._cacheGeneration;
+		const cancellation = new vscode.CancellationTokenSource();
+		const fetchPromise = this.fetchAndNormalizeModels(apiKey, key, cancellation.token);
+		const trackedPromise = fetchPromise
 			.then((entry) => {
-				this._cache = entry;
-				this._lastGoodCache = entry;
-				this._lastError = undefined;
-				this._onDidChange.fire();
+				if (generation === this._cacheGeneration) {
+					const previous = this._lastGoodCacheByKey.get(key);
+					const previousFailure = this._modelDiscoveryFailures.delete(key);
+					this.clearModelDiscoveryRetry(key);
+					this._cacheByKey.set(key, entry);
+					this._lastGoodCacheByKey.set(key, entry);
+					if (!previous || previous.signature !== entry.signature || previousFailure) {
+						this._onDidChange.fire();
+					}
+				}
 				return entry;
 			})
 			.catch((err) => {
-				this._lastError = err instanceof Error ? err.message : String(err);
-				if (silent && this._lastGoodCache?.key === key) {
-					return this._lastGoodCache;
+				if (err instanceof vscode.CancellationError) {
+					throw err;
+				}
+				if (generation === this._cacheGeneration) {
+					const changed = this.recordDiscoveryFailure(key, err);
+					if (changed) {
+						this._onDidChange.fire();
+					}
 				}
 				throw err;
 			})
 			.finally(() => {
-				this._modelsFetchPromise = undefined;
-				this._modelsFetchPromiseKey = undefined;
+				const current = this._modelDiscoveryOperations.get(key);
+				if (current?.promise === trackedPromise) {
+					this._modelDiscoveryOperations.delete(key);
+					cancellation.dispose();
+				}
 			});
-		return this._modelsFetchPromise;
+		const operation = { promise: trackedPromise, cancellation };
+		this._modelDiscoveryOperations.set(key, operation);
+		return operation;
 	}
 
-	private async fetchAndNormalizeModelsWithProgress(
-		apiKey: string,
-		key: string,
-		token: CancellationToken
-	): Promise<ModelCacheEntry> {
-		return vscode.window.withProgress(
-			{
-				location: vscode.ProgressLocation.Notification,
-				title: vscode.l10n.t("InfiniAI: Fetching available models…"),
-				cancellable: true,
-			},
-			async (_progress, progressToken) => {
-				const linked = new vscode.CancellationTokenSource();
-				const sub1 = token.onCancellationRequested(() => linked.cancel());
-				const sub2 = progressToken.onCancellationRequested(() => linked.cancel());
-				try {
-					return await this.fetchAndNormalizeModels(apiKey, key, linked.token);
-				} finally {
-					sub1.dispose();
-					sub2.dispose();
-					linked.dispose();
-				}
+	private ensureBackgroundDiscovery(apiKey: string, key: string): void {
+		void this.startModelDiscovery(apiKey, key).promise.catch((err) => {
+			if (err instanceof vscode.CancellationError) {
+				return;
 			}
-		);
+			logWarn(
+				this.output,
+				`Background model discovery failed: ${sanitizeForLog(err instanceof Error ? err.message : String(err))}`
+			);
+		});
 	}
 
 	private async fetchAndNormalizeModels(
@@ -569,6 +765,14 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		token: CancellationToken
 	): Promise<ModelCacheEntry> {
 		const discovery = await fetchModels(apiKey, this.userAgent, this.output, token);
+		return this.createCacheEntry(discovery, key, Date.now());
+	}
+
+	private createCacheEntry(
+		discovery: NormalizedInfiniAIModelsResponse,
+		key: string,
+		fetchedAt: number
+	): ModelCacheEntry {
 		const selection = selectInfiniAIChatModels(discovery.models);
 		const routeConfigs = this.getRouteConfigs();
 		const routes = new Map<string, ModelRoute>();
@@ -600,14 +804,17 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 				`Excluded ${discoveryStats.unknownModelTypeCount} models with unknown or missing model_type values`
 			);
 		}
-		return {
+		const entry: ModelCacheEntry = {
 			key,
 			models: enrichedModels,
 			infos,
 			routes,
 			discoveryStats,
-			fetchedAt: Date.now(),
+			fetchedAt,
+			signature: "",
 		};
+		entry.signature = this.cacheEntrySignature(entry);
+		return entry;
 	}
 
 	private toLanguageModelInfo(model: InfiniAIModelInfo, route: ModelRoute): LanguageModelChatInformation {
@@ -621,6 +828,8 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		const cfg = vscode.workspace.getConfiguration("infiniai");
 		const enablePatterns = cfg.get<string[]>("imageInputModels", []);
 		const disablePatterns = cfg.get<string[]>("disableImageInputModels", []);
+		const toolEnablePatterns = cfg.get<string[]>("toolCallingModels", []);
+		const toolDisablePatterns = cfg.get<string[]>("disableToolCallingModels", []);
 		const imageInput = resolveImageInputCapability(
 			{
 				...model,
@@ -628,8 +837,20 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			},
 			{ enablePatterns, disablePatterns }
 		);
+		const toolCalling = resolveToolCallingCapability(model, {
+			enablePatterns: toolEnablePatterns,
+			verifiedPatterns: VERIFIED_TOOL_CALLING_MODEL_PATTERNS,
+			disablePatterns: toolDisablePatterns,
+		});
+		const translateModelConfiguration = (message: string, ...args: readonly (string | number | boolean)[]): string =>
+			vscode.l10n.t(message, ...args);
 
-		const modelConfigSchema = buildInfiniAIModelConfigurationSchema(model, maxOutput, route.transport);
+		const modelConfigSchema = buildInfiniAIModelConfigurationSchema(
+			model,
+			maxOutput,
+			route.transport,
+			translateModelConfiguration
+		);
 		const modelTypeLabel = formatInfiniAIModelType(model.model_type);
 		const defaultTooltip = [
 			`InfiniAI Model ${model.id}`,
@@ -647,7 +868,8 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 				name: model.displayName ?? model.id,
 				tooltip: appendModelConfigurationSummaryToTooltip(
 					model.tooltip ?? defaultTooltip.join("\n"),
-					modelConfigSchema
+					modelConfigSchema,
+					translateModelConfiguration
 				),
 				detail: model.detail ?? defaultDetail.join(" · "),
 				family: model.family ?? inferModelFamily(model.id),
@@ -655,8 +877,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 				maxInputTokens: maxInput,
 				maxOutputTokens: maxOutput,
 				capabilities: {
-					toolCalling:
-						model.capabilities?.toolCalling ?? (!model.id.includes("embed") && !model.id.includes("reranker")),
+					toolCalling,
 					imageInput,
 				},
 			},
@@ -695,7 +916,9 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		const openaiMessages = converter.convertMessages(messages, { includeReasoningInRequest: false });
 		const disableThinkingPatterns = getDisableThinkingPatterns();
 		const roundTripPatterns = getThinkingRoundTripPatterns();
-		const modelConfiguration = resolveInfiniAIModelConfiguration(options);
+		const modelConfiguration = resolveInfiniAIModelConfiguration(options, {
+			maxOutputTokens: model.maxOutputTokens,
+		});
 		const reasoningProfile = resolveReasoningDialectProfile({
 			modelId: model.id,
 			transport: route.transport,
@@ -754,20 +977,20 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		});
 		const pendingThinkingTurn =
 			replayDecision.allowThinkingRoundTrip || captureDisabledThinkingObservation
-			? thinkingReplayStore.beginTurn({
-					modelId: model.id,
-					profileId: reasoningProfile.id,
-					transport: reasoningProfile.transport,
-					carrier: replayCarrier,
-					historyKey:
-						reasoningProfile.replayScope === "all-assistant-messages"
-							? buildOpenAIReplayHistoryKey(openaiMessages)
-							: undefined,
-					captureAssistantMessages: reasoningProfile.replayScope === "all-assistant-messages",
-					allowsMissingReplayPayload:
-						reasoningProfile.allowsMissingReplayPayload || captureDisabledThinkingObservation,
-				})
-			: undefined;
+				? thinkingReplayStore.beginTurn({
+						modelId: model.id,
+						profileId: reasoningProfile.id,
+						transport: reasoningProfile.transport,
+						carrier: replayCarrier,
+						historyKey:
+							reasoningProfile.replayScope === "all-assistant-messages"
+								? buildOpenAIReplayHistoryKey(openaiMessages)
+								: undefined,
+						captureAssistantMessages: reasoningProfile.replayScope === "all-assistant-messages",
+						allowsMissingReplayPayload:
+							reasoningProfile.allowsMissingReplayPayload || captureDisabledThinkingObservation,
+					})
+				: undefined;
 		const suppressResponseThinking =
 			(modelConfiguration.thinkingMode === "disabled" && reasoningProfile.canDisableThinking) ||
 			(effectiveForceDisableThinking && !replayDecision.allowThinkingRoundTrip);
@@ -787,7 +1010,8 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			requestBody,
 			infiniAIModel,
 			options,
-			replayDecision.allowThinkingRoundTrip
+			replayDecision.allowThinkingRoundTrip,
+			model.maxOutputTokens
 		);
 		if (effectiveForceDisableThinking && !replayDecision.allowThinkingRoundTrip) {
 			applyReasoningRequestControls(requestBody, reasoningProfile, { thinkingMode: "disabled" });
@@ -869,7 +1093,9 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		});
 		const disableThinkingPatterns = getDisableThinkingPatterns();
 		const roundTripPatterns = getThinkingRoundTripPatterns();
-		const modelConfiguration = resolveInfiniAIModelConfiguration(options);
+		const modelConfiguration = resolveInfiniAIModelConfiguration(options, {
+			maxOutputTokens: model.maxOutputTokens,
+		});
 		const reasoningProfile = resolveReasoningDialectProfile({
 			modelId: model.id,
 			transport: route.transport,
@@ -942,7 +1168,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			stream: true,
 			max_tokens: model.maxOutputTokens || DEFAULT_MAX_TOKENS,
 		};
-		requestBody = anthropicApi.prepareRequestBody(requestBody, infiniAIModel, options);
+		requestBody = anthropicApi.prepareRequestBody(requestBody, infiniAIModel, options, model.maxOutputTokens);
 		if (suppressResponseThinking) {
 			applyReasoningRequestControls(requestBody as unknown as Record<string, unknown>, reasoningProfile, {
 				thinkingMode: "disabled",
@@ -1026,7 +1252,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 				maxOutputTokens: model.maxOutputTokens || DEFAULT_MAX_TOKENS,
 			},
 		};
-		requestBody = vertexApi.prepareRequestBody(requestBody, infiniAIModel, options);
+		requestBody = vertexApi.prepareRequestBody(requestBody, infiniAIModel, options, model.maxOutputTokens);
 		const response = await this.postJsonWithRetry(
 			this.requestUrl(route, model.id),
 			this.requestHeaders(route, apiKey),
@@ -1154,6 +1380,329 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		}
 	}
 
+	async refreshProviderGroupsWithProgress(): Promise<void> {
+		await vscode.window.withProgress(
+			{
+				location: vscode.ProgressLocation.Notification,
+				title: vscode.l10n.t("InfiniAI: Refreshing available models…"),
+				cancellable: true,
+			},
+			async (_progress, token) => {
+				await this.refreshProviderGroups(token);
+			}
+		);
+	}
+
+	private async refreshProviderGroups(token: CancellationToken): Promise<void> {
+		const groups = [...this._providerGroups.values()];
+		if (groups.length === 0) {
+			throw new Error("No InfiniAI provider group is available. Add one in VS Code Manage Models.");
+		}
+		this.cancelAllModelDiscoveries();
+		this._cacheByKey.clear();
+		this._modelDiscoveryFailures.clear();
+		this._cacheGeneration++;
+		const cancellation = token.onCancellationRequested(() => this.cancelAllModelDiscoveries());
+		try {
+			const uniqueGroups = new Map(groups.map((group) => [group.cacheKey, group]));
+			await Promise.all(
+				[...uniqueGroups.values()].map((group) =>
+					this.waitForDiscovery(this.startModelDiscovery(group.apiKey, group.cacheKey, true).promise, token)
+				)
+			);
+		} finally {
+			cancellation.dispose();
+		}
+	}
+
+	private registerProviderGroup(name: string, apiKey: string, cacheKey: string): ProviderGroupState {
+		this._providerGroupsSeenInResolution.add(name);
+		const existing = this._providerGroups.get(name);
+		if (existing && existing.cacheKey !== cacheKey) {
+			const oldKeyStillInUse = [...this._providerGroups.entries()].some(
+				([otherName, otherGroup]) => otherName !== name && otherGroup.cacheKey === existing.cacheKey
+			);
+			if (!oldKeyStillInUse) {
+				this.cancelModelDiscovery(existing.cacheKey);
+				this._cacheByKey.delete(existing.cacheKey);
+				this._lastGoodCacheByKey.delete(existing.cacheKey);
+				this._modelDiscoveryFailures.delete(existing.cacheKey);
+			}
+		}
+		const group = { name, apiKey, cacheKey };
+		this._providerGroups.set(name, group);
+		return group;
+	}
+
+	private beginProviderGroupResolution(): void {
+		const generation = ++this._providerGroupResolutionGeneration;
+		this._providerGroupsSeenInResolution = new Set<string>();
+		if (this._providerGroupReconcileTimer) {
+			clearTimeout(this._providerGroupReconcileTimer);
+		}
+		this._providerGroupReconcileTimer = setTimeout(() => {
+			this._providerGroupReconcileTimer = undefined;
+			if (generation !== this._providerGroupResolutionGeneration) {
+				return;
+			}
+			const removedKeys = new Set<string>();
+			for (const [name, group] of this._providerGroups) {
+				if (!this._providerGroupsSeenInResolution.has(name)) {
+					this._providerGroups.delete(name);
+					removedKeys.add(group.cacheKey);
+				}
+			}
+			const retainedKeys = new Set([...this._providerGroups.values()].map((group) => group.cacheKey));
+			for (const key of removedKeys) {
+				if (retainedKeys.has(key)) {
+					continue;
+				}
+				this.cancelModelDiscovery(key);
+				this._cacheByKey.delete(key);
+				this._lastGoodCacheByKey.delete(key);
+				this._modelDiscoveryFailures.delete(key);
+			}
+		}, 0);
+	}
+
+	private isCacheFresh(entry: ModelCacheEntry): boolean {
+		const ttl = this.getCacheTtlMs();
+		return ttl > 0 && Date.now() - entry.fetchedAt < ttl;
+	}
+
+	private activeDiscoveryFailure(key: string): ModelDiscoveryFailure | undefined {
+		const failure = this._modelDiscoveryFailures.get(key);
+		return failure && failure.retryAt > Date.now() ? failure : undefined;
+	}
+
+	private recordDiscoveryFailure(key: string, err: unknown): boolean {
+		const categorized = categorizeError(err);
+		const category = categorized?.category ?? "unknown";
+		const previous = this._modelDiscoveryFailures.get(key);
+		const failureCount = previous?.category === category ? previous.failureCount + 1 : 1;
+		const failedAt = Date.now();
+		const retryAt = this.discoveryRetryAt(err, category, failureCount, failedAt);
+		const error = this.discoveryErrorForUser(err, category);
+		const next: ModelDiscoveryFailure = { error, category, failedAt, retryAt, failureCount };
+		this._modelDiscoveryFailures.set(key, next);
+		this.scheduleModelDiscoveryRetry(key, retryAt);
+		logError(
+			this.output,
+			`Model discovery failed category=${category} retry=${
+				Number.isFinite(retryAt) ? `in ${Math.max(0, retryAt - failedAt)}ms` : "after credential change"
+			}: ${sanitizeForLog(error.message)}`
+		);
+		return (
+			!previous ||
+			previous.category !== next.category ||
+			previous.error.message !== next.error.message ||
+			previous.retryAt !== next.retryAt
+		);
+	}
+
+	private discoveryRetryAt(err: unknown, category: ErrorCategory, failureCount: number, failedAt: number): number {
+		if (category === "auth") {
+			return Number.POSITIVE_INFINITY;
+		}
+		if (category === "rate-limit" && err instanceof HttpError && err.retryAfterMs !== undefined) {
+			return failedAt + Math.max(1000, err.retryAfterMs);
+		}
+		if (category === "unknown" || category === "model-not-found" || category === "quota") {
+			return failedAt + DISCOVERY_PROTOCOL_BACKOFF_MS;
+		}
+		const exponential = Math.min(
+			DISCOVERY_FAILURE_BACKOFF_MAX_MS,
+			DISCOVERY_FAILURE_BACKOFF_BASE_MS * 2 ** Math.max(0, failureCount - 1)
+		);
+		const jittered = Math.max(1000, Math.floor(exponential * (0.9 + Math.random() * 0.2)));
+		return failedAt + jittered;
+	}
+
+	private discoveryErrorForUser(err: unknown, category: ErrorCategory): Error {
+		if (category === "auth") {
+			return new Error(
+				"InfiniAI rejected this provider-group API key. Open VS Code Manage Models and use Update API Key."
+			);
+		}
+		return err instanceof Error ? err : new Error(String(err));
+	}
+
+	private waitForDiscovery<T>(promise: Promise<T>, token: CancellationToken): Promise<T> {
+		if (token.isCancellationRequested) {
+			return Promise.reject(new vscode.CancellationError());
+		}
+		return new Promise<T>((resolve, reject) => {
+			let cancellation: vscode.Disposable = { dispose: () => undefined };
+			cancellation = token.onCancellationRequested(() => {
+				cancellation.dispose();
+				reject(new vscode.CancellationError());
+			});
+			promise.then(
+				(value) => {
+					cancellation.dispose();
+					resolve(value);
+				},
+				(err) => {
+					cancellation.dispose();
+					reject(err);
+				}
+			);
+		});
+	}
+
+	private cancelModelDiscovery(key: string): void {
+		this.clearModelDiscoveryRetry(key);
+		const operation = this._modelDiscoveryOperations.get(key);
+		if (!operation) {
+			return;
+		}
+		this._modelDiscoveryOperations.delete(key);
+		operation.cancellation.cancel();
+		operation.cancellation.dispose();
+	}
+
+	private scheduleModelDiscoveryRetry(key: string, retryAt: number): void {
+		this.clearModelDiscoveryRetry(key);
+		if (!Number.isFinite(retryAt)) {
+			return;
+		}
+		const timer = setTimeout(
+			() => {
+				this._modelDiscoveryRetryTimers.delete(key);
+				const failure = this._modelDiscoveryFailures.get(key);
+				if (!failure) {
+					return;
+				}
+				if (failure.retryAt > Date.now()) {
+					this.scheduleModelDiscoveryRetry(key, failure.retryAt);
+					return;
+				}
+				const group = [...this._providerGroups.values()].find((candidate) => candidate.cacheKey === key);
+				if (group) {
+					this.ensureBackgroundDiscovery(group.apiKey, key);
+				}
+			},
+			Math.max(0, retryAt - Date.now())
+		);
+		(timer as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.();
+		this._modelDiscoveryRetryTimers.set(key, timer);
+	}
+
+	private clearModelDiscoveryRetry(key: string): void {
+		const timer = this._modelDiscoveryRetryTimers.get(key);
+		if (timer) {
+			clearTimeout(timer);
+			this._modelDiscoveryRetryTimers.delete(key);
+		}
+	}
+
+	private cancelAllModelDiscoveries(): void {
+		for (const key of [...this._modelDiscoveryOperations.keys()]) {
+			this.cancelModelDiscovery(key);
+		}
+		for (const key of [...this._modelDiscoveryRetryTimers.keys()]) {
+			this.clearModelDiscoveryRetry(key);
+		}
+	}
+
+	private cacheEntrySignature(entry: ModelCacheEntry): string {
+		return JSON.stringify(
+			entry.infos.map((info) => ({
+				id: info.id,
+				name: info.name,
+				tooltip: info.tooltip,
+				detail: info.detail,
+				family: info.family,
+				version: info.version,
+				maxInputTokens: info.maxInputTokens,
+				maxOutputTokens: info.maxOutputTokens,
+				capabilities: info.capabilities,
+				route: entry.routes.get(info.id),
+			}))
+		);
+	}
+
+	private rebuildCacheEntry(previous: ModelCacheEntry, key: string): ModelCacheEntry {
+		const routeConfigs = this.getRouteConfigs();
+		const routes = new Map<string, ModelRoute>();
+		const infos = previous.models.map((model) => {
+			const route = resolveModelRoute(model, routeConfigs);
+			routes.set(model.id, route);
+			return this.toLanguageModelInfo(model, route);
+		});
+		const rebuilt: ModelCacheEntry = {
+			key,
+			models: previous.models,
+			infos,
+			routes,
+			discoveryStats: previous.discoveryStats,
+			fetchedAt: previous.fetchedAt,
+			signature: "",
+		};
+		rebuilt.signature = this.cacheEntrySignature(rebuilt);
+		return rebuilt;
+	}
+
+	private uniqueProviderGroupCaches(): ModelCacheEntry[] {
+		const caches = new Map<string, ModelCacheEntry>();
+		for (const group of this._providerGroups.values()) {
+			const cache = this._lastGoodCacheByKey.get(group.cacheKey);
+			if (cache) {
+				caches.set(group.cacheKey, cache);
+			}
+		}
+		return [...caches.values()];
+	}
+
+	private sumDiscoveryStats(caches: readonly ModelCacheEntry[]): ModelDiscoveryStats | undefined {
+		if (caches.length === 0) {
+			return undefined;
+		}
+		const total: ModelDiscoveryStats = {
+			rawModelCount: 0,
+			chatModelCount: 0,
+			nonChatModelCount: 0,
+			unknownModelTypeCount: 0,
+			malformedModelCount: 0,
+			duplicateModelCount: 0,
+			liveOutputLimitCount: 0,
+		};
+		for (const cache of caches) {
+			for (const key of Object.keys(total) as (keyof ModelDiscoveryStats)[]) {
+				total[key] += cache.discoveryStats[key];
+			}
+		}
+		return total;
+	}
+
+	private async pickProviderGroup(token: CancellationToken): Promise<ProviderGroupState> {
+		const groups = [...this._providerGroups.values()].sort((a, b) => a.name.localeCompare(b.name));
+		if (groups.length === 0) {
+			throw new Error("No InfiniAI provider group is available. Add one in VS Code Manage Models.");
+		}
+		if (groups.length === 1) {
+			return groups[0];
+		}
+		const pick = await vscode.window.showQuickPick(
+			groups.map((group) => ({
+				label: group.name,
+				description: vscode.l10n.t(
+					"{0} cached models",
+					this._lastGoodCacheByKey.get(group.cacheKey)?.infos.length ?? 0
+				),
+				group,
+			})),
+			{
+				placeHolder: vscode.l10n.t("Select an InfiniAI provider group"),
+				ignoreFocusOut: true,
+			}
+		);
+		if (!pick || token.isCancellationRequested) {
+			throw new vscode.CancellationError();
+		}
+		return pick.group;
+	}
+
 	private buildCacheKey(apiKey: string): string {
 		const cfg = vscode.workspace.getConfiguration("infiniai");
 		const routeConfig = JSON.stringify(cfg.get<ModelRouteConfig[]>("modelRoutes", []));
@@ -1161,9 +1710,17 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			enable: cfg.get<string[]>("imageInputModels", []),
 			disable: cfg.get<string[]>("disableImageInputModels", []),
 		});
-		return [this.getModelDiscoveryUrl(), hashString(apiKey), hashString(routeConfig), hashString(imageConfig)].join(
-			"|"
-		);
+		const toolConfig = JSON.stringify({
+			enable: cfg.get<string[]>("toolCallingModels", []),
+			disable: cfg.get<string[]>("disableToolCallingModels", []),
+		});
+		return [
+			this.getModelDiscoveryUrl(),
+			hashString(apiKey),
+			hashString(routeConfig),
+			hashString(imageConfig),
+			hashString(toolConfig),
+		].join("|");
 	}
 
 	private getModelDiscoveryUrl(): string {

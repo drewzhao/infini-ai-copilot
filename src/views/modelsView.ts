@@ -19,7 +19,7 @@ import {
 	type ProtocolSwitchTransport,
 } from "../route";
 import type { ModelEndpointKind, ModelRoute } from "../types";
-import { INFINIAI_API_KEY_SECRET_NAME, logDebug, sanitizeForLog } from "../utils";
+import { logDebug, sanitizeForLog } from "../utils";
 
 interface ModelsRootNode {
 	readonly kind: "models-root";
@@ -28,6 +28,7 @@ interface ModelsRootNode {
 interface ModelNode {
 	readonly kind: "model";
 	readonly id: string;
+	readonly group: string;
 	readonly hidden: boolean;
 	readonly transport: string;
 	readonly endpointKind: ModelEndpointKind;
@@ -44,7 +45,10 @@ interface AccountRootNode {
 
 interface AccountNode {
 	readonly kind: "account";
-	readonly fingerprint: string;
+	readonly name: string;
+	readonly modelCount: number;
+	readonly lastError?: string;
+	readonly retryAt?: number;
 }
 
 interface AccountActionNode {
@@ -72,14 +76,6 @@ type InfiniNode =
 	| AccountActionNode
 	| UsageNode
 	| MessageNode;
-
-function fingerprint(key: string | undefined): string {
-	if (!key) {
-		return vscode.l10n.t("not configured");
-	}
-	const tail = key.length >= 4 ? key.slice(-4) : key;
-	return `\u2026${tail}`;
-}
 
 function formatTransport(transport: string): string {
 	switch (transport) {
@@ -134,18 +130,12 @@ export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<Infin
 
 	constructor(
 		private readonly provider: InfiniAIChatModelProvider,
-		private readonly secrets: vscode.SecretStorage,
 		private readonly output?: vscode.OutputChannel | vscode.LogOutputChannel
 	) {
 		this._disposables.push(
 			provider.onDidChangeLanguageModelChatInformation(() => this._onDidChangeTreeData.fire(undefined)),
 			vscode.workspace.onDidChangeConfiguration((event) => {
 				if (event.affectsConfiguration("infiniai")) {
-					this._onDidChangeTreeData.fire(undefined);
-				}
-			}),
-			secrets.onDidChange((event) => {
-				if (event.key === INFINIAI_API_KEY_SECRET_NAME) {
 					this._onDidChangeTreeData.fire(undefined);
 				}
 			})
@@ -174,13 +164,18 @@ export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<Infin
 			case "model": {
 				const item = new vscode.TreeItem(node.id, vscode.TreeItemCollapsibleState.None);
 				item.description = node.hidden
-					? `${node.transport} \u00b7 ${node.maxInputTokens.toLocaleString()}/${node.maxOutputTokens.toLocaleString()} \u00b7 ${vscode.l10n.t("Hidden")}`
-					: `${node.transport} \u00b7 ${node.maxInputTokens.toLocaleString()}/${node.maxOutputTokens.toLocaleString()}`;
+					? `${node.group} \u00b7 ${node.transport} \u00b7 ${node.maxInputTokens.toLocaleString()}/${node.maxOutputTokens.toLocaleString()} \u00b7 ${vscode.l10n.t("Hidden")}`
+					: `${node.group} \u00b7 ${node.transport} \u00b7 ${node.maxInputTokens.toLocaleString()}/${node.maxOutputTokens.toLocaleString()}`;
 				const lines = [
+					vscode.l10n.t("Provider group: {0}", node.group),
 					vscode.l10n.t("Route: {0}", formatTransport(node.transport)),
 					vscode.l10n.t("Route source: {0}", formatRouteSource(node.routeSource)),
 					vscode.l10n.t("Endpoint: {0}", formatEndpointKind(node.endpointKind)),
-					vscode.l10n.t("Picker visibility: {0}", node.hidden ? vscode.l10n.t("hidden") : vscode.l10n.t("visible")),
+					vscode.l10n.t(
+						"InfiniAI provider filter: {0}",
+						node.hidden ? vscode.l10n.t("excluded") : vscode.l10n.t("included")
+					),
+					vscode.l10n.t("VS Code Manage Models visibility is configured separately."),
 					vscode.l10n.t("Tools: {0}", node.toolCalling ? vscode.l10n.t("yes") : vscode.l10n.t("no")),
 					vscode.l10n.t("Images: {0}", node.imageInput ? vscode.l10n.t("yes") : vscode.l10n.t("no")),
 					vscode.l10n.t("Max input tokens: {0}", node.maxInputTokens.toLocaleString()),
@@ -194,17 +189,25 @@ export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<Infin
 				return item;
 			}
 			case "account-root": {
-				const item = new vscode.TreeItem(vscode.l10n.t("Account"), vscode.TreeItemCollapsibleState.Expanded);
+				const item = new vscode.TreeItem(vscode.l10n.t("Provider Groups"), vscode.TreeItemCollapsibleState.Expanded);
 				item.iconPath = new vscode.ThemeIcon("account");
 				item.contextValue = "infiniai.account";
 				return item;
 			}
 			case "account": {
-				const item = new vscode.TreeItem(vscode.l10n.t("API Key"), vscode.TreeItemCollapsibleState.None);
-				item.description = node.fingerprint;
-				item.iconPath = new vscode.ThemeIcon("key");
+				const item = new vscode.TreeItem(node.name, vscode.TreeItemCollapsibleState.None);
+				item.description = node.lastError
+					? vscode.l10n.t("Discovery failed")
+					: vscode.l10n.t("{0} models", node.modelCount);
+				item.iconPath = new vscode.ThemeIcon(node.lastError ? "error" : "key");
 				item.contextValue = "infiniai.accountKey";
-				item.tooltip = vscode.l10n.t("API key fingerprint: {0}", node.fingerprint);
+				item.tooltip = node.lastError
+					? `${node.lastError}${
+							node.retryAt
+								? `\n${vscode.l10n.t("Automatic retry available after {0}.", new Date(node.retryAt).toLocaleTimeString())}`
+								: ""
+						}`
+					: vscode.l10n.t("API key and lifecycle are managed by this VS Code provider group.");
 				return item;
 			}
 			case "account-action": {
@@ -257,13 +260,16 @@ export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<Infin
 					return [
 						{
 							kind: "message",
-							label: vscode.l10n.t('No models available. Run "InfiniAI: Set InfiniAI API Key".'),
+							label: vscode.l10n.t(
+								"No cached models are available. Add InfiniAI in VS Code Manage Models or retry discovery."
+							),
 						},
 					];
 				}
 				return models.map<ModelNode>((m) => ({
 					kind: "model",
 					id: m.id,
+					group: m.group,
 					hidden: isModelHidden(m.id),
 					transport: m.transport,
 					endpointKind: m.endpointKind,
@@ -290,14 +296,37 @@ export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<Infin
 	}
 
 	private async getAccountChildren(): Promise<InfiniNode[]> {
-		const apiKey = await this.secrets.get(INFINIAI_API_KEY_SECRET_NAME);
-		const children: InfiniNode[] = [
-			{ kind: "account", fingerprint: fingerprint(apiKey) },
+		const children: InfiniNode[] = this.provider.getProviderGroupDiagnostics().map((group) => ({
+			kind: "account",
+			name: group.name,
+			modelCount: group.modelCount,
+			lastError: group.lastError,
+			retryAt: group.retryAt,
+		}));
+		if (children.length === 0) {
+			children.push({
+				kind: "message",
+				label: vscode.l10n.t("No InfiniAI provider group has been resolved in this window."),
+			});
+		}
+		children.push(
 			{
 				kind: "account-action",
-				label: vscode.l10n.t("Manage Key\u2026"),
-				tooltip: vscode.l10n.t("Open the InfiniAI API key configuration flow."),
-				command: { command: "infiniai.setApikey", title: vscode.l10n.t("Set InfiniAI API Key") },
+				label: vscode.l10n.t("Manage Provider Group…"),
+				tooltip: vscode.l10n.t("Open VS Code Manage Models to add, edit, or remove InfiniAI provider groups."),
+				command: { command: "infiniai.openManageModels", title: vscode.l10n.t("Open VS Code Manage Models") },
+			},
+			{
+				kind: "account-action",
+				label: vscode.l10n.t("Retry Model Discovery"),
+				tooltip: vscode.l10n.t("Cancel any existing discovery operation and retry all resolved InfiniAI groups."),
+				command: { command: "infiniai.refreshModels", title: vscode.l10n.t("Retry Model Discovery") },
+			},
+			{
+				kind: "account-action",
+				label: vscode.l10n.t("Open Logs"),
+				tooltip: vscode.l10n.t("Open the InfiniAI output channel."),
+				command: { command: "infiniai.openLogs", title: vscode.l10n.t("Open InfiniAI Logs") },
 			},
 			{
 				kind: "account-action",
@@ -308,18 +337,17 @@ export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<Infin
 					title: vscode.l10n.t("Open Dashboard"),
 					arguments: [vscode.Uri.parse("https://cloud.infini-ai.com")],
 				},
-			},
-		];
+			}
+		);
 		return children;
 	}
 }
 
 export function registerInfiniAIModelsTreeView(
 	provider: InfiniAIChatModelProvider,
-	secrets: vscode.SecretStorage,
 	output?: vscode.OutputChannel | vscode.LogOutputChannel
 ): vscode.Disposable {
-	const treeDataProvider = new InfiniAIModelsTreeProvider(provider, secrets, output);
+	const treeDataProvider = new InfiniAIModelsTreeProvider(provider, output);
 	const view = vscode.window.createTreeView("infiniai.modelsView", {
 		treeDataProvider,
 		showCollapseAll: true,
@@ -327,9 +355,30 @@ export function registerInfiniAIModelsTreeView(
 	const disposables: vscode.Disposable[] = [
 		treeDataProvider,
 		view,
-		vscode.commands.registerCommand("infiniai.refreshModels", () => {
-			provider.refreshModels();
-			treeDataProvider.refresh();
+		vscode.commands.registerCommand("infiniai.refreshModels", async () => {
+			try {
+				await provider.refreshProviderGroupsWithProgress();
+				treeDataProvider.refresh();
+			} catch (err) {
+				if (err instanceof vscode.CancellationError) {
+					return;
+				}
+				const manage = vscode.l10n.t("Manage Models");
+				const logs = vscode.l10n.t("Open Logs");
+				const choice = await vscode.window.showErrorMessage(
+					vscode.l10n.t(
+						"InfiniAI model discovery failed: {0}",
+						sanitizeForLog(err instanceof Error ? err.message : String(err), 240)
+					),
+					manage,
+					logs
+				);
+				if (choice === manage) {
+					await vscode.commands.executeCommand("infiniai.openManageModels");
+				} else if (choice === logs) {
+					output?.show(true);
+				}
+			}
 		}),
 		vscode.commands.registerCommand("infiniai.hideModel", async (node?: InfiniNode) => {
 			const modelId = await resolveModelId(node, provider, false);
@@ -342,15 +391,16 @@ export function registerInfiniAIModelsTreeView(
 			visibleModelIds.delete(modelId);
 			await updateHiddenModelIds([...hiddenModelIds]);
 			await updateVisibleModelIds([...visibleModelIds]);
-			provider.refreshModels();
 			treeDataProvider.refresh();
 			const action = await vscode.window.showInformationMessage(
-				vscode.l10n.t("{0} is hidden from the chat model picker.", modelId),
-				vscode.l10n.t("Show All")
+				vscode.l10n.t(
+					"{0} is excluded by the InfiniAI provider filter. VS Code Manage Models visibility is separate.",
+					modelId
+				),
+				vscode.l10n.t("Reset Filters")
 			);
-			if (action === vscode.l10n.t("Show All")) {
+			if (action === vscode.l10n.t("Reset Filters")) {
 				await showAllProviderModels();
-				provider.refreshModels();
 				treeDataProvider.refresh();
 			}
 		}),
@@ -365,24 +415,26 @@ export function registerInfiniAIModelsTreeView(
 			visibleModelIds.add(modelId);
 			await updateHiddenModelIds([...hiddenModelIds]);
 			await updateVisibleModelIds([...visibleModelIds]);
-			provider.refreshModels();
 			treeDataProvider.refresh();
 		}),
 		vscode.commands.registerCommand("infiniai.showAllModels", async () => {
 			await showAllProviderModels();
-			provider.refreshModels();
 			treeDataProvider.refresh();
 		}),
+		vscode.commands.registerCommand("infiniai.openManageModels", () =>
+			vscode.commands.executeCommand("workbench.action.chat.manage")
+		),
 		vscode.commands.registerCommand("infiniai.switchModelProtocol", async (node?: InfiniNode) => {
 			const model = await resolveProtocolModel(node, provider);
 			if (!model) {
 				return;
 			}
-			await switchModelProtocol(model, provider, treeDataProvider);
+			await switchModelProtocol(model, treeDataProvider);
 		}),
 		vscode.commands.registerCommand("infiniai.openSettings", () =>
 			vscode.commands.executeCommand("workbench.action.openSettings", "infiniai")
 		),
+		vscode.commands.registerCommand("infiniai.openLogs", () => output?.show(true)),
 	];
 	return vscode.Disposable.from(...disposables);
 }
@@ -405,7 +457,7 @@ async function resolveProtocolModel(
 		const models = await provider.getModelDescriptions(false, cancel.token);
 		const rawRoutes = vscode.workspace.getConfiguration("infiniai").get<unknown>("modelRoutes", []);
 		if (node?.kind === "model") {
-			const model = models.find((candidate) => candidate.id === node.id);
+			const model = models.find((candidate) => candidate.id === node.id && candidate.group === node.group);
 			if (!model) {
 				void vscode.window.showInformationMessage(vscode.l10n.t("InfiniAI model {0} is not available.", node.id));
 				return undefined;
@@ -424,7 +476,7 @@ async function resolveProtocolModel(
 			.map<ProtocolModelPick>((model) => ({
 				label: model.id,
 				description: formatTransport(model.transport),
-				detail: vscode.l10n.t("Effective route: {0} ({1})", model.transport, model.routeSource),
+				detail: vscode.l10n.t("{0}: effective route {1} ({2})", model.group, model.transport, model.routeSource),
 				model,
 			}));
 		if (picks.length === 0) {
@@ -444,7 +496,6 @@ async function resolveProtocolModel(
 
 async function switchModelProtocol(
 	model: InfiniAIModelDescription,
-	provider: InfiniAIChatModelProvider,
 	treeDataProvider: InfiniAIModelsTreeProvider
 ): Promise<void> {
 	const config = vscode.workspace.getConfiguration("infiniai");
@@ -485,7 +536,6 @@ async function switchModelProtocol(
 		? resetExactModelRouteOverride(rawRoutes, model.id)
 		: setExactModelRouteOverride(rawRoutes, model.id, pick.transport ?? "anthropic");
 	await config.update("modelRoutes", nextRoutes, vscode.ConfigurationTarget.Global);
-	provider.refreshModels();
 	treeDataProvider.refresh();
 
 	const effective = effectiveRouteAfterChange(model, nextRoutes);
@@ -514,14 +564,16 @@ async function resolveModelId(
 			}));
 		if (picks.length === 0) {
 			void vscode.window.showInformationMessage(
-				hiddenOnly ? vscode.l10n.t("No hidden InfiniAI models.") : vscode.l10n.t("No visible InfiniAI models to hide.")
+				hiddenOnly
+					? vscode.l10n.t("No InfiniAI models are excluded by the provider filter.")
+					: vscode.l10n.t("No included InfiniAI models are available to exclude.")
 			);
 			return undefined;
 		}
 		const pick = await vscode.window.showQuickPick(picks, {
 			placeHolder: hiddenOnly
-				? vscode.l10n.t("Select an InfiniAI model to show")
-				: vscode.l10n.t("Select an InfiniAI model to hide"),
+				? vscode.l10n.t("Select an InfiniAI model to include")
+				: vscode.l10n.t("Select an InfiniAI model to exclude"),
 		});
 		return pick?.label;
 	} finally {

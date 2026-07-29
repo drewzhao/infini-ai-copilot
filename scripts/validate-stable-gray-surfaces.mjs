@@ -11,7 +11,11 @@ const SRC_DIR = path.join(REPO_ROOT, "src");
 const PACKAGE_JSON = path.join(REPO_ROOT, "package.json");
 const GRAY_HELPER = path.join("src", "grayLanguageModelMetadata.ts");
 const DEFAULT_VSCODE_APP = "/Applications/Visual Studio Code.app";
-const DEFAULT_VSCODE_SOURCE = "/Users/zhaoyinghao/code/github/vscode";
+const DEFAULT_VSCODE_SOURCE = path.resolve(REPO_ROOT, "../vscode");
+const AGENT_HOST_BYOK_BRIDGE_FILES = [
+	"src/vs/platform/agentHost/common/agentHostByokLm.ts",
+	"src/vs/workbench/contrib/chat/browser/agentSessions/agentHost/agentHostByokLmHandler.ts",
+];
 
 const HARD_GATED_PATTERNS = [
 	"targetChatSessionType",
@@ -20,10 +24,11 @@ const HARD_GATED_PATTERNS = [
 	"editTools",
 ];
 
-const STABLE_SAFE_GRAY_FIELDS = ["isUserSelectable", "statusIcon", "configurationSchema"];
+const STABLE_SAFE_GRAY_FIELDS = ["isBYOK", "isUserSelectable", "statusIcon", "configurationSchema"];
 
 const REQUIRED_BUNDLE_STRINGS = [
 	"isUserSelectable",
+	"isBYOK",
 	"statusIcon",
 	"configurationSchema",
 	"modelConfiguration",
@@ -35,10 +40,13 @@ const REQUIRED_SOURCE_PATTERNS = [
 	{
 		file: "src/vs/workbench/api/common/extHostLanguageModels.ts",
 		strings: [
+			"provideLanguageModelChatInformation({ silent: options.silent, configuration: options.configuration }",
+			"isBYOK: m.isBYOK",
 			"isUserSelectable: m.isUserSelectable",
 			"statusIcon: m.statusIcon",
 			"configurationSchema: m.configurationSchema",
 			"modelConfiguration: options.configuration",
+			"knownModel.info",
 			"m.capabilities.editTools",
 			"checkProposedApiEnabled(data.extension, 'chatProvider')",
 			"m.requiresAuthorization && isProposedApiEnabled(data.extension, 'chatProvider')",
@@ -53,7 +61,25 @@ const REQUIRED_SOURCE_PATTERNS = [
 			"getModelConfigurationActions(modelId: string)",
 			"setModelConfiguration(modelId: string",
 			"configurationSchema?: ILanguageModelConfigurationSchema",
+			"const configuration = this.getModelConfiguration(modelId)",
+			"configuration: { ...configuration, ...options.configuration }",
 		],
+	},
+	{
+		file: "src/vs/workbench/contrib/chat/browser/agentSessions/agentHost/agentHostByokLmHandler.ts",
+		strings: [
+			"metadata?.isBYOK && !metadata.targetChatSessionType",
+			"modelIdentifier: identifier",
+			"sendChatRequest(modelIdentifier",
+		],
+	},
+	{
+		file: "src/vs/workbench/contrib/chat/browser/agentSessions/agentHost/agentHostLanguageModelProvider.ts",
+		strings: ["toolCalling: true", "agentMode: true"],
+	},
+	{
+		file: "src/vs/platform/agentHost/node/copilot/copilotSessionLauncher.ts",
+		strings: ["const selectionId = `${m.vendor}/${m.id}`;"],
 	},
 ];
 
@@ -219,14 +245,44 @@ function checkOptionalVSCodeSource() {
 			}
 		}
 	}
+
+	const bridgeFiles = AGENT_HOST_BYOK_BRIDGE_FILES.map((relative) => ({
+		relative,
+		file: path.join(sourceDir, relative),
+	}));
+	if (bridgeFiles.some(({ file }) => !pathExists(file))) {
+		for (const { relative, file } of bridgeFiles) {
+			if (!pathExists(file)) {
+				fail(`VS Code agent-host BYOK bridge file exists: ${relative}`, "not found");
+			}
+		}
+		return;
+	}
+	const bridgeCarriesModelConfigurationSchema = bridgeFiles.some(({ file }) => {
+		const content = readText(file);
+		return content.includes("configurationSchema") || content.includes("configSchema");
+	});
+	if (bridgeCarriesModelConfigurationSchema) {
+		warn(
+			"Agents-window model-control limitation needs revalidation",
+			"agent-host BYOK bridge now mentions a model configuration schema"
+		);
+	} else {
+		pass(
+			"Agents-window model-control limitation is still present",
+			"BYOK bridge omits the model configuration schema; saved request configuration is merged separately"
+		);
+	}
 }
 
 function printClassification() {
 	console.log("");
 	console.log("Candidate classification:");
-	console.log("- safe gray surface: isUserSelectable, statusIcon, configurationSchema, modelConfiguration");
+	console.log("- safe gray surface: isBYOK, isUserSelectable, statusIcon, configurationSchema, modelConfiguration");
 	console.log("- proposal-gated: capabilities.editTools, requiresAuthorization, isDefault");
 	console.log("- trap / avoid: targetChatSessionType for Agents-window compatibility");
+	console.log("- Agents window: BYOK requests work, but its bridge currently omits per-model control schemas");
+	console.log("- Agents window: duplicate model ids across provider groups share one vendor/model selection id");
 	console.log("- copied but inert unless wired to request mapping: unknown model configuration keys");
 }
 

@@ -1,6 +1,10 @@
 import assert from "assert/strict";
 
-import { resolveImageInputCapability } from "./modelCapabilities";
+import {
+	resolveImageInputCapability,
+	resolveToolCallingCapability,
+	VERIFIED_TOOL_CALLING_MODEL_PATTERNS,
+} from "./modelCapabilities";
 
 describe("resolveImageInputCapability", () => {
 	it("returns false when disablePatterns matches (even if metadata says vision)", () => {
@@ -21,6 +25,11 @@ describe("resolveImageInputCapability", () => {
 		assert.equal(result, true);
 	});
 
+	it("treats explicit vision: false as authoritative over name heuristics", () => {
+		const result = resolveImageInputCapability({ id: "some-model-vision", vision: false });
+		assert.equal(result, false);
+	});
+
 	it("returns true when architecture.input_modalities includes image", () => {
 		const result = resolveImageInputCapability({
 			id: "some-model",
@@ -38,5 +47,52 @@ describe("resolveImageInputCapability", () => {
 	it("returns false when no signals match", () => {
 		const result = resolveImageInputCapability({ id: "text-only-model" });
 		assert.equal(result, false);
+	});
+});
+
+describe("resolveToolCallingCapability", () => {
+	it("uses explicit boolean and numeric metadata", () => {
+		assert.equal(resolveToolCallingCapability({ id: "tools", capabilities: { toolCalling: true } }), true);
+		assert.equal(resolveToolCallingCapability({ id: "no-tools", capabilities: { toolCalling: false } }), false);
+		assert.equal(resolveToolCallingCapability({ id: "numeric", capabilities: { toolCalling: 1 } }), true);
+		assert.equal(resolveToolCallingCapability({ id: "numeric-off", capabilities: { toolCalling: 0 } }), false);
+	});
+
+	it("defaults unknown models to no tool calling", () => {
+		assert.equal(resolveToolCallingCapability({ id: "future-chat-model" }), false);
+	});
+
+	it("uses verified fallbacks only when metadata is silent", () => {
+		assert.equal(
+			resolveToolCallingCapability(
+				{ id: "deepseek-v4-pro" },
+				{ verifiedPatterns: VERIFIED_TOOL_CALLING_MODEL_PATTERNS }
+			),
+			true
+		);
+		assert.equal(
+			resolveToolCallingCapability(
+				{ id: "deepseek-v4-pro", capabilities: { toolCalling: false } },
+				{ verifiedPatterns: VERIFIED_TOOL_CALLING_MODEL_PATTERNS }
+			),
+			false
+		);
+	});
+
+	it("supports explicit user enable and disable patterns with disable winning", () => {
+		assert.equal(
+			resolveToolCallingCapability(
+				{ id: "future-chat-model", capabilities: { toolCalling: false } },
+				{ enablePatterns: ["future-*"] }
+			),
+			true
+		);
+		assert.equal(
+			resolveToolCallingCapability(
+				{ id: "future-chat-model", capabilities: { toolCalling: true } },
+				{ enablePatterns: ["future-*"], disablePatterns: ["*-model"] }
+			),
+			false
+		);
 	});
 });

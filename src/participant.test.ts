@@ -70,7 +70,7 @@ describe("chat participant", () => {
 			{
 				getDiagnostics: async () => ({
 					vscodeVersion: "1.117.0",
-					hasApiKey: true,
+					providerGroupCount: 1,
 					modelCount: 2,
 					discoveryStats: {
 						rawModelCount: 5,
@@ -86,6 +86,13 @@ describe("chat participant", () => {
 					cacheAgeMs: 1500,
 					modelDiscoveryUrl: "https://cloud.infini-ai.com/maas/v1/models",
 					lastError: "authorization: Bearer secret-token",
+					groups: [
+						{
+							name: "InfiniAI",
+							modelCount: 2,
+							lastError: "authorization: Bearer secret-token",
+						},
+					],
 				}),
 			} as any,
 			{ appendLine() {} } as any
@@ -97,7 +104,7 @@ describe("chat participant", () => {
 		assert.equal(participant.id, "infiniai");
 		assert.equal(participant.iconPath.id, "sparkle");
 		assert.match(out.chunks[0], /InfiniAI Doctor/);
-		assert.match(out.chunks[0], /API key present: yes/);
+		assert.match(out.chunks[0], /Provider groups: 1/);
 		assert.match(out.chunks[0], /Discovery summary: 5 rows; 2 chat-eligible; 2 non-chat filtered/);
 		assert.match(out.chunks[0], /Route overrides: 3/);
 		assert.match(out.chunks[0], /Exact model route overrides: 2/);
@@ -115,6 +122,7 @@ describe("chat participant", () => {
 					return [
 						{
 							id: "model-a",
+							group: "InfiniAI",
 							transport: "anthropic",
 							routeSource: "metadata",
 							toolCalling: true,

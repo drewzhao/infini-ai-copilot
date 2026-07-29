@@ -432,7 +432,7 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 		});
 	}
 
-	if (modelId.startsWith("deepseek-v4")) {
+	if (modelId === "deepseek-v4-pro" || modelId === "deepseek-v4-flash") {
 		return profile({
 			id: "deepseek-v4-openai",
 			transport: "openai",
@@ -446,7 +446,24 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 			replayRisk: "reasoning-content-best-effort-after-tool-call",
 			reasoningEffortControl: "openai-reasoning-effort",
 			reasoningEffortLevels: ["high", "max"],
-			defaultReasoningEffort: "high",
+			requiredToolChoiceControl: "required-string",
+		});
+	}
+
+	if (modelId.startsWith("deepseek-v4")) {
+		return profile({
+			id: "deepseek-v4-openai-safe-off",
+			transport: "openai",
+			family: "deepseek",
+			defaultThinking: "off",
+			defaultRequestThinkingMode: "disabled",
+			currentTurnControl: { kind: "thinking-type" },
+			replayCarrier: "reasoning_content",
+			preservationControl: { kind: "none" },
+			canDisableThinking: true,
+			canEnableThinking: false,
+			replayRisk: "none",
+			requiredToolChoiceControl: "required-string",
 		});
 	}
 

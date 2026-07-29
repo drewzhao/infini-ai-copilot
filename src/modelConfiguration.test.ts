@@ -31,10 +31,10 @@ describe("model configuration schema", () => {
 		assert.deepEqual(schema.properties.maxOutputTokens.enum, [0, 1024, 4096, 8192]);
 		assert.deepEqual(schema.properties.maxOutputTokens.enumItemLabels, ["Model default", "1K", "4K", "8K"]);
 		assert.equal(schema.properties.maxOutputTokens.default, 0);
-		assert.equal(schema.properties.maxOutputTokens.group, "tokens");
+		assert.equal(schema.properties.maxOutputTokens.group, undefined);
 		assert.equal(schema.properties.reasoningEffort, undefined);
 		assert.deepEqual(schema.properties.thinkingMode.enum, ["unset", "disabled", "enabled"]);
-		assert.deepEqual(schema.properties.thinkingMode.enumItemLabels, ["Unset", "Disabled", "Enabled"]);
+		assert.deepEqual(schema.properties.thinkingMode.enumItemLabels, ["Automatic", "Disabled", "Enabled"]);
 		assert.match(schema.properties.thinkingMode.description ?? "", /confirmed request parameter/);
 		assert.doesNotMatch(schema.properties.thinkingMode.enumDescriptions?.join("\n") ?? "", /Best[- ]effort/i);
 		assert.equal(schema.properties.thinkingMode.default, "unset");
@@ -71,7 +71,7 @@ describe("model configuration schema", () => {
 
 		assert.ok(schema.properties.maxOutputTokens);
 		assert.deepEqual(schema.properties.reasoningEffort.enum, ["unset", "high", "max"]);
-		assert.deepEqual(schema.properties.reasoningEffort.enumItemLabels, ["Unset", "High", "Max"]);
+		assert.deepEqual(schema.properties.reasoningEffort.enumItemLabels, ["Automatic", "High", "Max"]);
 		assert.deepEqual(schema.properties.thinkingMode.enum, ["unset", "disabled", "enabled"]);
 	});
 
@@ -89,7 +89,9 @@ describe("model configuration schema", () => {
 
 		assert.ok(schema.properties.maxOutputTokens);
 		assert.deepEqual(schema.properties.reasoningEffort.enum, ["unset", "high", "max"]);
-		assert.deepEqual(schema.properties.reasoningEffort.enumItemLabels, ["Unset", "High", "Max"]);
+		assert.deepEqual(schema.properties.reasoningEffort.enumItemLabels, ["Automatic", "High", "Max"]);
+		assert.match(schema.properties.reasoningEffort.description ?? "", /may send reasoning_effort=max/);
+		assert.match(schema.properties.reasoningEffort.description ?? "", /ignored while thinking is disabled/);
 		assert.deepEqual(schema.properties.thinkingMode.enum, ["unset", "disabled", "enabled"]);
 	});
 
@@ -108,7 +110,8 @@ describe("model configuration schema", () => {
 		assert.ok(schema.properties.maxOutputTokens);
 		assert.equal(schema.properties.reasoningEffort, undefined);
 		assert.deepEqual(schema.properties.thinkingMode.enum, ["unset", "disabled"]);
-		assert.deepEqual(schema.properties.thinkingMode.enumItemLabels, ["Unset", "Disabled"]);
+		assert.deepEqual(schema.properties.thinkingMode.enumItemLabels, ["Automatic", "Disabled"]);
+		assert.match(schema.properties.thinkingMode.enumDescriptions?.[0] ?? "", /safety default/);
 	});
 
 	it("does not expose thinking or effort controls for forced DeepSeek R1", () => {
@@ -140,7 +143,7 @@ describe("model configuration schema", () => {
 		assert.ok(schema.properties.maxOutputTokens);
 		assert.equal(schema.properties.reasoningEffort, undefined);
 		assert.deepEqual(schema.properties.thinkingMode.enum, ["unset", "disabled"]);
-		assert.deepEqual(schema.properties.thinkingMode.enumItemLabels, ["Unset", "Disabled"]);
+		assert.deepEqual(schema.properties.thinkingMode.enumItemLabels, ["Automatic", "Disabled"]);
 	});
 
 	it("exposes only K3 reasoning effort levels on the OpenAI-compatible route", () => {
@@ -156,7 +159,7 @@ describe("model configuration schema", () => {
 		);
 
 		assert.deepEqual(schema.properties.reasoningEffort.enum, ["unset", "low", "high", "max"]);
-		assert.deepEqual(schema.properties.reasoningEffort.enumItemLabels, ["Unset", "Low", "High", "Max"]);
+		assert.deepEqual(schema.properties.reasoningEffort.enumItemLabels, ["Automatic", "Low", "High", "Max"]);
 		assert.equal(schema.properties.thinkingMode, undefined);
 	});
 
@@ -182,7 +185,7 @@ describe("model configuration schema", () => {
 		assert.ok(schema.properties.maxOutputTokens);
 		assert.equal(schema.properties.reasoningEffort, undefined);
 		assert.deepEqual(schema.properties.thinkingMode.enum, ["unset", "disabled", "enabled"]);
-		assert.deepEqual(schema.properties.thinkingMode.enumItemLabels, ["Unset", "Disabled", "Enabled"]);
+		assert.deepEqual(schema.properties.thinkingMode.enumItemLabels, ["Automatic", "Disabled", "Enabled"]);
 	});
 
 	it("shows Claude budgeted-thinking controls for non-adaptive extended-thinking model IDs", () => {
@@ -200,7 +203,7 @@ describe("model configuration schema", () => {
 		assert.ok(schema.properties.maxOutputTokens);
 		assert.equal(schema.properties.reasoningEffort, undefined);
 		assert.deepEqual(schema.properties.thinkingMode.enum, ["unset", "disabled", "enabled"]);
-		assert.deepEqual(schema.properties.thinkingMode.enumItemLabels, ["Unset", "Disabled", "Enabled"]);
+		assert.deepEqual(schema.properties.thinkingMode.enumItemLabels, ["Automatic", "Disabled", "Enabled"]);
 	});
 
 	it("does not expose thinking controls for unknown Claude Anthropic model IDs", () => {
@@ -272,8 +275,18 @@ describe("model configuration schema", () => {
 		const tooltip = appendModelConfigurationSummaryToTooltip("DeepSeek model", schema);
 
 		assert.match(tooltip, /DeepSeek model/);
-		assert.match(tooltip, /Configurable: Max output tokens, Reasoning effort, Thinking mode/);
+		assert.match(tooltip, /Configurable in Manage Models: Max output tokens, Reasoning effort, Thinking mode/);
 		assert.equal(appendModelConfigurationSummaryToTooltip(tooltip, schema), tooltip);
+	});
+
+	it("localizes runtime model-control labels and descriptions", () => {
+		const translate = (message: string, ...args: readonly (string | number | boolean)[]) =>
+			`zh:${message.replace(/\{(\d+)\}/g, (_, index) => String(args[Number(index)]))}`;
+		const schema = buildInfiniAIModelConfigurationSchema(modelInfo({ id: "glm-5.2" }), 8192, "openai", translate);
+
+		assert.equal(schema.properties.maxOutputTokens.title, "zh:Max output tokens");
+		assert.equal(schema.properties.reasoningEffort.enumItemLabels?.[0], "zh:Automatic");
+		assert.equal(schema.properties.thinkingMode.enumItemLabels?.[1], "zh:Disabled");
 	});
 });
 
@@ -334,6 +347,20 @@ describe("model configuration resolution", () => {
 
 		assert.deepEqual(result, {});
 	});
+
+	it("drops a persisted output limit that exceeds the current model maximum", () => {
+		const result = resolveInfiniAIModelConfiguration(
+			{
+				modelConfiguration: {
+					maxOutputTokens: 16384,
+					reasoningEffort: "high",
+				},
+			} as any,
+			{ maxOutputTokens: 8192 }
+		);
+
+		assert.deepEqual(result, { reasoningEffort: "high" });
+	});
 });
 
 describe("model configuration request mapping", () => {
@@ -357,17 +384,14 @@ describe("model configuration request mapping", () => {
 		assert.equal(rawBody.thinkingMode, undefined);
 	});
 
-	it("applies DeepSeek V4 default reasoning effort on replay-enabled OpenAI requests", () => {
+	it("leaves DeepSeek V4 reasoning effort unset without an explicit selection", () => {
 		const body: Record<string, unknown> = { model: "deepseek-v4-pro" };
 
 		applyOpenAIModelConfiguration(body, {}, undefined, {
 			useDefaultReasoningEffort: true,
 		});
 
-		assert.deepEqual(body, {
-			model: "deepseek-v4-pro",
-			reasoning_effort: "high",
-		});
+		assert.deepEqual(body, { model: "deepseek-v4-pro" });
 	});
 
 	it("maps DeepSeek V4 OpenAI max reasoning effort", () => {

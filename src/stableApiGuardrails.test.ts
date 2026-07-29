@@ -51,14 +51,15 @@ function findObjectPathsWithKey(value: unknown, key: string, prefix = "$"): stri
 }
 
 describe("Stable API guardrails", () => {
-	it("declares the InfiniAI authentication provider in the manifest", () => {
+	it("uses only VS Code provider-group authentication", () => {
 		const pkg = readPackageJson();
-		assert.deepEqual(pkg.contributes?.authentication, [
-			{
-				id: "infiniai",
-				label: "InfiniAI",
-			},
-		]);
+		assert.equal(pkg.contributes?.authentication, undefined);
+		assert.equal(
+			pkg.contributes?.commands?.some((command: Record<string, unknown>) =>
+				["infiniai.setApikey", "infiniai.signOut"].includes(String(command.command))
+			),
+			false
+		);
 	});
 
 	it("declares the unified endpoint defaults", () => {
@@ -66,6 +67,31 @@ describe("Stable API guardrails", () => {
 		const properties = pkg.contributes?.configuration?.properties ?? {};
 		assert.equal(properties["infiniai.baseUrl"]?.default, "https://cloud.infini-ai.com/maas/v1");
 		assert.equal(properties["infiniai.anthropic.baseUrl"]?.default, "https://cloud.infini-ai.com/maas");
+		assert.equal(properties["infiniai.modelDiscoveryUrl"]?.default, "");
+		assert.equal(properties["infiniai.modelDiscoveryTimeoutMs"]?.default, 15000);
+		assert.deepEqual(properties["infiniai.toolCallingModels"]?.default, []);
+		assert.deepEqual(properties["infiniai.disableToolCallingModels"]?.default, []);
+	});
+
+	it("uses VS Code provider configuration instead of the deprecated management command", () => {
+		const pkg = readPackageJson();
+		const provider = pkg.contributes?.languageModelChatProviders?.find(
+			(candidate: Record<string, unknown>) => candidate.vendor === "infiniai"
+		);
+		assert.ok(provider);
+		assert.equal(Object.prototype.hasOwnProperty.call(provider, "managementCommand"), false);
+		assert.deepEqual(provider.configuration, {
+			type: "object",
+			properties: {
+				apiKey: {
+					type: "string",
+					secret: true,
+					title: "%provider.configuration.apiKey.title%",
+					description: "%provider.configuration.apiKey.description%",
+				},
+			},
+			required: ["apiKey"],
+		});
 	});
 
 	it("pins the intended Stable host floor and development typings", () => {

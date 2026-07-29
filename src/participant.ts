@@ -34,7 +34,7 @@ export function registerInfiniAIChatParticipant(
 						`## ${vscode.l10n.t("InfiniAI Doctor")}`,
 						"",
 						`- ${vscode.l10n.t("VS Code")}: ${diagnostic.vscodeVersion}`,
-						`- ${vscode.l10n.t("API key present")}: ${boolText(diagnostic.hasApiKey)}`,
+						`- ${vscode.l10n.t("Provider groups")}: ${diagnostic.providerGroupCount}`,
 						`- ${vscode.l10n.t("Discovery endpoint")}: ${diagnostic.modelDiscoveryUrl}`,
 						`- ${vscode.l10n.t("Cached models")}: ${diagnostic.modelCount}`,
 						...(diagnostic.discoveryStats
@@ -55,6 +55,16 @@ export function registerInfiniAIChatParticipant(
 						diagnostic.lastError
 							? `- ${vscode.l10n.t("Last error")}: ${sanitizeForLog(diagnostic.lastError, 240)}`
 							: `- ${vscode.l10n.t("Last error")}: ${vscode.l10n.t("none")}`,
+						...diagnostic.groups.map(
+							(group) =>
+								`- ${vscode.l10n.t("Provider group")} \`${group.name}\`: ${group.modelCount} ${vscode.l10n.t(
+									"cached models"
+								)}${
+									group.lastError
+										? `; ${vscode.l10n.t("error")}: ${sanitizeForLog(group.lastError, 160)}`
+										: ""
+								}`
+						),
 					].join("\n")
 				);
 				return;
@@ -65,7 +75,7 @@ export function registerInfiniAIChatParticipant(
 				const models = await provider.getModelDescriptions(refresh, token);
 				if (models.length === 0) {
 					stream.markdown(
-						vscode.l10n.t("No InfiniAI models are available. Run `InfiniAI: Set InfiniAI Apikey`, then try again.")
+						vscode.l10n.t("No InfiniAI models are cached. Add a provider group in VS Code Manage Models or retry discovery.")
 					);
 					return;
 				}
@@ -73,14 +83,14 @@ export function registerInfiniAIChatParticipant(
 					.slice(0, 50)
 					.map(
 						(model) =>
-							`| \`${model.id}\` | ${model.transport} | ${model.routeSource} | ${boolText(!!model.toolCalling)} | ${boolText(!!model.imageInput)} | ${model.maxInputTokens}/${model.maxOutputTokens} |`
+							`| ${model.group} | \`${model.id}\` | ${model.transport} | ${model.routeSource} | ${boolText(!!model.toolCalling)} | ${boolText(!!model.imageInput)} | ${model.maxInputTokens}/${model.maxOutputTokens} |`
 					);
 				stream.markdown(
 					[
 						`## ${vscode.l10n.t("InfiniAI Models")}`,
 						"",
-						`| ${vscode.l10n.t("Model")} | ${vscode.l10n.t("Route")} | ${vscode.l10n.t("Source")} | ${vscode.l10n.t("Tools")} | ${vscode.l10n.t("Images")} | ${vscode.l10n.t("Input/Output Tokens")} |`,
-						"|---|---:|---:|---:|---:|---:|",
+						`| ${vscode.l10n.t("Provider group")} | ${vscode.l10n.t("Model")} | ${vscode.l10n.t("Route")} | ${vscode.l10n.t("Source")} | ${vscode.l10n.t("Tools")} | ${vscode.l10n.t("Images")} | ${vscode.l10n.t("Input/Output Tokens")} |`,
+						"|---|---|---:|---:|---:|---:|---:|",
 						...rows,
 						models.length > 50 ? `\n${vscode.l10n.t("Showing 50 of {0} models.", models.length)}` : "",
 					].join("\n")

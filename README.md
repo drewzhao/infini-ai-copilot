@@ -7,8 +7,13 @@ InfiniAI Provider for VS Code registers InfiniAI as a stable VS Code language mo
 1. Install the extension from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=drewzhao.infiniai-copilot).
 2. Open VS Code Chat and use the model picker.
 3. Choose **Manage Models...**, then add models from the **InfiniAI** provider.
-4. Enter your InfiniAI API key. The key is stored in VS Code Secret Storage.
+4. Enter your InfiniAI API key. VS Code stores it as the secret for that provider group.
 5. Select an InfiniAI model from the model picker.
+
+VS Code provider groups are the only source of InfiniAI credentials. Each discovered model is bound to the group that
+resolved it, so multiple InfiniAI groups can use different credentials. The provider returns cached models immediately
+and performs model discovery in the background; an upstream timeout or failure therefore does not hold VS Code's
+provider sequence open. Use **InfiniAI: Refresh Models** for an explicit, cancellable retry.
 
 Thinking replay is resolved through capability profiles. The built-in round-trip defaults include MiMo V2, DeepSeek
 V4, exact `deepseek-r1`, exact `deepseek-v3.2-thinking`, GLM 5/4.7, the verified Kimi K2.x IDs, exact `kimi-k3`, and
@@ -25,7 +30,7 @@ round-trip defaults on that transport.
 
 You can also use `@infiniai` in Chat for diagnostics:
 
-- `@infiniai /doctor` checks configuration, key presence, endpoint settings, route override counts, cache state, and the last sanitized provider error.
+- `@infiniai /doctor` checks resolved provider groups, endpoint settings, route override counts, cache state, and the last sanitized provider error.
 - `@infiniai /models` lists discovered models, effective transports, route sources, and route capabilities from the local cache.
 - `@infiniai /models refresh` refreshes model discovery before listing models.
 - `@infiniai /test` picks a visible InfiniAI model and runs a minimal cancellable health request against its effective route.
@@ -34,7 +39,7 @@ The participant is diagnostic only. It is not a replacement chat assistant.
 
 The InfiniAI activity bar also includes:
 
-- A **Models** tree for API key status, model refresh, picker visibility, and per-model protocol switching.
+- A **Models** tree for provider-group status, model refresh, InfiniAI provider filtering, direct access to VS Code Manage Models, and per-model protocol switching.
 - A **Local Usage** dashboard that records streamed request usage locally, exports CSV, and clears records through a native VS Code confirmation dialog.
 
 ## Requirements
@@ -69,7 +74,8 @@ To run the extension locally:
 
 ## Activation And Logging
 
-The manifest keeps activation lazy. VS Code automatically activates the extension when its stable language model provider or chat participant contribution is needed, or when `infiniai.setApikey` is invoked.
+The manifest keeps activation lazy. VS Code automatically activates the extension when its stable language model
+provider or chat participant contribution is needed, or when an InfiniAI view or command is opened.
 
 Logs are written to a VS Code `LogOutputChannel` named `InfiniAI`. The extension redacts secrets, prompts, tool results, image data, auth headers, and full response bodies.
 
@@ -82,28 +88,80 @@ Common settings:
 - `infiniai.baseUrl`: OpenAI-compatible API base URL. Defaults to `https://cloud.infini-ai.com/maas/v1`.
 - `infiniai.anthropic.baseUrl`: Anthropic-compatible API base URL. Defaults to `https://cloud.infini-ai.com/maas`.
 - `infiniai.modelDiscoveryUrl`: Optional absolute URL for model discovery. Empty uses `https://cloud.infini-ai.com/maas/v1/models`.
+- `infiniai.modelDiscoveryTimeoutMs`: Full model-discovery timeout, including response-body download and parsing. Defaults to 15 seconds.
 - `infiniai.modelCacheTtlMs`: Model discovery cache TTL in milliseconds. Set `0` to refresh every request.
 - `infiniai.modelRoutes`: Optional model routing overrides. Each item supports `pattern`, `transport` (`"openai"`, `"anthropic"`, or `"vertex"`), and optional `baseUrl`. The **InfiniAI: Switch Model Protocol** command is the safer editor for exact OpenAI/Anthropic per-model overrides.
 - `infiniai.imageInputModels`: Force-enable image input for matching model IDs. Supports `*` wildcards.
 - `infiniai.disableImageInputModels`: Force-disable image input for matching model IDs. Supports `*` wildcards.
+- `infiniai.toolCallingModels`: Force-enable tool calling and VS Code Agent eligibility for matching model IDs. The
+  extension already has exact evidence-based fallbacks for DeepSeek V4 and MiMo IDs verified by API probes but not
+  marked as tool-capable in the catalog. An explicit live/catalog value remains authoritative unless this user setting
+  overrides it.
+- `infiniai.disableToolCallingModels`: Force-disable tool calling and Agent eligibility. This list wins over `infiniai.toolCallingModels`. Models with no live, catalog, or user confirmation default to no tool calling instead of being advertised optimistically.
 - `infiniai.disableThinkingForModels`: Safety list. Thinking mode is disabled by default for matching model IDs to avoid known `reasoning_content` HTTP 400 errors. The built-in defaults include known Xiaomi MiMo V2 model IDs and the DeepSeek V4 family: `mimo-v2-pro`, `mimo-v2.5-pro`, `mimo-v2.5`, `mimo-v2-omni`, `mimo-v2-flash`, `deepseek-v4*`. See [Thinking mode](#thinking-mode) below.
-- `infiniai.enableThinkingRoundTripForModels`: Round-trip replay list. Kimi defaults are exact IDs—`kimi-k2-thinking`, `kimi-k2.5`, `kimi-k2.6`, `kimi-k2.7-code`, `kimi-k2.7-code-highspeed`, and `kimi-k3`—so unverified test variants are not classified as production profiles. Other defaults are `mimo-v2*`, `deepseek-v4*`, exact `deepseek-r1`, exact `deepseek-v3.2-thinking`, `glm-5*`, `glm-4.7*`, and `minimax*`; user patterns extend the list but a model still needs a known replay profile. Known adapters preserve the provider-native shape: OpenAI `reasoning_content` for MiMo V2, DeepSeek V4, DeepSeek R1, GLM, Kimi, and Qwen profiles; OpenAI `reasoning_details` for MiniMax split mode; and Anthropic `thinking` blocks for Anthropic Messages routes that safely support them. Replay-required profiles fail locally when replay data is missing, expired, conflicting, or unavailable. Supports `*` wildcards.
+- `infiniai.enableThinkingRoundTripForModels`: Round-trip replay list. Kimi and DeepSeek V4 defaults use exact verified IDs—Kimi uses `kimi-k2-thinking`, `kimi-k2.5`, `kimi-k2.6`, `kimi-k2.7-code`, `kimi-k2.7-code-highspeed`, and `kimi-k3`; DeepSeek V4 uses `deepseek-v4-pro` and `deepseek-v4-flash`. Other defaults are `mimo-v2*`, exact `deepseek-r1`, exact `deepseek-v3.2-thinking`, `glm-5*`, `glm-4.7*`, and `minimax*`; user patterns extend the list but a model still needs a known replay profile. Known adapters preserve the provider-native shape: OpenAI `reasoning_content` for MiMo V2, DeepSeek V4, DeepSeek R1, GLM, Kimi, and Qwen profiles; OpenAI `reasoning_details` for MiniMax split mode; and Anthropic `thinking` blocks for Anthropic Messages routes that safely support them. Replay-required profiles fail locally when replay data is missing, expired, conflicting, or unavailable. Supports `*` wildcards.
 - `infiniai.thinkingReplayStore`: Replay storage backend for profile-enabled or opted-in thinking replay. Defaults to `"localPlaintext"` for restart continuity; set `"memory"` to avoid writing replay data to disk and accept no restart continuity.
 - `infiniai.retry`: Retry policy for retryable network and HTTP failures.
 - `infiniai.delay`: Fixed delay between requests, in milliseconds.
 
+Model visibility has two independent layers:
+
+1. The InfiniAI provider filter (`infiniai.hiddenModels`, `infiniai.hiddenModelPatterns`, and
+   `infiniai.visibleModels`) controls which discovered models the extension returns to VS Code. The Models tree edits
+   this layer.
+2. **VS Code Manage Models** controls whether a returned model is shown in VS Code pickers. Use
+   **InfiniAI: Open VS Code Manage Models** for this layer.
+
+An extension-filtered model cannot appear in Manage Models because VS Code never receives it. Conversely, a model
+hidden in Manage Models can still appear as included in the InfiniAI Models tree.
+
 ## Model Picker Controls
 
-The extension exposes stable-safe model controls in VS Code's model picker:
+The extension exposes stable-safe model configuration through VS Code:
 
-- **Max output tokens** caps the response length. The model default sends no cap.
+- **Max output tokens** appears in **Manage Models** and caps the response length. The model default sends no cap.
+  Persisted values above a model's current advertised maximum are ignored rather than sent upstream.
 - **Prompt budget** is advertised separately from the provider's absolute max completion window. Long-context models keep a practical 16K output reserve for interactive chat, so Copilot Chat does not compact early just because a provider allows very large completions.
-- **Reasoning effort** appears only for profiles with a confirmed effort parameter. Kimi K3 offers `Low`, `High`, and `Max` through top-level `reasoning_effort`, with `Max` as its request default. OpenAI-compatible DeepSeek V4 and GLM-5.2 offer only `High` and `Max`; Anthropic-routed DeepSeek V3.2 profiles keep `Low`, `Medium`, and `High`, mapping selected values to `output_config.effort`.
-- **Thinking mode** appears only for model profiles with a confirmed current-turn thinking control. Kimi K2.5 and K2.6 expose `Enabled`/`Disabled` through `thinking.type`; K2.7 Code and K3 expose no toggle because thinking is mandatory. Qwen maps to `enable_thinking`, OpenAI-compatible GLM/MiMo/DeepSeek V4 maps to `thinking.type`, and Anthropic DeepSeek V3.2 maps to the Anthropic `thinking` object. Confirmed Claude Opus 4.6/4.7 and Sonnet 4.6 profiles map `Enabled` to adaptive thinking; `claude-sonnet-4-5-20250929` maps `Enabled` to budgeted extended thinking.
+- **Reasoning effort** appears in **Manage Models** and, for the selected model, in VS Code's inline **Thinking
+  Effort** control. It is offered only for profiles with a confirmed effort parameter. Kimi K3 offers `Low`, `High`,
+  and `Max` through top-level `reasoning_effort`, with `Max` as its automatic replay-safe default.
+  OpenAI-compatible DeepSeek V4 and GLM-5.2 offer only `High` and `Max`; Anthropic-routed DeepSeek V3.2 profiles keep
+  `Low`, `Medium`, and `High`, mapping selected values to `output_config.effort`.
+- **Thinking mode** appears in **Manage Models** only and only for profiles with a confirmed current-turn thinking
+  control. Kimi K2.5 and K2.6 expose `Enabled`/`Disabled` through `thinking.type`; K2.7 Code and K3 expose no toggle
+  because thinking is mandatory. Qwen maps to `enable_thinking`, OpenAI-compatible GLM/MiMo/DeepSeek V4 maps to
+  `thinking.type`, and Anthropic DeepSeek V3.2 maps to the Anthropic `thinking` object. Confirmed Claude Opus
+  4.6/4.7 and Sonnet 4.6 profiles map `Enabled` to adaptive thinking; `claude-sonnet-4-5-20250929` maps `Enabled` to
+  budgeted extended thinking.
+
+The stored value named `unset` is displayed as **Automatic**. Automatic does not always mean “send nothing”: a
+profile may apply a verified safety default, replay-preservation control, or default reasoning effort. An explicit
+effort is ignored while thinking is disabled.
+
+VS Code renders these controls after model discovery returns the model's configuration schema. The inline reasoning
+control updates when that model is selected; Manage Models shows the complete schema. A changed value is included in
+the next request, not retroactively applied to a request already in flight.
 
 Vertex routes map max output tokens into `generationConfig.maxOutputTokens`.
 
 These controls use VS Code Stable's runtime-accepted model configuration surface and do not require the extension manifest to declare proposed APIs.
+
+### Agents window
+
+Tool-capable third-party InfiniAI models remain eligible for VS Code Agent experiences. Capability metadata and the
+`infiniai.toolCallingModels` / `infiniai.disableToolCallingModels` overrides determine that eligibility; unknown models
+are not marked Agent-capable by default. In VS Code 1.130 this path also requires the agent host and its default-on
+`chat.agentHost.byokModels.enabled` bridge; changing either agent-host setting requires an agent-host restart.
+
+In VS Code 1.130, the Agents-window BYOK bridge carries the model identity, context, vision, and request path, but not
+the per-model configuration schema. Consequently, InfiniAI controls do not render inside the Agents-window model
+picker. Values saved earlier through the normal **Manage Models** UI are still merged into requests for the original
+model. Configure the model there first when an Agents session needs non-automatic reasoning, thinking, or output
+settings.
+
+The same bridge uses `vendor/model` as its external selection key, so two InfiniAI provider groups that expose the same
+model ID are not reliably distinguishable in the Agents window. Use a single InfiniAI group for that model in Agent
+experiences; the standard VS Code model picker still preserves each provider group's credential binding.
 
 ## Routing And Protocol Switching
 
@@ -131,7 +189,7 @@ For Claude-compatible InfiniAI models, use **InfiniAI: Switch Model Protocol** f
 - Drops stale `baseUrl` from UI-created exact overrides so a protocol change cannot keep an incompatible endpoint.
 - Offers **Reset exact override** when an exact override exists. Reset removes only that exact entry; any matching wildcard or catalog/default route is then shown in the confirmation.
 
-The Models tree tooltip shows the effective transport, route source (`user`, `metadata`, `catalog`, or `heuristic`), endpoint kind, picker visibility, and core capabilities. `@infiniai /models` includes the route source column, and `@infiniai /doctor` reports both total route overrides and exact per-model route overrides.
+The Models tree tooltip shows the effective transport, route source (`user`, `metadata`, `catalog`, or `heuristic`), endpoint kind, InfiniAI provider-filter status, the separate VS Code Manage Models boundary, and core capabilities. `@infiniai /models` includes the route source column, and `@infiniai /doctor` reports both total route overrides and exact per-model route overrides.
 
 ## Thinking mode
 
@@ -189,8 +247,9 @@ Anthropic Messages without losing the replay guard, as long as the required repl
 
 ## Commands
 
-- `infiniai.setApikey`: Set or update the InfiniAI API key.
-- `infiniai.signOut`: Remove the current InfiniAI API key from VS Code Secret Storage.
+- `infiniai.refreshModels`: Cancel active discovery and explicitly retry the resolved InfiniAI provider groups.
+- `infiniai.openManageModels`: Open VS Code Manage Models.
+- `infiniai.openLogs`: Open the InfiniAI output channel.
 
 Chat participant commands:
 
@@ -205,11 +264,14 @@ The Marketplace manifest declares no `enabledApiProposals` and contains no propo
 
 The provider uses stable VS Code contribution points plus a small, audited stable-gray surface that is accepted by current VS Code Stable builds:
 
+- `isBYOK` exports confirmed tool-capable InfiniAI models to the Agents-window bridge.
 - `isUserSelectable` keeps eligible InfiniAI models visible in the picker.
-- `configurationSchema` exposes model picker controls for max output tokens, reasoning effort, and thinking mode.
+- `configurationSchema` exposes the complete controls in Manage Models and the reasoning-effort control inline.
 - Runtime request options `configuration` / `modelConfiguration` carry selected model controls back to the provider.
 
 These fields are centralized in `src/grayLanguageModelMetadata.ts` and covered by `npm run validate:stable-gray`.
+The same guard checks the VS Code 1.130 source bridge used by the Agents window; it currently documents and verifies
+the schema-transfer limitation described above. Revalidate this surface on every VS Code Stable update.
 
 This extension intentionally avoids hard proposal-gated surfaces:
 
@@ -230,9 +292,9 @@ If InfiniAI models do not appear:
 
 1. Run `@infiniai /doctor`.
 2. Check the `InfiniAI` output channel.
-3. Confirm that the API key is stored with `infiniai.setApikey`.
+3. Open **VS Code Manage Models**, confirm that an InfiniAI provider group exists, and use **Update API Key** if needed.
 4. Check `infiniai.modelDiscoveryUrl` and route overrides.
-5. Run `Developer: Reload Window` and retry model discovery.
+5. Run **InfiniAI: Refresh Models**. Reload the window only if the provider group itself does not re-resolve.
 
 ## Troubleshooting
 
@@ -242,7 +304,8 @@ VS Code may leave older extension version folders on disk, but it scans installe
 
 Persistent VS Code state can still affect upgraded installs:
 
-- The extension uses the `infiniai.apiKey` Secret Storage entry.
+- InfiniAI credentials are read only from VS Code provider groups. Add InfiniAI through **Manage Models** if no group
+  exists after upgrading from a release that used extension-managed credentials.
 - Current base URLs, `infiniai.modelDiscoveryUrl`, and `infiniai.modelRoutes` remain effective. User-supplied route and discovery overrides are not rewritten.
 - Already-open windows may keep the old extension host running until reload.
 
@@ -259,11 +322,12 @@ If the diagnostics show an unexpected endpoint or route override, reset the corr
 
 Check these in order:
 
-1. Run `InfiniAI: Set InfiniAI API Key` and confirm the API key is stored.
-2. Run `@infiniai /doctor` and verify key presence, the discovery endpoint, and the last error.
+1. Open **VS Code Manage Models**, add InfiniAI if needed, and confirm the provider group's API key.
+2. Run `@infiniai /doctor` and verify the provider-group status, discovery endpoint, and last error.
 3. Clear `infiniai.modelDiscoveryUrl` unless you intentionally use a custom discovery endpoint.
 4. Temporarily clear `infiniai.modelRoutes` to rule out a bad route override.
-5. Run `Developer: Reload Window`, then `@infiniai /models refresh`.
+5. Run **InfiniAI: Refresh Models**. The operation is cancellable and a failure includes direct **Manage Models** and
+   **Open Logs** remedies.
 
 ### Requests Fail For Anthropic Or Vertex Routes
 

@@ -149,7 +149,8 @@ export class VertexApi extends CommonApi {
 	prepareRequestBody(
 		rb: any,
 		um: InfiniAIModelInfo | undefined,
-		options: ProvideLanguageModelChatResponseOptions
+		options: ProvideLanguageModelChatResponseOptions,
+		maxOutputTokens?: number
 	): any {
 		const vrb = rb as VertexRequestBody;
 		// Initialize generationConfig if not present
@@ -220,7 +221,7 @@ export class VertexApi extends CommonApi {
 			}
 		}
 
-		applyVertexModelConfiguration(vrb, resolveInfiniAIModelConfiguration(options));
+		applyVertexModelConfiguration(vrb, resolveInfiniAIModelConfiguration(options, { maxOutputTokens }));
 
 		// Process extra configuration parameters
 		// if (um?.extra && typeof um.extra === "object") {

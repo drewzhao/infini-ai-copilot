@@ -235,7 +235,8 @@ export class AnthropicApi extends CommonApi {
 	prepareRequestBody(
 		rb: any,
 		um: InfiniAIModelInfo | undefined,
-		options: ProvideLanguageModelChatResponseOptions
+		options: ProvideLanguageModelChatResponseOptions,
+		maxOutputTokens?: number
 	): any {
 		const arb = rb as AnthropicRequestBody;
 		// Set max_tokens (required for Anthropic)
@@ -297,7 +298,7 @@ export class AnthropicApi extends CommonApi {
 			}
 		}
 
-		const modelConfiguration = resolveInfiniAIModelConfiguration(options);
+		const modelConfiguration = resolveInfiniAIModelConfiguration(options, { maxOutputTokens });
 		applyAnthropicModelConfiguration(arb as unknown as Record<string, unknown>, modelConfiguration, reasoningProfile);
 		applyReasoningRequestControls(arb as unknown as Record<string, unknown>, reasoningProfile, modelConfiguration);
 		const defaultThinkingMode = getDefaultRequestThinkingMode({
