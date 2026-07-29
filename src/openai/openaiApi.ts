@@ -27,10 +27,7 @@ import {
 } from "../utils";
 
 import { CommonApi } from "../commonApi";
-import {
-	applyOpenAIModelConfiguration,
-	resolveInfiniAIModelConfiguration,
-} from "../modelConfiguration";
+import { applyOpenAIModelConfiguration, resolveInfiniAIModelConfiguration } from "../modelConfiguration";
 import { resolveReasoningDialectProfile } from "../reasoningDialect";
 import { applyReasoningRequestControls } from "../reasoningRequest";
 import { readSseEvents } from "../sse";
@@ -121,7 +118,7 @@ export class OpenaiApi extends CommonApi {
 			if (role === "assistant") {
 				const assistantMessage: OpenAIChatMessage = {
 					role: "assistant",
-					content: textParts.join("\n") || undefined,
+					content: textParts.join("") || undefined,
 				};
 
 				// Add tool calls
@@ -312,7 +309,7 @@ export class OpenaiApi extends CommonApi {
 		const reasoningProfile = resolveReasoningDialectProfile({ modelId, transport: "openai" });
 
 		// tools
-		const toolConfig = convertToolsToOpenAI(options);
+		const toolConfig = convertToolsToOpenAI(options, reasoningProfile.requiredToolChoiceControl);
 		if (toolConfig.tools) {
 			orb.tools =
 				reasoningProfile.family === "kimi" || reasoningProfile.family === "mimo"
@@ -411,8 +408,8 @@ export class OpenaiApi extends CommonApi {
 			await this.flushToolCallBuffers(progress, /*throwOnInvalid*/ false);
 			this.flushXmlThinkPending(progress);
 			if (completed) {
-				await this.completeReplayTurn();
 				this.reportNoVisibleResponseFallback(progress);
+				await this.completeReplayTurn();
 			} else {
 				this.abortReplayTurn();
 			}
@@ -582,14 +579,13 @@ export class OpenaiApi extends CommonApi {
 			}
 		}
 
-			const finish = (choice.finish_reason as string | undefined) ?? undefined;
-			if (finish === "tool_calls" || finish === "stop") {
-				// On both 'tool_calls' and 'stop', emit any buffered calls and throw on invalid JSON
-				await this.flushToolCallBuffers(progress, /*throwOnInvalid*/ true);
-				await this.completeReplayTurn();
-			}
-			return emitted;
+		const finish = (choice.finish_reason as string | undefined) ?? undefined;
+		if (finish === "tool_calls" || finish === "stop") {
+			// On both 'tool_calls' and 'stop', emit any buffered calls and throw on invalid JSON
+			await this.flushToolCallBuffers(progress, /*throwOnInvalid*/ true);
 		}
+		return emitted;
+	}
 
 	protected override onToolCallEmitted(callId: string): void {
 		if (!this.thinkingReplayStore || !this.pendingThinkingTurn) {
@@ -598,10 +594,7 @@ export class OpenaiApi extends CommonApi {
 		this.thinkingReplayStore.recordToolCall(this.pendingThinkingTurn.turnId, callId);
 	}
 
-	protected override bufferThinkingContent(
-		text: string,
-		progress?: Progress<vscode.LanguageModelResponsePart>
-	): void {
+	protected override bufferThinkingContent(text: string, progress?: Progress<vscode.LanguageModelResponsePart>): void {
 		super.bufferThinkingContent(text, this.emitThinkingParts ? progress : undefined);
 	}
 
@@ -617,6 +610,13 @@ export class OpenaiApi extends CommonApi {
 			return;
 		}
 		this.thinkingReplayStore.appendReasoningDetails(this.pendingThinkingTurn.turnId, details);
+	}
+
+	private captureReplayAssistantContent(text: string): void {
+		if (!this.thinkingReplayStore || !this.pendingThinkingTurn) {
+			return;
+		}
+		this.thinkingReplayStore.appendAssistantContent(this.pendingThinkingTurn.turnId, text);
 	}
 
 	private async completeReplayTurn(): Promise<void> {
@@ -649,6 +649,7 @@ export class OpenaiApi extends CommonApi {
 		// Emit any visible text
 		const textToEmit = input;
 		if (textToEmit && textToEmit.length > 0) {
+			this.captureReplayAssistantContent(textToEmit);
 			progress.report(new vscode.LanguageModelTextPart(textToEmit));
 			emittedText = true;
 			emittedAny = true;
@@ -736,6 +737,7 @@ export class OpenaiApi extends CommonApi {
 		}
 		if (!this._xmlThinkActive) {
 			const pending = this._xmlThinkPending;
+			this.captureReplayAssistantContent(pending);
 			progress.report(new vscode.LanguageModelTextPart(pending));
 			this._hasEmittedAssistantText = true;
 			if (pending.trim()) {
@@ -749,7 +751,13 @@ export class OpenaiApi extends CommonApi {
 		if (this.hasEmittedVisibleText || this._completedToolCallIndices.size > 0) {
 			return;
 		}
-		const message = this.sawHiddenThinkingContent ? HIDDEN_THINKING_NO_FINAL_TEXT_FALLBACK : EMPTY_NO_FINAL_TEXT_FALLBACK;
+		const message = this.sawHiddenThinkingContent
+			? HIDDEN_THINKING_NO_FINAL_TEXT_FALLBACK
+			: EMPTY_NO_FINAL_TEXT_FALLBACK;
+		this.captureReplayAssistantContent(message);
+		if (this.thinkingReplayStore && this.pendingThinkingTurn) {
+			this.thinkingReplayStore.markObservedWithoutReplayPayload(this.pendingThinkingTurn.turnId);
+		}
 		progress.report(new vscode.LanguageModelTextPart(message));
 		this._hasEmittedAssistantText = true;
 		this.hasEmittedVisibleText = true;

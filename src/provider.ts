@@ -32,7 +32,7 @@ import { hasThinkingPartApi } from "./proposedApi";
 import { resolveReasoningDialectProfile } from "./reasoningDialect";
 import { applyReasoningRequestControls, buildReplayPreservationRequestControls } from "./reasoningRequest";
 import { applyAnthropicThinkingReplay, applyThinkingReplay, decideThinkingReplayRequest } from "./thinkingReplay";
-import { isStoredReplayCarrier, thinkingReplayStore } from "./thinkingReplayStore";
+import { buildOpenAIReplayHistoryKey, isStoredReplayCarrier, thinkingReplayStore } from "./thinkingReplayStore";
 import { countModelRouteOverrides, resolveModelRoute } from "./route";
 import { updateContextStatusBar } from "./statusBar";
 import { getVisibleInfiniAITestModels } from "./testModelSelection";
@@ -45,6 +45,7 @@ import {
 } from "./thinkingMode";
 import {
 	getDefaultRequestThinkingMode,
+	shouldCaptureDisabledThinkingObservation,
 	shouldHonorThinkingRoundTripForProfile,
 	shouldRequireThinkingReplayByProfile,
 } from "./thinkingPolicy";
@@ -745,16 +746,30 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			throw new Error(replayDecision.failLocalReason);
 		}
 		const requestMessages = replayDecision.allowThinkingRoundTrip ? replayPreflight.messages : openaiMessages;
-		const pendingThinkingTurn = replayDecision.allowThinkingRoundTrip
+		const captureDisabledThinkingObservation = shouldCaptureDisabledThinkingObservation({
+			profile: reasoningProfile,
+			configuredThinkingMode: modelConfiguration.thinkingMode,
+			forceDisableThinking: effectiveForceDisableThinking,
+			allowThinkingRoundTrip: replayDecision.allowThinkingRoundTrip,
+		});
+		const pendingThinkingTurn =
+			replayDecision.allowThinkingRoundTrip || captureDisabledThinkingObservation
 			? thinkingReplayStore.beginTurn({
 					modelId: model.id,
 					profileId: reasoningProfile.id,
 					transport: reasoningProfile.transport,
 					carrier: replayCarrier,
+					historyKey:
+						reasoningProfile.replayScope === "all-assistant-messages"
+							? buildOpenAIReplayHistoryKey(openaiMessages)
+							: undefined,
+					captureAssistantMessages: reasoningProfile.replayScope === "all-assistant-messages",
+					allowsMissingReplayPayload:
+						reasoningProfile.allowsMissingReplayPayload || captureDisabledThinkingObservation,
 				})
 			: undefined;
 		const suppressResponseThinking =
-			modelConfiguration.thinkingMode === "disabled" ||
+			(modelConfiguration.thinkingMode === "disabled" && reasoningProfile.canDisableThinking) ||
 			(effectiveForceDisableThinking && !replayDecision.allowThinkingRoundTrip);
 		const openaiApi = new OpenaiApi({
 			thinkingReplayStore: pendingThinkingTurn ? thinkingReplayStore : undefined,
@@ -815,6 +830,8 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 				`roundTripReplayed=${replayPreflight.replayedCount} ` +
 				`roundTripMissing=${replayPreflight.missingCallIds.length} ` +
 				`roundTripConflicts=${replayPreflight.conflictingCallIds.length} ` +
+				`roundTripMissingAssistantMessages=${replayPreflight.missingAssistantMessageIndexes.length} ` +
+				`roundTripConflictingAssistantMessages=${replayPreflight.conflictingAssistantMessageIndexes.length} ` +
 				`thinkingDisabled=${thinkingDisabled} ` +
 				`disablePatterns=${sanitizeForLog(disableThinkingPatterns.join(","), 300)} ` +
 				`roundTripPatterns=${sanitizeForLog(roundTripPatterns.join(","), 300)} ` +
@@ -912,7 +929,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 				})
 			: undefined;
 		const suppressResponseThinking =
-			modelConfiguration.thinkingMode === "disabled" ||
+			(modelConfiguration.thinkingMode === "disabled" && reasoningProfile.canDisableThinking) ||
 			(effectiveForceDisableThinking && !replayDecision.allowThinkingRoundTrip);
 		const anthropicApi = new AnthropicApi({
 			thinkingReplayStore: pendingThinkingTurn ? thinkingReplayStore : undefined,

@@ -2,7 +2,7 @@ import assert from "assert/strict";
 
 const Module = require("module") as any;
 
-function withVscodeMock<T>(configValues: Record<string, unknown>, fn: () => T): T {
+function withVscodeMock<T>(configValues: Record<string, unknown>, fn: (vscodeMock: any) => T): T {
 	const originalLoad = Module._load;
 	const vscodeMock = {
 		workspace: {
@@ -41,20 +41,28 @@ function withVscodeMock<T>(configValues: Record<string, unknown>, fn: () => T): 
 		return originalLoad(request, parent, isMain);
 	};
 	try {
-		return fn();
+		return fn(vscodeMock);
 	} finally {
 		Module._load = originalLoad;
 	}
 }
 
 function loadOpenaiApi(configValues: Record<string, unknown> = {}) {
-	for (const id of ["./utils", "./thinkingMode", "./proposedApi", "./commonApi", "./thinkingReplayStore", "./openai/openaiApi"]) {
+	for (const id of [
+		"./utils",
+		"./thinkingMode",
+		"./proposedApi",
+		"./commonApi",
+		"./thinkingReplayStore",
+		"./openai/openaiApi",
+	]) {
 		delete require.cache[require.resolve(id)];
 	}
-	return withVscodeMock(configValues, () => ({
+	return withVscodeMock(configValues, (vscode) => ({
 		openai: require("./openai/openaiApi") as typeof import("./openai/openaiApi"),
 		proposedApi: require("./proposedApi") as typeof import("./proposedApi"),
 		replayStore: require("./thinkingReplayStore") as typeof import("./thinkingReplayStore"),
+		vscode,
 		withVscode: <T>(fn: () => T) => withVscodeMock(configValues, fn),
 	}));
 }
@@ -116,6 +124,64 @@ describe("OpenaiApi.prepareRequestBody thinking-mode guard", () => {
 				},
 			},
 		});
+	});
+
+	it("uses K3 string required tool choice and sanitizes every advertised tool", () => {
+		const { openai, withVscode } = loadOpenaiApi();
+
+		const api = new openai.OpenaiApi();
+		const rb = withVscode(() =>
+			api.prepareRequestBody(
+				{ model: "kimi-k3" },
+				{ id: "kimi-k3" } as any,
+				{
+					modelOptions: {},
+					toolMode: 1,
+					tools: [
+						{
+							name: "search",
+							inputSchema: { type: "object", properties: { query: { enum: ["", "code"] } } },
+						},
+						{
+							name: "read",
+							inputSchema: { type: "object", properties: { path: { type: "string" } } },
+						},
+					],
+				} as any,
+				true
+			)
+		);
+
+		assert.equal(rb.tool_choice, "required");
+		assert.equal(rb.reasoning_effort, "max");
+		assert.deepEqual(rb.tools[0].function.parameters.properties.query, {
+			type: "string",
+			enum: ["code"],
+		});
+	});
+
+	it("rejects required tool mode locally for Kimi K2.6 and K2.7", () => {
+		const { openai, withVscode } = loadOpenaiApi();
+
+		for (const modelId of ["kimi-k2.6", "kimi-k2.7-code"]) {
+			const api = new openai.OpenaiApi();
+			assert.throws(
+				() =>
+					withVscode(() =>
+						api.prepareRequestBody(
+							{ model: modelId },
+							{ id: modelId } as any,
+							{
+								modelOptions: {},
+								toolMode: 1,
+								tools: [{ name: "search", inputSchema: { type: "object", properties: {} } }],
+							} as any
+						)
+					),
+				/Required is not supported by this model profile/,
+				modelId
+			);
+		}
 	});
 
 	it("sanitizes MiMo tool schemas before sending OpenAI-compatible requests", () => {
@@ -225,6 +291,106 @@ describe("OpenaiApi.prepareRequestBody thinking-mode guard", () => {
 });
 
 describe("OpenaiApi thinking replay streaming capture", () => {
+	it("commits ordinary K3 assistant reasoning with the streamed visible response", async () => {
+		const { openai, replayStore, vscode } = loadOpenaiApi();
+		const store = new replayStore.ThinkingReplayStore();
+		await store.initialize(new replayStore.MemoryThinkingReplayStorage());
+		const history = [{ role: "user" as const, content: "First question" }];
+		const historyKey = replayStore.buildOpenAIReplayHistoryKey(history);
+		const pendingTurn = store.beginTurn({
+			modelId: "kimi-k3",
+			profileId: "kimi-k3-forced-preserved",
+			transport: "openai",
+			carrier: "reasoning_content",
+			historyKey,
+			captureAssistantMessages: true,
+			allowsMissingReplayPayload: true,
+		});
+		const api = new openai.OpenaiApi({ thinkingReplayStore: store, pendingThinkingTurn: pendingTurn });
+
+		await api.processStreamingResponse(
+			streamFromChunks([
+				'data: {"choices":[{"delta":{"reasoning_content":"because "}}]}\n\n',
+				'data: {"choices":[{"delta":{"content":"Final"}}]}\n\n',
+				'data: {"choices":[{"delta":{"content":", answer"},"finish_reason":"stop"}]}\n\n',
+				"data: [DONE]\n\n",
+			]),
+			{ report() {} },
+			token() as any
+		);
+
+		const [assistantMessage] = api.convertMessages(
+			[
+				{
+					role: vscode.LanguageModelChatMessageRole.Assistant,
+					name: undefined,
+					content: [
+						new vscode.LanguageModelTextPart("Final"),
+						new vscode.LanguageModelTextPart(", answer"),
+					],
+				},
+			],
+			{ includeReasoningInRequest: false }
+		);
+		assert.equal(assistantMessage.content, "Final, answer");
+		const assistantMessageKey = replayStore.buildOpenAIAssistantReplayKey(historyKey, assistantMessage);
+		assert.equal(
+			store.lookupAssistant({
+				modelId: "kimi-k3",
+				assistantMessageKey,
+				profileId: "kimi-k3-forced-preserved",
+				carrier: "reasoning_content",
+			})?.reasoningContent,
+			"because "
+		);
+	});
+
+	it("commits a generated fallback sentinel before ending a strict K2.7 replay turn", async () => {
+		const { openai, replayStore } = loadOpenaiApi();
+		const store = new replayStore.ThinkingReplayStore();
+		await store.initialize(new replayStore.MemoryThinkingReplayStorage());
+		const history = [{ role: "user" as const, content: "Answer directly" }];
+		const historyKey = replayStore.buildOpenAIReplayHistoryKey(history);
+		const pendingTurn = store.beginTurn({
+			modelId: "kimi-k2.7-code",
+			profileId: "kimi-k2.7-code-forced-preserved",
+			transport: "openai",
+			carrier: "reasoning_content",
+			historyKey,
+			captureAssistantMessages: true,
+		});
+		const api = new openai.OpenaiApi({ thinkingReplayStore: store, pendingThinkingTurn: pendingTurn });
+		const reported: string[] = [];
+
+		await api.processStreamingResponse(
+			streamFromChunks([
+				'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+				"data: [DONE]\n\n",
+			]),
+			{
+				report(part: any) {
+					reported.push(part.value);
+				},
+			},
+			token() as any
+		);
+
+		assert.deepEqual(reported, ["The model finished without returning a final answer. Please retry."]);
+		const assistantMessageKey = replayStore.buildOpenAIAssistantReplayKey(historyKey, {
+			role: "assistant",
+			content: reported[0],
+		});
+		assert.equal(
+			store.lookupAssistant({
+				modelId: "kimi-k2.7-code",
+				assistantMessageKey,
+				profileId: "kimi-k2.7-code-forced-preserved",
+				carrier: "reasoning_content",
+			})?.observedWithoutReplayPayload,
+			true
+		);
+	});
+
 	it("commits structured reasoning when the streamed turn finishes with tool calls", async () => {
 		const { openai, replayStore } = loadOpenaiApi();
 		const store = new replayStore.ThinkingReplayStore();
@@ -371,7 +537,11 @@ describe("OpenaiApi streaming response visibility", () => {
 				'data: {"choices":[{"delta":{"content":"<think>private reasoning</think>Final answer"},"finish_reason":"stop"}]}\n\n',
 				"data: [DONE]\n\n",
 			]),
-			{ report(part: any) { reported.push(part.value); } },
+			{
+				report(part: any) {
+					reported.push(part.value);
+				},
+			},
 			token() as any
 		);
 
@@ -390,7 +560,11 @@ describe("OpenaiApi streaming response visibility", () => {
 				'data: {"choices":[{"delta":{"content":"nk>Visible"},"finish_reason":"stop"}]}\n\n',
 				"data: [DONE]\n\n",
 			]),
-			{ report(part: any) { reported.push(part.value); } },
+			{
+				report(part: any) {
+					reported.push(part.value);
+				},
+			},
 			token() as any
 		);
 
@@ -417,7 +591,11 @@ describe("OpenaiApi streaming response visibility", () => {
 				'data: {"choices":[{"delta":{"content":"Visible"},"finish_reason":"stop"}]}\n\n',
 				"data: [DONE]\n\n",
 			]),
-			{ report(part: any) { reported.push(part); } },
+			{
+				report(part: any) {
+					reported.push(part);
+				},
+			},
 			token() as any
 		);
 
@@ -437,7 +615,11 @@ describe("OpenaiApi streaming response visibility", () => {
 				'data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":12}}\n\n',
 				"data: [DONE]\n\n",
 			]),
-			{ report(part: any) { reported.push(part.value); } },
+			{
+				report(part: any) {
+					reported.push(part.value);
+				},
+			},
 			token() as any
 		);
 

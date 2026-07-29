@@ -175,19 +175,70 @@ describe("reasoning dialect profiles", () => {
 		assert.equal(profile.replayRisk, "none");
 	});
 
-	it("resolves Kimi K2 OpenAI routes as best-effort reasoning replay profiles", () => {
-		for (const modelId of ["kimi-k2.6", "kimi-k2-thinking"]) {
-			const profile = resolveReasoningDialectProfile({
-				modelId,
-				transport: "openai",
-			});
+	it("keeps Kimi K2.5 toggleable without claiming preserved-thinking support", () => {
+		const profile = resolveReasoningDialectProfile({ modelId: "kimi-k2.5", transport: "openai" });
 
-			assert.equal(profile.transport, "openai");
-			assert.equal(profile.family, "kimi");
-			assert.equal(profile.replayCarrier, "reasoning_content");
-			assert.deepEqual(profile.preservationControl, { kind: "kimi-keep" });
+		assert.equal(profile.id, "kimi-k2.5-toggleable");
+		assert.equal(profile.family, "kimi");
+		assert.equal(profile.currentTurnControl.kind, "thinking-type");
+		assert.equal(profile.preservationControl.kind, "none");
+		assert.equal(profile.replayScope, "tool-call-assistant-messages");
+		assert.equal(profile.canDisableThinking, true);
+		assert.equal(profile.requiredToolChoiceControl, "unsupported");
+	});
+
+	it("resolves Kimi K2.6 as toggleable with optional whole-history preservation", () => {
+		const profile = resolveReasoningDialectProfile({ modelId: "kimi-k2.6", transport: "openai" });
+
+		assert.equal(profile.id, "kimi-k2.6-toggleable-preserved");
+		assert.equal(profile.defaultThinking, "on");
+		assert.equal(profile.currentTurnControl.kind, "thinking-type");
+		assert.deepEqual(profile.preservationControl, { kind: "kimi-keep-all" });
+		assert.equal(profile.replayScope, "all-assistant-messages");
+		assert.equal(profile.replayRequiredByDefault, false);
+		assert.equal(profile.replayRisk, "reasoning-content-required-for-all-assistant-messages");
+		assert.equal(profile.requiredToolChoiceControl, "unsupported");
+	});
+
+	it("resolves both Kimi K2.7 Code speeds as forced preserved-thinking profiles", () => {
+		for (const modelId of ["kimi-k2.7-code", "kimi-k2.7-code-highspeed"]) {
+			const profile = resolveReasoningDialectProfile({ modelId, transport: "openai" });
+
+			assert.equal(profile.id, "kimi-k2.7-code-forced-preserved");
+			assert.equal(profile.defaultThinking, "forced");
+			assert.equal(profile.currentTurnControl.kind, "none");
+			assert.equal(profile.preservationControl.kind, "always-preserved");
+			assert.equal(profile.replayScope, "all-assistant-messages");
+			assert.equal(profile.replayRequiredByDefault, true);
+			assert.equal(profile.canDisableThinking, false);
 			assert.equal(profile.reasoningEffortControl, "none");
-			assert.equal(profile.replayRisk, "reasoning-content-best-effort-after-tool-call");
+			assert.equal(profile.requiredToolChoiceControl, "unsupported");
+		}
+	});
+
+	it("resolves Kimi K3 with forced preserved thinking and K3 effort/tool controls", () => {
+		const profile = resolveReasoningDialectProfile({ modelId: "kimi-k3", transport: "openai" });
+
+		assert.equal(profile.id, "kimi-k3-forced-preserved");
+		assert.equal(profile.defaultThinking, "forced");
+		assert.equal(profile.currentTurnControl.kind, "none");
+		assert.equal(profile.preservationControl.kind, "always-preserved");
+		assert.equal(profile.replayScope, "all-assistant-messages");
+		assert.equal(profile.replayRequiredByDefault, true);
+		assert.equal(profile.allowsMissingReplayPayload, true);
+		assert.equal(profile.reasoningEffortControl, "openai-reasoning-effort");
+		assert.deepEqual(profile.reasoningEffortLevels, ["low", "high", "max"]);
+		assert.equal(profile.defaultReasoningEffort, "max");
+		assert.equal(profile.requiredToolChoiceControl, "required-string");
+	});
+
+	it("keeps legacy and unverified Kimi IDs out of the active K2.x profiles", () => {
+		const legacy = resolveReasoningDialectProfile({ modelId: "kimi-k2-thinking", transport: "openai" });
+		assert.equal(legacy.id, "kimi-k2-thinking-legacy");
+		assert.equal(legacy.preservationControl.kind, "none");
+
+		for (const modelId of ["kimi-k2.7-code-test", "kimi-k2-instruct", "kimi-k3-test"]) {
+			assert.equal(resolveReasoningDialectProfile({ modelId, transport: "openai" }).id, "unknown", modelId);
 		}
 	});
 

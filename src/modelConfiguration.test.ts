@@ -143,6 +143,30 @@ describe("model configuration schema", () => {
 		assert.deepEqual(schema.properties.thinkingMode.enumItemLabels, ["Unset", "Disabled"]);
 	});
 
+	it("exposes only K3 reasoning effort levels on the OpenAI-compatible route", () => {
+		const schema = buildInfiniAIModelConfigurationSchema(
+			modelInfo({
+				id: "kimi-k3",
+				capabilities: {
+					toolCalling: true,
+				},
+			}),
+			131072,
+			"openai"
+		);
+
+		assert.deepEqual(schema.properties.reasoningEffort.enum, ["unset", "low", "high", "max"]);
+		assert.deepEqual(schema.properties.reasoningEffort.enumItemLabels, ["Unset", "Low", "High", "Max"]);
+		assert.equal(schema.properties.thinkingMode, undefined);
+	});
+
+	it("does not expose thinking or effort controls for forced Kimi K2.7 Code", () => {
+		const schema = buildInfiniAIModelConfigurationSchema(modelInfo({ id: "kimi-k2.7-code" }), 131072, "openai");
+
+		assert.equal(schema.properties.reasoningEffort, undefined);
+		assert.equal(schema.properties.thinkingMode, undefined);
+	});
+
 	it("shows Claude adaptive thinking controls without unproven effort controls", () => {
 		const schema = buildInfiniAIModelConfigurationSchema(
 			modelInfo({
@@ -455,6 +479,33 @@ describe("model configuration request mapping", () => {
 		assert.deepEqual(body, {
 			model: "kimi-k2.6",
 			thinking: { type: "enabled" },
+		});
+	});
+
+	it("applies Kimi K3 default max effort without adding a thinking object", () => {
+		const body: Record<string, unknown> = { model: "kimi-k3" };
+
+		applyOpenAIModelConfiguration(body, {}, undefined, {
+			useDefaultReasoningEffort: true,
+		});
+
+		assert.deepEqual(body, {
+			model: "kimi-k3",
+			reasoning_effort: "max",
+		});
+	});
+
+	it("maps explicit Kimi K3 effort and ignores unsupported thinking controls", () => {
+		const body: Record<string, unknown> = { model: "kimi-k3" };
+
+		applyOpenAIModelConfiguration(body, {
+			reasoningEffort: "low",
+			thinkingMode: "disabled",
+		});
+
+		assert.deepEqual(body, {
+			model: "kimi-k3",
+			reasoning_effort: "low",
 		});
 	});
 

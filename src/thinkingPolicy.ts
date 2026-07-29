@@ -23,10 +23,32 @@ export function shouldHonorThinkingRoundTripForProfile(input: {
 	readonly configuredThinkingMode?: InfiniAIModelConfiguration["thinkingMode"];
 }): boolean {
 	const { profile, configuredThinkingMode } = input;
+	if (profile.replayRisk === "none" || profile.replayRisk === "unknown") {
+		return false;
+	}
+	if (configuredThinkingMode === "disabled" && profile.canDisableThinking) {
+		return false;
+	}
 	if (profile.defaultRequestThinkingMode !== "disabled") {
 		return true;
 	}
 	return configuredThinkingMode === "enabled" && profile.canEnableThinking;
+}
+
+export function shouldCaptureDisabledThinkingObservation(input: {
+	readonly profile: ReasoningDialectProfile;
+	readonly configuredThinkingMode?: InfiniAIModelConfiguration["thinkingMode"];
+	readonly forceDisableThinking: boolean;
+	readonly allowThinkingRoundTrip: boolean;
+}): boolean {
+	const { profile, configuredThinkingMode, forceDisableThinking, allowThinkingRoundTrip } = input;
+	if (profile.replayScope !== "all-assistant-messages" || !profile.canDisableThinking) {
+		return false;
+	}
+	return (
+		configuredThinkingMode === "disabled" ||
+		(forceDisableThinking && !allowThinkingRoundTrip)
+	);
 }
 
 export function shouldRequireThinkingReplayByProfile(input: {
@@ -35,14 +57,22 @@ export function shouldRequireThinkingReplayByProfile(input: {
 	readonly forceDisableThinking: boolean;
 }): boolean {
 	const { profile, configuredThinkingMode, forceDisableThinking } = input;
+	const thinkingIsDisabled =
+		forceDisableThinking || (configuredThinkingMode === "disabled" && profile.canDisableThinking);
 	if (
-		forceDisableThinking ||
-		configuredThinkingMode === "disabled" ||
+		thinkingIsDisabled ||
 		profile.replayRisk === "none" ||
 		profile.replayRisk === "unknown" ||
 		profile.replayRisk === "reasoning-content-best-effort-after-tool-call"
 	) {
 		return false;
 	}
-	return configuredThinkingMode === "enabled" || profile.defaultThinking === "on" || profile.defaultThinking === "forced";
+	if (profile.replayRequiredByDefault !== undefined) {
+		return profile.replayRequiredByDefault;
+	}
+	return (
+		(configuredThinkingMode === "enabled" && profile.canEnableThinking) ||
+		profile.defaultThinking === "on" ||
+		profile.defaultThinking === "forced"
+	);
 }

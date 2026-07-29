@@ -8,15 +8,22 @@ import type {
 	AnthropicToolUseBlock,
 } from "./anthropic/anthropicTypes";
 import type { StoredReplayCarrier, ThinkingReplayEntry, ThinkingReplayStore } from "./thinkingReplayStore";
-import { isStoredReplayCarrier } from "./thinkingReplayStore";
+import {
+	buildOpenAIAssistantReplayKey,
+	buildOpenAIReplayHistoryKey,
+	isStoredReplayCarrier,
+} from "./thinkingReplayStore";
 
 export interface ThinkingReplayPreflight<TMessage = OpenAIChatMessage> {
 	readonly messages: TMessage[];
 	readonly allRequiredReasoningReplayed: boolean;
 	readonly hasAssistantToolCalls: boolean;
+	readonly hasAssistantMessagesRequiringReplay: boolean;
 	readonly replayedCount: number;
 	readonly missingCallIds: readonly string[];
 	readonly conflictingCallIds: readonly string[];
+	readonly missingAssistantMessageIndexes: readonly number[];
+	readonly conflictingAssistantMessageIndexes: readonly number[];
 }
 
 export interface ThinkingReplayRequestDecision {
@@ -32,7 +39,7 @@ export interface ThinkingReplayFailureContext {
 }
 
 export const THINKING_REPLAY_MISS_ERROR =
-	"Reasoning cannot be resumed for this conversation because prior tool-call reasoning context is not available. " +
+	"Reasoning cannot be resumed for this conversation because prior assistant reasoning context is not available. " +
 	"This can happen after cache expiry, clearing the replay cache, switching models, switching storage scopes, " +
 	"or enabling reasoning mid-chat. Start a new chat to use reasoning with this model, or remove the reasoning " +
 	"opt-in to continue this chat without thinking.";
@@ -66,6 +73,16 @@ export function buildThinkingReplayMissError(
 	}
 	if (preflight.conflictingCallIds.length > 0) {
 		details.push(`conflictingToolCallIds=${formatShortList(preflight.conflictingCallIds)}`);
+	}
+	if (preflight.missingAssistantMessageIndexes.length > 0) {
+		details.push(
+			`missingAssistantMessageIndexes=${formatShortList(preflight.missingAssistantMessageIndexes.map(String))}`
+		);
+	}
+	if (preflight.conflictingAssistantMessageIndexes.length > 0) {
+		details.push(
+			`conflictingAssistantMessageIndexes=${formatShortList(preflight.conflictingAssistantMessageIndexes.map(String))}`
+		);
 	}
 
 	return details.length > 0
@@ -121,51 +138,108 @@ export function applyThinkingReplay(input: {
 }): ThinkingReplayPreflight {
 	const missingCallIds: string[] = [];
 	const conflictingCallIds: string[] = [];
+	const missingAssistantMessageIndexes: number[] = [];
+	const conflictingAssistantMessageIndexes: number[] = [];
 	let hasAssistantToolCalls = false;
+	let hasAssistantMessagesRequiringReplay = false;
 	let replayedCount = 0;
 	const carrier = resolveReplayCarrier(input.profile);
+	const replayAllAssistantMessages = input.profile?.replayScope === "all-assistant-messages";
 
-	const messages = input.messages.map((message) => {
-		if (message.role !== "assistant" || !message.tool_calls || message.tool_calls.length === 0) {
+	const messages = input.messages.map((message, messageIndex) => {
+		if (message.role !== "assistant") {
 			return { ...message };
 		}
 
-		hasAssistantToolCalls = true;
+		const hasToolCalls = !!message.tool_calls && message.tool_calls.length > 0;
+		if (hasToolCalls) {
+			hasAssistantToolCalls = true;
+		}
+		if (hasToolCalls || replayAllAssistantMessages) {
+			hasAssistantMessagesRequiringReplay = true;
+		}
+		if (!hasToolCalls && !replayAllAssistantMessages) {
+			return { ...message };
+		}
+
 		if (messageHasReplayCarrier(message, carrier)) {
 			return { ...message };
 		}
 
-		const replayByCallId: Array<{ callId: string; entry: ThinkingReplayEntry; payloadKey: string }> = [];
-		for (const toolCall of message.tool_calls) {
-			if (!toolCall.id) {
-				missingCallIds.push("<missing>");
-				continue;
+		if (hasToolCalls && message.tool_calls) {
+			const replayByCallId: Array<{ callId: string; entry: ThinkingReplayEntry; payloadKey: string }> = [];
+			for (const toolCall of message.tool_calls) {
+				if (!toolCall.id) {
+					missingCallIds.push("<missing>");
+					continue;
+				}
+				const entry = lookupReplayEntry({
+					modelId: input.modelId,
+					callId: toolCall.id,
+					carrier,
+					profile: input.profile,
+					store: input.store,
+				});
+				const payloadKey = entry?.observedWithoutReplayPayload
+					? "observed-without-replay-payload"
+					: entry
+						? replayPayloadKey(entry, carrier)
+						: undefined;
+				if (!entry || !payloadKey) {
+					missingCallIds.push(toolCall.id);
+					continue;
+				}
+				replayByCallId.push({ callId: toolCall.id, entry, payloadKey });
 			}
-			const entry = lookupReplayEntry({
-				modelId: input.modelId,
-				callId: toolCall.id,
-				carrier,
-				profile: input.profile,
-				store: input.store,
-			});
-			const payloadKey = entry ? replayPayloadKey(entry, carrier) : undefined;
-			if (!entry || !payloadKey) {
-				missingCallIds.push(toolCall.id);
-				continue;
+
+			if (replayByCallId.length !== message.tool_calls.length) {
+				return { ...message };
 			}
-			replayByCallId.push({ callId: toolCall.id, entry, payloadKey });
+
+			const first = replayByCallId[0];
+			if (!first) {
+				return { ...message };
+			}
+			if (replayByCallId.some((entry) => entry.payloadKey !== first.payloadKey)) {
+				conflictingCallIds.push(...replayByCallId.map((entry) => entry.callId));
+				return { ...message };
+			}
+			if (first.entry.observedWithoutReplayPayload) {
+				return { ...message };
+			}
+
+			replayedCount++;
+			if (carrier === "reasoning_details") {
+				return {
+					...message,
+					reasoning_details: [...(first.entry.reasoningDetails ?? [])] as ProviderReasoningDetail[],
+				};
+			}
+			return { ...message, reasoning_content: first.entry.reasoningContent };
 		}
 
-		if (replayByCallId.length !== message.tool_calls.length) {
+		const historyKey = buildOpenAIReplayHistoryKey(input.messages.slice(0, messageIndex));
+		const assistantMessageKey = buildOpenAIAssistantReplayKey(historyKey, message);
+		const entry = input.store.lookupAssistant({
+			modelId: input.modelId,
+			assistantMessageKey,
+			profileId: input.profile?.id ?? "legacy-reasoning-content",
+			carrier,
+		});
+		if (!entry) {
+			missingAssistantMessageIndexes.push(messageIndex);
 			return { ...message };
 		}
-
-		const first = replayByCallId[0];
-		if (!first) {
+		if (entry.conflictingReplayPayload) {
+			conflictingAssistantMessageIndexes.push(messageIndex);
 			return { ...message };
 		}
-		if (replayByCallId.some((entry) => entry.payloadKey !== first.payloadKey)) {
-			conflictingCallIds.push(...replayByCallId.map((entry) => entry.callId));
+		if (entry.observedWithoutReplayPayload) {
+			return { ...message };
+		}
+		const payloadKey = replayPayloadKey(entry, carrier);
+		if (!payloadKey) {
+			missingAssistantMessageIndexes.push(messageIndex);
 			return { ...message };
 		}
 
@@ -173,19 +247,26 @@ export function applyThinkingReplay(input: {
 		if (carrier === "reasoning_details") {
 			return {
 				...message,
-				reasoning_details: [...(first.entry.reasoningDetails ?? [])] as ProviderReasoningDetail[],
+				reasoning_details: [...(entry.reasoningDetails ?? [])] as ProviderReasoningDetail[],
 			};
 		}
-		return { ...message, reasoning_content: first.entry.reasoningContent };
+		return { ...message, reasoning_content: entry.reasoningContent };
 	});
 
 	return {
 		messages,
-		allRequiredReasoningReplayed: missingCallIds.length === 0 && conflictingCallIds.length === 0,
+		allRequiredReasoningReplayed:
+			missingCallIds.length === 0 &&
+			conflictingCallIds.length === 0 &&
+			missingAssistantMessageIndexes.length === 0 &&
+			conflictingAssistantMessageIndexes.length === 0,
 		hasAssistantToolCalls,
+		hasAssistantMessagesRequiringReplay,
 		replayedCount,
 		missingCallIds,
 		conflictingCallIds,
+		missingAssistantMessageIndexes,
+		conflictingAssistantMessageIndexes,
 	};
 }
 
@@ -328,9 +409,12 @@ export function applyAnthropicThinkingReplay(input: {
 		messages,
 		allRequiredReasoningReplayed: missingCallIds.length === 0 && conflictingCallIds.length === 0,
 		hasAssistantToolCalls,
+		hasAssistantMessagesRequiringReplay: hasAssistantToolCalls,
 		replayedCount,
 		missingCallIds,
 		conflictingCallIds,
+		missingAssistantMessageIndexes: [],
+		conflictingAssistantMessageIndexes: [],
 	};
 }
 
@@ -348,7 +432,7 @@ export function decideThinkingReplayRequest(input: {
 	if (
 		!input.allowMissingReplay &&
 		!input.preflight.allRequiredReasoningReplayed &&
-		input.preflight.hasAssistantToolCalls
+		input.preflight.hasAssistantMessagesRequiringReplay
 	) {
 		return {
 			allowThinkingRoundTrip: false,

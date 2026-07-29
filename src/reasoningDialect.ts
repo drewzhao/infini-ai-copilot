@@ -22,15 +22,19 @@ export type ReplayCarrier =
 
 export type ReplayPreservationControlSpec =
 	| { readonly kind: "none" }
+	| { readonly kind: "always-preserved" }
 	| { readonly kind: "glm-clear-thinking" }
-	| { readonly kind: "kimi-keep" }
+	| { readonly kind: "kimi-keep-all" }
 	| { readonly kind: "qwen-preserve-thinking" };
 
 export type ReplayRisk =
 	| "none"
 	| "reasoning-content-required-after-tool-call"
 	| "reasoning-content-best-effort-after-tool-call"
+	| "reasoning-content-required-for-all-assistant-messages"
 	| "unknown";
+export type ReplayScope = "tool-call-assistant-messages" | "all-assistant-messages";
+export type RequiredToolChoiceControl = "specified-function" | "required-string" | "unsupported";
 export type ReasoningEffortControl = "none" | "openai-reasoning-effort" | "anthropic-output-config-effort";
 export type ReasoningEffortLevel = "low" | "medium" | "high" | "max";
 export type DefaultRequestThinkingMode = "enabled" | "disabled";
@@ -46,6 +50,10 @@ export interface ReasoningDialectProfile {
 	readonly canDisableThinking: boolean;
 	readonly canEnableThinking: boolean;
 	readonly replayRisk: ReplayRisk;
+	readonly replayScope: ReplayScope;
+	readonly replayRequiredByDefault?: boolean;
+	readonly allowsMissingReplayPayload: boolean;
+	readonly requiredToolChoiceControl: RequiredToolChoiceControl;
 	readonly reasoningEffortControl: ReasoningEffortControl;
 	readonly reasoningEffortLevels?: readonly ReasoningEffortLevel[];
 	readonly defaultReasoningEffort?: ReasoningEffortLevel;
@@ -61,12 +69,20 @@ function normalizedModelId(modelId: string): string {
 	return modelId.trim().toLowerCase();
 }
 
-type ReasoningDialectProfileInput = Omit<ReasoningDialectProfile, "reasoningEffortControl"> &
-	Partial<Pick<ReasoningDialectProfile, "reasoningEffortControl">>;
+type DefaultedReasoningDialectProfileFields =
+	| "reasoningEffortControl"
+	| "replayScope"
+	| "allowsMissingReplayPayload"
+	| "requiredToolChoiceControl";
+type ReasoningDialectProfileInput = Omit<ReasoningDialectProfile, DefaultedReasoningDialectProfileFields> &
+	Partial<Pick<ReasoningDialectProfile, DefaultedReasoningDialectProfileFields>>;
 
 function profile(input: ReasoningDialectProfileInput): ReasoningDialectProfile {
 	return {
 		reasoningEffortControl: "none",
+		replayScope: "tool-call-assistant-messages",
+		allowsMissingReplayPayload: false,
+		requiredToolChoiceControl: "specified-function",
 		...input,
 	};
 }
@@ -245,33 +261,93 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 		});
 	}
 
-	if (modelId.includes("kimi-k2-thinking")) {
+	if (modelId === "kimi-k2-thinking") {
 		return profile({
-			id: "kimi-k2-forced-thinking",
+			id: "kimi-k2-thinking-legacy",
 			transport: "openai",
 			family: "kimi",
 			defaultThinking: "forced",
 			currentTurnControl: { kind: "none" },
 			replayCarrier: "reasoning_content",
-			preservationControl: { kind: "kimi-keep" },
+			preservationControl: { kind: "none" },
 			canDisableThinking: false,
 			canEnableThinking: false,
 			replayRisk: "reasoning-content-best-effort-after-tool-call",
+			requiredToolChoiceControl: "unsupported",
 		});
 	}
 
-	if (modelId.includes("kimi-k2")) {
+	if (modelId === "kimi-k2.5") {
 		return profile({
-			id: "kimi-k2-toggleable",
+			id: "kimi-k2.5-toggleable",
 			transport: "openai",
 			family: "kimi",
 			defaultThinking: "on",
 			currentTurnControl: { kind: "thinking-type" },
 			replayCarrier: "reasoning_content",
-			preservationControl: { kind: "kimi-keep" },
+			preservationControl: { kind: "none" },
 			canDisableThinking: true,
 			canEnableThinking: true,
 			replayRisk: "reasoning-content-best-effort-after-tool-call",
+			requiredToolChoiceControl: "unsupported",
+		});
+	}
+
+	if (modelId === "kimi-k2.6") {
+		return profile({
+			id: "kimi-k2.6-toggleable-preserved",
+			transport: "openai",
+			family: "kimi",
+			defaultThinking: "on",
+			currentTurnControl: { kind: "thinking-type" },
+			replayCarrier: "reasoning_content",
+			preservationControl: { kind: "kimi-keep-all" },
+			canDisableThinking: true,
+			canEnableThinking: true,
+			replayRisk: "reasoning-content-required-for-all-assistant-messages",
+			replayScope: "all-assistant-messages",
+			replayRequiredByDefault: false,
+			requiredToolChoiceControl: "unsupported",
+		});
+	}
+
+	if (modelId === "kimi-k2.7-code" || modelId === "kimi-k2.7-code-highspeed") {
+		return profile({
+			id: "kimi-k2.7-code-forced-preserved",
+			transport: "openai",
+			family: "kimi",
+			defaultThinking: "forced",
+			currentTurnControl: { kind: "none" },
+			replayCarrier: "reasoning_content",
+			preservationControl: { kind: "always-preserved" },
+			canDisableThinking: false,
+			canEnableThinking: false,
+			replayRisk: "reasoning-content-required-for-all-assistant-messages",
+			replayScope: "all-assistant-messages",
+			replayRequiredByDefault: true,
+			requiredToolChoiceControl: "unsupported",
+		});
+	}
+
+	if (modelId === "kimi-k3") {
+		return profile({
+			id: "kimi-k3-forced-preserved",
+			transport: "openai",
+			family: "kimi",
+			defaultThinking: "forced",
+			currentTurnControl: { kind: "none" },
+			replayCarrier: "reasoning_content",
+			preservationControl: { kind: "always-preserved" },
+			canDisableThinking: false,
+			canEnableThinking: false,
+			replayRisk: "reasoning-content-required-for-all-assistant-messages",
+			replayScope: "all-assistant-messages",
+			replayRequiredByDefault: true,
+			allowsMissingReplayPayload: true,
+			requiredToolChoiceControl: "required-string",
+			reasoningEffortControl: "openai-reasoning-effort",
+			reasoningEffortLevels: ["low", "high", "max"],
+			defaultReasoningEffort: "max",
 		});
 	}
 

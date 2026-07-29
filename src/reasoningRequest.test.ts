@@ -211,7 +211,7 @@ describe("reasoning request controls", () => {
 		assert.deepEqual(result.ignoredControls, ["thinkingMode", "preserveThinking"]);
 	});
 
-	it("sets Kimi keep preservation without inventing Qwen fields", () => {
+	it("sets Kimi K2.6 preservation to the documented keep-all value", () => {
 		const body: Record<string, unknown> = { model: "kimi-k2.6" };
 		const profile = resolveReasoningDialectProfile({ modelId: "kimi-k2.6", transport: "openai" });
 
@@ -222,9 +222,50 @@ describe("reasoning request controls", () => {
 
 		assert.deepEqual(body, {
 			model: "kimi-k2.6",
-			thinking: { type: "enabled", keep: true },
+			thinking: { type: "enabled", keep: "all" },
 		});
 		assert.equal((body as Record<string, unknown>).enable_thinking, undefined);
+	});
+
+	it("uses null rather than a boolean when Kimi K2.6 preservation is cleared", () => {
+		const body: Record<string, unknown> = { model: "kimi-k2.6" };
+		const profile = resolveReasoningDialectProfile({ modelId: "kimi-k2.6", transport: "openai" });
+
+		applyReasoningRequestControls(body, profile, {
+			thinkingMode: "enabled",
+			preserveThinking: false,
+		});
+
+		assert.deepEqual(body, {
+			model: "kimi-k2.6",
+			thinking: { type: "enabled", keep: null },
+		});
+	});
+
+	it("never writes K2.x thinking controls for forced-preserved Kimi K2.7", () => {
+		const body: Record<string, unknown> = { model: "kimi-k2.7-code" };
+		const profile = resolveReasoningDialectProfile({ modelId: "kimi-k2.7-code", transport: "openai" });
+
+		const controls = buildReplayPreservationRequestControls({ allowThinkingRoundTrip: true, profile });
+		assert.equal(controls, undefined);
+		const result = applyReasoningRequestControls(body, profile, {
+			thinkingMode: "disabled",
+			preserveThinking: true,
+		});
+
+		assert.deepEqual(body, { model: "kimi-k2.7-code" });
+		assert.deepEqual(result.ignoredControls, ["thinkingMode", "preserveThinking"]);
+	});
+
+	it("never writes K2.x thinking controls for Kimi K3", () => {
+		const body: Record<string, unknown> = { model: "kimi-k3" };
+		const profile = resolveReasoningDialectProfile({ modelId: "kimi-k3", transport: "openai" });
+
+		const controls = buildReplayPreservationRequestControls({ allowThinkingRoundTrip: true, profile });
+		assert.equal(controls, undefined);
+		applyReasoningRequestControls(body, profile, {});
+
+		assert.deepEqual(body, { model: "kimi-k3" });
 	});
 
 	it("sets GLM clear_thinking preservation controls", () => {

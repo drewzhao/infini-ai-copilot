@@ -128,5 +128,6 @@ describe("built-in InfiniAI catalog metadata", () => {
 		assert.equal(getBuiltInInfiniAIModelMetadata("unknown-model"), undefined);
 		assert.equal(enrichModelWithBuiltInMetadata(liveModel("unknown-model")).family, "unknown-model");
 		assert.equal(inferModelFamily("qwen3-next-80b-a3b-thinking"), "qwen3-next");
+		assert.equal(inferModelFamily("kimi-k3"), "kimi-k3");
 	});
 });

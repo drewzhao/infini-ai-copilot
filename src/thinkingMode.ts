@@ -24,9 +24,9 @@ export const DEFAULT_DISABLE_THINKING_PATTERNS: readonly string[] = [
 ];
 
 /**
- * Built-in replay-capable families. These profiles have provider-native replay
- * adapters and strict preflight, so new tool-call chats can keep thinking on by
- * default while stale or missing replay context still fails locally.
+ * Built-in replay-capable model IDs and families. These profiles have
+ * provider-native replay adapters and preflight, including whole-history replay
+ * for preserved-thinking Kimi models.
  */
 export const DEFAULT_ENABLE_THINKING_ROUND_TRIP_PATTERNS: readonly string[] = [
 	"mimo-v2*",
@@ -35,7 +35,12 @@ export const DEFAULT_ENABLE_THINKING_ROUND_TRIP_PATTERNS: readonly string[] = [
 	"deepseek-v3.2-thinking",
 	"glm-5*",
 	"glm-4.7*",
-	"kimi-k2*",
+	"kimi-k2-thinking",
+	"kimi-k2.5",
+	"kimi-k2.6",
+	"kimi-k2.7-code",
+	"kimi-k2.7-code-highspeed",
+	"kimi-k3",
 	"minimax*",
 ];
 

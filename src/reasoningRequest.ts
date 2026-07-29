@@ -17,7 +17,14 @@ export function shouldApplyReplayPreservationControl(input: {
 	readonly allowThinkingRoundTrip: boolean;
 	readonly profile: ReasoningDialectProfile;
 }): boolean {
-	return input.allowThinkingRoundTrip && input.profile.preservationControl.kind !== "none";
+	if (!input.allowThinkingRoundTrip) {
+		return false;
+	}
+	return (
+		input.profile.preservationControl.kind === "glm-clear-thinking" ||
+		input.profile.preservationControl.kind === "kimi-keep-all" ||
+		input.profile.preservationControl.kind === "qwen-preserve-thinking"
+	);
 }
 
 export function buildReplayPreservationRequestControls(input: {
@@ -153,19 +160,22 @@ function applyPreservationControl(
 			writtenFields.push("thinking.clear_thinking");
 			return;
 		}
-		case "kimi-keep":
+		case "kimi-keep-all": {
+			const preserveThinking = options.preserveThinking ?? !options.clearThinking;
 			body.thinking = {
 				...getThinkingObject(body),
-				keep: options.preserveThinking ?? !options.clearThinking,
+				keep: preserveThinking ? "all" : null,
 			};
 			delete body.enable_thinking;
 			writtenFields.push("thinking.keep");
 			return;
+		}
 		case "qwen-preserve-thinking":
 			body.preserve_thinking = options.preserveThinking ?? !options.clearThinking;
 			delete body.thinking;
 			writtenFields.push("preserve_thinking");
 			return;
+		case "always-preserved":
 		case "none":
 			if (options.preserveThinking !== undefined) {
 				ignoredControls.push("preserveThinking");

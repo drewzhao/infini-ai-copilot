@@ -44,6 +44,7 @@ export function inferModelFamily(modelId: string): string {
 		[/^glm-4\.7/, "glm-4.7"],
 		[/^glm-4\.6/, "glm-4.6"],
 		[/^glm-4\.5/, "glm-4.5"],
+		[/^kimi-k3/, "kimi-k3"],
 		[/^kimi-k2/, "kimi-k2"],
 		[/^mimo-v2\.5/, "mimo-v2.5"],
 		[/^mimo-v2/, "mimo-v2"],

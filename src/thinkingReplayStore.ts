@@ -1,7 +1,8 @@
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "fs/promises";
 import { dirname } from "path";
 
+import type { OpenAIChatMessage } from "./openai/openaiTypes";
 import type { ReplayCarrier } from "./reasoningDialect";
 import type { ModelTransport } from "./types";
 
@@ -9,7 +10,8 @@ export type StoredReplayCarrier = Exclude<ReplayCarrier, "none" | "unknown">;
 
 export interface ThinkingReplayEntry {
 	readonly modelId: string;
-	readonly callId: string;
+	readonly callId?: string;
+	readonly assistantMessageKey?: string;
 	readonly profileId?: string;
 	readonly transport?: ModelTransport;
 	readonly carrier?: StoredReplayCarrier;
@@ -18,6 +20,7 @@ export interface ThinkingReplayEntry {
 	readonly reasoningSignature?: string;
 	readonly redactedThinkingData?: string;
 	readonly observedWithoutReplayPayload?: boolean;
+	readonly conflictingReplayPayload?: boolean;
 	readonly capturedAt: number;
 	readonly byteLength: number;
 }
@@ -32,11 +35,21 @@ export interface BeginThinkingReplayTurnInput {
 	readonly profileId: string;
 	readonly transport: ModelTransport;
 	readonly carrier: StoredReplayCarrier;
+	readonly historyKey?: string;
+	readonly captureAssistantMessages?: boolean;
+	readonly allowsMissingReplayPayload?: boolean;
 }
 
 export interface ThinkingReplayLookupInput {
 	readonly modelId: string;
 	readonly callId: string;
+	readonly profileId: string;
+	readonly carrier: StoredReplayCarrier;
+}
+
+export interface AssistantThinkingReplayLookupInput {
+	readonly modelId: string;
+	readonly assistantMessageKey: string;
 	readonly profileId: string;
 	readonly carrier: StoredReplayCarrier;
 }
@@ -71,6 +84,11 @@ interface PendingTurn {
 	readonly detailChunks: unknown[];
 	readonly signatureChunks: string[];
 	readonly redactedThinkingChunks: string[];
+	readonly assistantContentChunks: string[];
+	readonly historyKey?: string;
+	readonly captureAssistantMessages: boolean;
+	readonly allowsMissingReplayPayload: boolean;
+	observedWithoutReplayPayload: boolean;
 	byteLength: number;
 	invalid: boolean;
 }
@@ -80,12 +98,83 @@ const DEFAULT_MAX_TOTAL_BYTES = 2 * 1024 * 1024;
 const DEFAULT_MAX_PENDING_TURN_BYTES = 512 * 1024;
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
 
-function replayKey(modelId: string, callId: string): string {
-	return `${modelId}::${callId}`;
+function callReplayKey(modelId: string, callId: string): string {
+	return `call::${modelId}::${callId}`;
+}
+
+function assistantReplayKey(modelId: string, assistantMessageKey: string): string {
+	return `assistant::${modelId}::${assistantMessageKey}`;
 }
 
 function byteLength(input: string): number {
 	return Buffer.byteLength(input, "utf8");
+}
+
+function digest(input: string): string {
+	return createHash("sha256").update(input).digest("hex");
+}
+
+function normalizeFingerprintText(input: string): string {
+	return input.replace(/\r\n?/g, "\n").replace(/\s+/g, " ").trim();
+}
+
+function stableValue(value: unknown): unknown {
+	if (Array.isArray(value)) {
+		return value.map(stableValue);
+	}
+	if (value && typeof value === "object") {
+		return Object.fromEntries(
+			Object.entries(value as Record<string, unknown>)
+				.sort(([a], [b]) => a.localeCompare(b))
+				.map(([key, entryValue]) => [key, stableValue(entryValue)])
+		);
+	}
+	return value;
+}
+
+function normalizeToolArguments(input: string): unknown {
+	try {
+		return stableValue(JSON.parse(input));
+	} catch {
+		return normalizeFingerprintText(input);
+	}
+}
+
+function canonicalOpenAIMessage(message: OpenAIChatMessage): Record<string, unknown> {
+	const content =
+		typeof message.content === "string"
+			? normalizeFingerprintText(message.content)
+			: Array.isArray(message.content)
+				? message.content.map((part) => ({
+						type: part.type,
+						...(typeof part.text === "string" ? { text: normalizeFingerprintText(part.text) } : {}),
+						...(part.image_url?.url ? { imageUrlDigest: digest(part.image_url.url) } : {}),
+					}))
+				: undefined;
+	return {
+		role: message.role,
+		...(content !== undefined ? { content } : {}),
+		...(message.name ? { name: message.name } : {}),
+		...(message.tool_call_id ? { toolCallId: message.tool_call_id } : {}),
+		...(message.tool_calls
+			? {
+					toolCalls: message.tool_calls.map((toolCall) => ({
+						id: toolCall.id,
+						type: toolCall.type,
+						name: toolCall.function.name,
+						arguments: normalizeToolArguments(toolCall.function.arguments),
+					})),
+				}
+			: {}),
+	};
+}
+
+export function buildOpenAIReplayHistoryKey(messages: readonly OpenAIChatMessage[]): string {
+	return digest(JSON.stringify(messages.map(canonicalOpenAIMessage)));
+}
+
+export function buildOpenAIAssistantReplayKey(historyKey: string, assistantMessage: OpenAIChatMessage): string {
+	return digest(JSON.stringify({ historyKey, assistant: canonicalOpenAIMessage(assistantMessage) }));
 }
 
 export function isStoredReplayCarrier(value: ReplayCarrier): value is StoredReplayCarrier {
@@ -102,7 +191,8 @@ function isReplayEntry(value: unknown): value is ThinkingReplayEntry {
 	return (
 		!!v &&
 		typeof v.modelId === "string" &&
-		typeof v.callId === "string" &&
+		(v.callId === undefined || typeof v.callId === "string") &&
+		(v.assistantMessageKey === undefined || typeof v.assistantMessageKey === "string") &&
 		(v.profileId === undefined || typeof v.profileId === "string") &&
 		(v.transport === undefined ||
 			v.transport === "openai" ||
@@ -114,15 +204,18 @@ function isReplayEntry(value: unknown): value is ThinkingReplayEntry {
 		(v.reasoningSignature === undefined || typeof v.reasoningSignature === "string") &&
 		(v.redactedThinkingData === undefined || typeof v.redactedThinkingData === "string") &&
 		(v.observedWithoutReplayPayload === undefined || v.observedWithoutReplayPayload === true) &&
+		(v.conflictingReplayPayload === undefined || v.conflictingReplayPayload === true) &&
 		typeof v.capturedAt === "number" &&
 		typeof v.byteLength === "number" &&
 		v.modelId.length > 0 &&
-		v.callId.length > 0 &&
+		((typeof v.callId === "string" && v.callId.length > 0) ||
+			(typeof v.assistantMessageKey === "string" && v.assistantMessageKey.length > 0)) &&
 		v.byteLength >= 0 &&
 		(typeof v.reasoningContent === "string" ||
 			Array.isArray(v.reasoningDetails) ||
 			typeof v.redactedThinkingData === "string" ||
-			v.observedWithoutReplayPayload === true)
+			v.observedWithoutReplayPayload === true ||
+			v.conflictingReplayPayload === true)
 	);
 }
 
@@ -134,6 +227,17 @@ function normalizeReplayEntry(entry: ThinkingReplayEntry): ThinkingReplayEntry {
 		transport: entry.transport ?? "openai",
 		carrier,
 	};
+}
+
+function replayPayloadIdentity(entry: ThinkingReplayEntry): string {
+	return JSON.stringify({
+		reasoningContent: entry.reasoningContent,
+		reasoningDetails: entry.reasoningDetails,
+		reasoningSignature: entry.reasoningSignature,
+		redactedThinkingData: entry.redactedThinkingData,
+		observedWithoutReplayPayload: entry.observedWithoutReplayPayload === true,
+		conflictingReplayPayload: entry.conflictingReplayPayload === true,
+	});
 }
 
 export class MemoryThinkingReplayStorage implements ThinkingReplayStorage {
@@ -165,7 +269,7 @@ export class LocalPlaintextThinkingReplayStorage implements ThinkingReplayStorag
 	async save(entries: readonly ThinkingReplayEntry[]): Promise<void> {
 		await mkdir(dirname(this.filePath), { recursive: true });
 		const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
-		const payload = JSON.stringify({ version: 1, entries }, null, "\t");
+		const payload = JSON.stringify({ version: 2, entries }, null, "\t");
 		await writeFile(tempPath, payload, "utf8");
 		await rename(tempPath, this.filePath);
 	}
@@ -206,7 +310,12 @@ export class ThinkingReplayStore {
 		const loaded = await storage.load();
 		for (const entry of loaded) {
 			const normalized = normalizeReplayEntry(entry);
-			this.entries.set(replayKey(normalized.modelId, normalized.callId), normalized);
+			if (normalized.callId) {
+				this.entries.set(callReplayKey(normalized.modelId, normalized.callId), normalized);
+			}
+			if (normalized.assistantMessageKey) {
+				this.entries.set(assistantReplayKey(normalized.modelId, normalized.assistantMessageKey), normalized);
+			}
 		}
 		await this.prune();
 	}
@@ -221,6 +330,9 @@ export class ThinkingReplayStore {
 						profileId: "legacy-reasoning-content",
 						transport: "openai" as const,
 						carrier: "reasoning_content" as const,
+						historyKey: undefined,
+						captureAssistantMessages: false,
+						allowsMissingReplayPayload: false,
 					}
 				: input;
 		const turnId = randomUUID();
@@ -234,6 +346,11 @@ export class ThinkingReplayStore {
 			detailChunks: [],
 			signatureChunks: [],
 			redactedThinkingChunks: [],
+			assistantContentChunks: [],
+			historyKey: config.historyKey,
+			captureAssistantMessages: config.captureAssistantMessages ?? false,
+			allowsMissingReplayPayload: config.allowsMissingReplayPayload ?? false,
+			observedWithoutReplayPayload: false,
 			byteLength: 0,
 			invalid: !config.modelId || !config.profileId,
 		});
@@ -258,6 +375,29 @@ export class ThinkingReplayStore {
 			return;
 		}
 		pending.chunks.push(text);
+	}
+
+	appendAssistantContent(turnId: string, text: string): void {
+		if (!text) {
+			return;
+		}
+		const pending = this.pending.get(turnId);
+		if (!pending || !pending.captureAssistantMessages) {
+			return;
+		}
+		pending.byteLength += byteLength(text);
+		if (pending.byteLength > this.maxPendingTurnBytes) {
+			pending.invalid = true;
+			return;
+		}
+		pending.assistantContentChunks.push(text);
+	}
+
+	markObservedWithoutReplayPayload(turnId: string): void {
+		const pending = this.pending.get(turnId);
+		if (pending) {
+			pending.observedWithoutReplayPayload = true;
+		}
 	}
 
 	appendReasoningDetails(turnId: string, details: readonly unknown[]): void {
@@ -319,7 +459,7 @@ export class ThinkingReplayStore {
 	async commit(turnId: string): Promise<void> {
 		const pending = this.pending.get(turnId);
 		this.pending.delete(turnId);
-		if (!pending || pending.invalid || pending.callIds.size === 0) {
+		if (!pending || pending.invalid) {
 			return;
 		}
 
@@ -329,7 +469,12 @@ export class ThinkingReplayStore {
 		const hasReplayPayload =
 			pending.carrier === "reasoning_details" ? !!reasoningDetails : !!reasoningContent || !!redactedThinkingData;
 		const observedWithoutReplayPayload =
-			pending.carrier === "anthropic_thinking_block" && !hasReplayPayload ? true : undefined;
+			!hasReplayPayload &&
+			(pending.carrier === "anthropic_thinking_block" ||
+				pending.allowsMissingReplayPayload ||
+				pending.observedWithoutReplayPayload)
+				? true
+				: undefined;
 		if (!hasReplayPayload && !observedWithoutReplayPayload) {
 			return;
 		}
@@ -341,22 +486,67 @@ export class ThinkingReplayStore {
 			(reasoningDetails ? byteLength(JSON.stringify(reasoningDetails)) : 0) +
 			(reasoningSignature ? byteLength(reasoningSignature) : 0) +
 			(redactedThinkingData ? byteLength(redactedThinkingData) : 0);
-		for (const callId of pending.callIds) {
-			const entry: ThinkingReplayEntry = {
+
+		if (pending.callIds.size > 0) {
+			for (const callId of pending.callIds) {
+				const entry: ThinkingReplayEntry = {
+					modelId: pending.modelId,
+					callId,
+					profileId: pending.profileId,
+					transport: pending.transport,
+					carrier: pending.carrier,
+					reasoningContent,
+					reasoningDetails,
+					reasoningSignature,
+					redactedThinkingData,
+					observedWithoutReplayPayload,
+					capturedAt,
+					byteLength: entryByteLength,
+				};
+				this.entries.set(callReplayKey(entry.modelId, callId), entry);
+			}
+			await this.prune(this.now(), true);
+			return;
+		}
+
+		const assistantContent = pending.assistantContentChunks.join("");
+		if (!pending.captureAssistantMessages || !pending.historyKey || !assistantContent) {
+			return;
+		}
+		const assistantMessageKey = buildOpenAIAssistantReplayKey(pending.historyKey, {
+			role: "assistant",
+			content: assistantContent,
+		});
+		const storageKey = assistantReplayKey(pending.modelId, assistantMessageKey);
+		const entry: ThinkingReplayEntry = {
+			modelId: pending.modelId,
+			assistantMessageKey,
+			profileId: pending.profileId,
+			transport: pending.transport,
+			carrier: pending.carrier,
+			reasoningContent,
+			reasoningDetails,
+			reasoningSignature,
+			redactedThinkingData,
+			observedWithoutReplayPayload,
+			capturedAt,
+			byteLength: entryByteLength,
+		};
+		const existing = this.entries.get(storageKey);
+		if (existing && replayPayloadIdentity(existing) !== replayPayloadIdentity(entry)) {
+			const conflict: ThinkingReplayEntry = {
 				modelId: pending.modelId,
-				callId,
+				assistantMessageKey,
 				profileId: pending.profileId,
 				transport: pending.transport,
 				carrier: pending.carrier,
-				reasoningContent,
-				reasoningDetails,
-				reasoningSignature,
-				redactedThinkingData,
-				observedWithoutReplayPayload,
+				conflictingReplayPayload: true,
 				capturedAt,
-				byteLength: entryByteLength,
+				byteLength: 0,
 			};
-			this.entries.set(replayKey(entry.modelId, entry.callId), entry);
+			this.entries.set(storageKey, conflict);
+		} else {
+			this.entries.set(storageKey, entry);
 		}
 		await this.prune(this.now(), true);
 	}
@@ -371,10 +561,11 @@ export class ThinkingReplayStore {
 		const lookupInput = typeof inputOrModelId === "string" ? undefined : inputOrModelId;
 		const keyModelId = typeof inputOrModelId === "string" ? inputOrModelId : inputOrModelId.modelId;
 		const keyCallId = typeof inputOrModelId === "string" ? (callId ?? "") : inputOrModelId.callId;
-		const entry = this.entries.get(replayKey(keyModelId, keyCallId));
+		const storageKey = callReplayKey(keyModelId, keyCallId);
+		const entry = this.entries.get(storageKey);
 		if (!entry || !this.isFresh(entry, this.now())) {
 			if (entry) {
-				this.entries.delete(replayKey(keyModelId, keyCallId));
+				this.entries.delete(storageKey);
 			}
 			return undefined;
 		}
@@ -392,6 +583,22 @@ export class ThinkingReplayStore {
 			return normalized;
 		}
 		return entry;
+	}
+
+	lookupAssistant(input: AssistantThinkingReplayLookupInput): ThinkingReplayEntry | undefined {
+		const storageKey = assistantReplayKey(input.modelId, input.assistantMessageKey);
+		const entry = this.entries.get(storageKey);
+		if (!entry || !this.isFresh(entry, this.now())) {
+			if (entry) {
+				this.entries.delete(storageKey);
+			}
+			return undefined;
+		}
+		const normalized = normalizeReplayEntry(entry);
+		if (normalized.carrier !== input.carrier || normalized.profileId !== input.profileId) {
+			return undefined;
+		}
+		return normalized;
 	}
 
 	async prune(now = this.now(), forceSave = false): Promise<void> {

@@ -11,7 +11,12 @@ const DEFAULT_ROUND_TRIP_PATTERNS = [
 	"deepseek-v3.2-thinking",
 	"glm-5*",
 	"glm-4.7*",
-	"kimi-k2*",
+	"kimi-k2-thinking",
+	"kimi-k2.5",
+	"kimi-k2.6",
+	"kimi-k2.7-code",
+	"kimi-k2.7-code-highspeed",
+	"kimi-k3",
 	"minimax*",
 ];
 
@@ -113,7 +118,12 @@ describe("getThinkingRoundTripPatterns", () => {
 			"glm-5.2",
 			"glm-5.1",
 			"glm-4.7",
+			"kimi-k2.5",
 			"kimi-k2.6",
+			"kimi-k2.7-code",
+			"kimi-k2.7-code-highspeed",
+			"kimi-k2-thinking",
+			"kimi-k3",
 			"minimax-m2.7",
 		]) {
 			assert.equal(shouldEnableThinkingRoundTrip(id, patterns), true, id);
@@ -122,6 +132,8 @@ describe("getThinkingRoundTripPatterns", () => {
 		assert.equal(shouldEnableThinkingRoundTrip("deepseek-r1-distill-qwen-32b", patterns), false);
 		assert.equal(shouldEnableThinkingRoundTrip("pro-deepseek-r1", patterns), false);
 		assert.equal(shouldEnableThinkingRoundTrip("qwen3-32b", patterns), false);
+		assert.equal(shouldEnableThinkingRoundTrip("kimi-k2.7-code-test", patterns), false);
+		assert.equal(shouldEnableThinkingRoundTrip("kimi-k2-instruct", patterns), false);
 	});
 
 	it("matches the manifest setting default", () => {

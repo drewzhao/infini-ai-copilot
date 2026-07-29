@@ -115,10 +115,7 @@ function getReasoningEffortEnumDescriptions(
 	levels: readonly ReasoningEffort[]
 ): string[] {
 	const parameterName = control === "anthropic-output-config-effort" ? "output_config.effort" : "reasoning_effort";
-	return [
-		`Do not send ${parameterName}.`,
-		...levels.map((level) => `Send ${parameterName}=${level}.`),
-	];
+	return [`Do not send ${parameterName}.`, ...levels.map((level) => `Send ${parameterName}=${level}.`)];
 }
 
 function readRawModelConfiguration(options: ProvideLanguageModelChatResponseOptions): ModelConfigurationRecord {
@@ -239,19 +236,20 @@ export function applyOpenAIModelConfiguration(
 			modelId: typeof body.model === "string" ? body.model : "",
 			transport: "openai",
 		});
-	const shouldSendEffort =
-		resolvedProfile.reasoningEffortControl === "openai-reasoning-effort" &&
-		configuration.thinkingMode !== "disabled";
+	const thinkingIsDisabled = configuration.thinkingMode === "disabled" && resolvedProfile.canDisableThinking;
+	const shouldSendEffort = resolvedProfile.reasoningEffortControl === "openai-reasoning-effort" && !thinkingIsDisabled;
 	const configuredEffort =
 		configuration.reasoningEffort && isSupportedReasoningEffort(resolvedProfile, configuration.reasoningEffort)
 			? configuration.reasoningEffort
 			: undefined;
 	const defaultEffort =
-		resolvedProfile.defaultReasoningEffort && isSupportedReasoningEffort(resolvedProfile, resolvedProfile.defaultReasoningEffort)
+		resolvedProfile.defaultReasoningEffort &&
+		isSupportedReasoningEffort(resolvedProfile, resolvedProfile.defaultReasoningEffort)
 			? resolvedProfile.defaultReasoningEffort
 			: undefined;
 	const reasoningEffort =
-		configuredEffort ?? (configuration.thinkingMode === "enabled" || options.useDefaultReasoningEffort ? defaultEffort : undefined);
+		configuredEffort ??
+		(configuration.thinkingMode === "enabled" || options.useDefaultReasoningEffort ? defaultEffort : undefined);
 	if (shouldSendEffort && reasoningEffort !== undefined) {
 		body.reasoning_effort = reasoningEffort;
 	}

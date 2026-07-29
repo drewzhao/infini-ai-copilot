@@ -4,6 +4,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 import {
+	buildOpenAIAssistantReplayKey,
+	buildOpenAIReplayHistoryKey,
 	LocalPlaintextThinkingReplayStorage,
 	MemoryThinkingReplayStorage,
 	ThinkingReplayStore,
@@ -25,6 +27,106 @@ describe("ThinkingReplayStore", () => {
 		assert.equal(entry?.reasoningContent, "reason content");
 		assert.equal(entry?.modelId, "mimo-v2.5-pro");
 		assert.equal(entry?.callId, "call_1");
+	});
+
+	it("stores ordinary assistant reasoning by transcript fingerprint", async () => {
+		const store = new ThinkingReplayStore();
+		await store.initialize(new MemoryThinkingReplayStorage());
+		const history = [{ role: "user" as const, content: "Continue the proof." }];
+		const historyKey = buildOpenAIReplayHistoryKey(history);
+		const turn = store.beginTurn({
+			modelId: "kimi-k3",
+			profileId: "kimi-k3-forced-preserved",
+			transport: "openai",
+			carrier: "reasoning_content",
+			historyKey,
+			captureAssistantMessages: true,
+			allowsMissingReplayPayload: true,
+		});
+		store.appendReasoning(turn.turnId, "hidden reasoning");
+		store.appendAssistantContent(turn.turnId, "Final");
+		store.appendAssistantContent(turn.turnId, " answer");
+		await store.commit(turn.turnId);
+
+		const assistantMessageKey = buildOpenAIAssistantReplayKey(historyKey, {
+			role: "assistant",
+			content: "Final   answer",
+		});
+		const entry = store.lookupAssistant({
+			modelId: "kimi-k3",
+			assistantMessageKey,
+			profileId: "kimi-k3-forced-preserved",
+			carrier: "reasoning_content",
+		});
+
+		assert.equal(entry?.reasoningContent, "hidden reasoning");
+		assert.equal(entry?.callId, undefined);
+		assert.equal(entry?.assistantMessageKey, assistantMessageKey);
+	});
+
+	it("records K3 assistant turns that were observed without reasoning_content", async () => {
+		const store = new ThinkingReplayStore();
+		await store.initialize(new MemoryThinkingReplayStorage());
+		const historyKey = buildOpenAIReplayHistoryKey([{ role: "user", content: "Hello" }]);
+		const turn = store.beginTurn({
+			modelId: "kimi-k3",
+			profileId: "kimi-k3-forced-preserved",
+			transport: "openai",
+			carrier: "reasoning_content",
+			historyKey,
+			captureAssistantMessages: true,
+			allowsMissingReplayPayload: true,
+		});
+		store.appendAssistantContent(turn.turnId, "Hello back");
+		await store.commit(turn.turnId);
+
+		const assistantMessageKey = buildOpenAIAssistantReplayKey(historyKey, {
+			role: "assistant",
+			content: "Hello back",
+		});
+		assert.equal(
+			store.lookupAssistant({
+				modelId: "kimi-k3",
+				assistantMessageKey,
+				profileId: "kimi-k3-forced-preserved",
+				carrier: "reasoning_content",
+			})?.observedWithoutReplayPayload,
+			true
+		);
+	});
+
+	it("marks ambiguous ordinary assistant replay payloads as conflicting", async () => {
+		const store = new ThinkingReplayStore();
+		await store.initialize(new MemoryThinkingReplayStorage());
+		const historyKey = buildOpenAIReplayHistoryKey([{ role: "user", content: "Retryable prompt" }]);
+
+		for (const reasoning of ["first reasoning", "different reasoning"]) {
+			const turn = store.beginTurn({
+				modelId: "kimi-k3",
+				profileId: "kimi-k3-forced-preserved",
+				transport: "openai",
+				carrier: "reasoning_content",
+				historyKey,
+				captureAssistantMessages: true,
+			});
+			store.appendReasoning(turn.turnId, reasoning);
+			store.appendAssistantContent(turn.turnId, "Same visible answer");
+			await store.commit(turn.turnId);
+		}
+
+		const assistantMessageKey = buildOpenAIAssistantReplayKey(historyKey, {
+			role: "assistant",
+			content: "Same visible answer",
+		});
+		assert.equal(
+			store.lookupAssistant({
+				modelId: "kimi-k3",
+				assistantMessageKey,
+				profileId: "kimi-k3-forced-preserved",
+				carrier: "reasoning_content",
+			})?.conflictingReplayPayload,
+			true
+		);
 	});
 
 	it("commits and looks up provider-native reasoning_details entries by carrier", async () => {
@@ -154,14 +256,40 @@ describe("ThinkingReplayStore", () => {
 			first.recordToolCall(turn.turnId, "call_persisted");
 			await first.commit(turn.turnId);
 
+			const historyKey = buildOpenAIReplayHistoryKey([{ role: "user", content: "Persisted question" }]);
+			const assistantTurn = first.beginTurn({
+				modelId: "kimi-k3",
+				profileId: "kimi-k3-forced-preserved",
+				transport: "openai",
+				carrier: "reasoning_content",
+				historyKey,
+				captureAssistantMessages: true,
+			});
+			first.appendReasoning(assistantTurn.turnId, "persisted hidden reasoning");
+			first.appendAssistantContent(assistantTurn.turnId, "Persisted answer");
+			await first.commit(assistantTurn.turnId);
+
 			const raw = JSON.parse(await readFile(file, "utf8"));
-			assert.equal(raw.version, 1);
-			assert.equal(raw.entries.length, 1);
+			assert.equal(raw.version, 2);
+			assert.equal(raw.entries.length, 2);
 
 			const second = new ThinkingReplayStore();
 			await second.initialize(new LocalPlaintextThinkingReplayStorage(file));
 
 			assert.equal(second.lookup("deepseek-v4", "call_persisted")?.reasoningContent, "persist me");
+			const assistantMessageKey = buildOpenAIAssistantReplayKey(historyKey, {
+				role: "assistant",
+				content: "Persisted answer",
+			});
+			assert.equal(
+				second.lookupAssistant({
+					modelId: "kimi-k3",
+					assistantMessageKey,
+					profileId: "kimi-k3-forced-preserved",
+					carrier: "reasoning_content",
+				})?.reasoningContent,
+				"persisted hidden reasoning"
+			);
 		} finally {
 			await rm(dir, { recursive: true, force: true });
 		}
@@ -180,7 +308,6 @@ describe("ThinkingReplayStore", () => {
 			await rm(dir, { recursive: true, force: true });
 		}
 	});
-
 
 	it("ignores corrupt local plaintext cache and clears active cache state", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "thinking-replay-"));

@@ -9,7 +9,12 @@ import {
 	buildThinkingReplayMissError,
 	decideThinkingReplayRequest,
 } from "./thinkingReplay";
-import { MemoryThinkingReplayStorage, type StoredReplayCarrier, ThinkingReplayStore } from "./thinkingReplayStore";
+import {
+	buildOpenAIReplayHistoryKey,
+	MemoryThinkingReplayStorage,
+	type StoredReplayCarrier,
+	ThinkingReplayStore,
+} from "./thinkingReplayStore";
 import type { ModelTransport } from "./types";
 
 async function storeWithEntries(
@@ -49,6 +54,33 @@ async function storeWithEntries(
 		store.recordToolCall(turn.turnId, entry.callId);
 		await store.commit(turn.turnId);
 	}
+	return store;
+}
+
+async function storeOrdinaryAssistantTurn(input: {
+	modelId: string;
+	history: OpenAIChatMessage[];
+	content: string;
+	reasoningContent?: string;
+	allowsMissingReplayPayload?: boolean;
+}) {
+	const store = new ThinkingReplayStore();
+	await store.initialize(new MemoryThinkingReplayStorage());
+	const profile = resolveReasoningDialectProfile({ modelId: input.modelId, transport: "openai" });
+	const turn = store.beginTurn({
+		modelId: input.modelId,
+		profileId: profile.id,
+		transport: profile.transport,
+		carrier: "reasoning_content",
+		historyKey: buildOpenAIReplayHistoryKey(input.history),
+		captureAssistantMessages: true,
+		allowsMissingReplayPayload: input.allowsMissingReplayPayload ?? false,
+	});
+	if (input.reasoningContent) {
+		store.appendReasoning(turn.turnId, input.reasoningContent);
+	}
+	store.appendAssistantContent(turn.turnId, input.content);
+	await store.commit(turn.turnId);
 	return store;
 }
 
@@ -158,6 +190,119 @@ describe("applyThinkingReplay", () => {
 		assert.equal(result.hasAssistantToolCalls, true);
 		assert.equal(result.replayedCount, 0);
 		assert.equal(result.messages[1].reasoning_content, "host supplied");
+	});
+
+	it("replays ordinary K3 assistant turns from transcript fingerprints", async () => {
+		const history: OpenAIChatMessage[] = [{ role: "user", content: "First question" }];
+		const store = await storeOrdinaryAssistantTurn({
+			modelId: "kimi-k3",
+			history,
+			content: "First answer",
+			reasoningContent: "first hidden reasoning",
+		});
+		const profile = resolveReasoningDialectProfile({ modelId: "kimi-k3", transport: "openai" });
+		const messages: OpenAIChatMessage[] = [
+			...history,
+			{ role: "assistant", content: "First answer" },
+			{ role: "user", content: "Follow up" },
+		];
+
+		const result = applyThinkingReplay({ modelId: "kimi-k3", profile, messages, store });
+
+		assert.equal(result.allRequiredReasoningReplayed, true);
+		assert.equal(result.hasAssistantToolCalls, false);
+		assert.equal(result.hasAssistantMessagesRequiringReplay, true);
+		assert.equal(result.replayedCount, 1);
+		assert.deepEqual(result.missingAssistantMessageIndexes, []);
+		assert.equal(result.messages[1].reasoning_content, "first hidden reasoning");
+		assert.equal(messages[1].reasoning_content, undefined);
+	});
+
+	it("marks an uncached ordinary K3 assistant turn as a strict replay miss", async () => {
+		const profile = resolveReasoningDialectProfile({ modelId: "kimi-k3", transport: "openai" });
+		const messages: OpenAIChatMessage[] = [
+			{ role: "user", content: "First question" },
+			{ role: "assistant", content: "Uncached answer" },
+			{ role: "user", content: "Follow up" },
+		];
+
+		const result = applyThinkingReplay({
+			modelId: "kimi-k3",
+			profile,
+			messages,
+			store: await storeWithEntries([]),
+		});
+
+		assert.equal(result.allRequiredReasoningReplayed, false);
+		assert.equal(result.hasAssistantToolCalls, false);
+		assert.equal(result.hasAssistantMessagesRequiringReplay, true);
+		assert.deepEqual(result.missingAssistantMessageIndexes, [1]);
+	});
+
+	it("accepts ordinary K3 turns observed without a reasoning payload", async () => {
+		const history: OpenAIChatMessage[] = [{ role: "user", content: "First question" }];
+		const store = await storeOrdinaryAssistantTurn({
+			modelId: "kimi-k3",
+			history,
+			content: "Answer without reasoning",
+			allowsMissingReplayPayload: true,
+		});
+		const profile = resolveReasoningDialectProfile({ modelId: "kimi-k3", transport: "openai" });
+		const messages: OpenAIChatMessage[] = [
+			...history,
+			{ role: "assistant", content: "Answer without reasoning" },
+			{ role: "user", content: "Follow up" },
+		];
+
+		const result = applyThinkingReplay({ modelId: "kimi-k3", profile, messages, store });
+
+		assert.equal(result.allRequiredReasoningReplayed, true);
+		assert.equal(result.replayedCount, 0);
+		assert.deepEqual(result.missingAssistantMessageIndexes, []);
+		assert.equal(result.messages[1].reasoning_content, undefined);
+	});
+
+	it("accepts K2.6 assistant turns captured while thinking was disabled", async () => {
+		const history: OpenAIChatMessage[] = [{ role: "user", content: "First question" }];
+		const store = await storeOrdinaryAssistantTurn({
+			modelId: "kimi-k2.6",
+			history,
+			content: "Answer produced with thinking disabled",
+			allowsMissingReplayPayload: true,
+		});
+		const profile = resolveReasoningDialectProfile({ modelId: "kimi-k2.6", transport: "openai" });
+		const messages: OpenAIChatMessage[] = [
+			...history,
+			{ role: "assistant", content: "Answer produced with thinking disabled" },
+			{ role: "user", content: "Continue with thinking enabled" },
+		];
+
+		const result = applyThinkingReplay({ modelId: "kimi-k2.6", profile, messages, store });
+
+		assert.equal(result.allRequiredReasoningReplayed, true);
+		assert.equal(result.hasAssistantMessagesRequiringReplay, true);
+		assert.equal(result.replayedCount, 0);
+		assert.deepEqual(result.missingAssistantMessageIndexes, []);
+	});
+
+	it("does not require ordinary assistant replay for Kimi K2.5", async () => {
+		const profile = resolveReasoningDialectProfile({ modelId: "kimi-k2.5", transport: "openai" });
+		const messages: OpenAIChatMessage[] = [
+			{ role: "user", content: "First question" },
+			{ role: "assistant", content: "Plain prior answer" },
+			{ role: "user", content: "Follow up" },
+		];
+
+		const result = applyThinkingReplay({
+			modelId: "kimi-k2.5",
+			profile,
+			messages,
+			store: await storeWithEntries([]),
+		});
+
+		assert.equal(result.allRequiredReasoningReplayed, true);
+		assert.equal(result.hasAssistantMessagesRequiringReplay, false);
+		assert.deepEqual(result.missingAssistantMessageIndexes, []);
 	});
 
 	it("injects matching reasoning_details for MiniMax split-mode profiles", async () => {
@@ -486,6 +631,35 @@ describe("decideThinkingReplayRequest", () => {
 		assert.equal(decision.failLocalReason?.includes("missingToolCallIds=call_missing"), true);
 	});
 
+	it("fails locally when forced-preserved K3 ordinary history cannot be replayed", async () => {
+		const profile = resolveReasoningDialectProfile({ modelId: "kimi-k3", transport: "openai" });
+		const miss = applyThinkingReplay({
+			modelId: "kimi-k3",
+			profile,
+			messages: [
+				{ role: "user", content: "First question" },
+				{ role: "assistant", content: "Uncached answer" },
+				{ role: "user", content: "Follow up" },
+			],
+			store: await storeWithEntries([]),
+		});
+
+		const decision = decideThinkingReplayRequest({
+			userOptedIntoRoundTrip: false,
+			replayRequiredByProfile: true,
+			preflight: miss,
+			failureContext: {
+				modelId: "kimi-k3",
+				transport: "openai",
+				profileId: profile.id,
+				carrier: "reasoning_content",
+			},
+		});
+
+		assert.equal(decision.allowThinkingRoundTrip, false);
+		assert.match(decision.failLocalReason ?? "", /missingAssistantMessageIndexes=1/);
+	});
+
 	it("requires replay for DeepSeek R1 forced reasoning profiles without exposing a toggle", async () => {
 		const profile = resolveReasoningDialectProfile({ modelId: "deepseek-r1", transport: "openai" });
 		const empty = applyThinkingReplay({
@@ -540,9 +714,12 @@ describe("decideThinkingReplayRequest", () => {
 				messages: [],
 				allRequiredReasoningReplayed: false,
 				hasAssistantToolCalls: true,
+				hasAssistantMessagesRequiringReplay: true,
 				replayedCount: 0,
 				missingCallIds: ["call_1", "call_2", "call_3", "call_4", "call_5", "call_6"],
 				conflictingCallIds: [],
+				missingAssistantMessageIndexes: [],
+				conflictingAssistantMessageIndexes: [],
 			},
 			{
 				modelId: "glm-5.1",

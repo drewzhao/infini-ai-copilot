@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { RetryConfig } from "./types";
 import { OpenAIFunctionToolDef } from "./openai/openaiTypes";
 import { normalizeInfiniAIModelsResponse, type NormalizedInfiniAIModelsResponse } from "./modelDiscovery";
+import type { RequiredToolChoiceControl } from "./reasoningDialect";
 
 export type InfiniAILogger = vscode.OutputChannel | vscode.LogOutputChannel;
 
@@ -333,9 +334,12 @@ export function collectToolResultText(pr: { content?: ReadonlyArray<unknown> }):
  * Convert VS Code tool definitions to OpenAI function tool definitions.
  * @param options Request options containing tools and toolMode.
  */
-export function convertToolsToOpenAI(options: vscode.ProvideLanguageModelChatResponseOptions): {
+export function convertToolsToOpenAI(
+	options: vscode.ProvideLanguageModelChatResponseOptions,
+	requiredToolChoiceControl: RequiredToolChoiceControl = "specified-function"
+): {
 	tools?: OpenAIFunctionToolDef[];
-	tool_choice?: "auto" | { type: "function"; function: { name: string } };
+	tool_choice?: "auto" | "required" | { type: "function"; function: { name: string } };
 } {
 	const tools = options.tools ?? [];
 	if (!tools || tools.length === 0) {
@@ -358,12 +362,19 @@ export function convertToolsToOpenAI(options: vscode.ProvideLanguageModelChatRes
 			} satisfies OpenAIFunctionToolDef;
 		});
 
-	let tool_choice: "auto" | { type: "function"; function: { name: string } } = "auto";
+	let tool_choice: "auto" | "required" | { type: "function"; function: { name: string } } = "auto";
 	if (options.toolMode === vscode.LanguageModelChatToolMode.Required) {
-		if (tools.length !== 1) {
-			throw new Error("LanguageModelChatToolMode.Required is not supported with more than one tool");
+		if (requiredToolChoiceControl === "unsupported") {
+			throw new Error("LanguageModelChatToolMode.Required is not supported by this model profile");
 		}
-		tool_choice = { type: "function", function: { name: tools[0].name } };
+		if (requiredToolChoiceControl === "required-string") {
+			tool_choice = "required";
+		} else {
+			if (tools.length !== 1) {
+				throw new Error("LanguageModelChatToolMode.Required is not supported with more than one tool");
+			}
+			tool_choice = { type: "function", function: { name: tools[0].name } };
+		}
 	}
 
 	return { tools: toolDefs, tool_choice };
