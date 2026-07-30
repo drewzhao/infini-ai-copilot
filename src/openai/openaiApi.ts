@@ -146,14 +146,16 @@ export class OpenaiApi extends CommonApi {
 			}
 
 			// 处理用户和系统消息
-			if (textParts.length > 0 && role !== "assistant") {
+			if (role !== "assistant" && (textParts.length > 0 || (role === "user" && imageParts.length > 0))) {
 				if (role === "user") {
 					if (imageParts.length > 0) {
 						const contentArray: ChatMessageContent[] = [];
-						contentArray.push({
-							type: "text",
-							text: textParts.join("\n"),
-						});
+						if (textParts.length > 0) {
+							contentArray.push({
+								type: "text",
+								text: textParts.join("\n"),
+							});
+						}
 
 						// 添加图片内容
 						for (const imagePart of imageParts) {

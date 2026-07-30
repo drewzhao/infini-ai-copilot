@@ -85,6 +85,25 @@ describe("InfiniAI model discovery", () => {
 		}
 	});
 
+	it("normalizes explicit image-input capability flags", () => {
+		const normalized = normalizeInfiniAIModelsResponse({
+			object: "list",
+			data: [
+				modelRow("vision-on", "多模态模型", { supports_image_in: true }),
+				modelRow("vision-off", "多模态模型", { supports_image_in: false }),
+				modelRow("vision-invalid", "多模态模型", { supports_image_in: "true" }),
+			],
+		});
+
+		assert.equal(normalized.ok, true);
+		if (normalized.ok) {
+			assert.deepEqual(
+				normalized.value.models.map((model) => model.supports_image_in),
+				[true, false, undefined]
+			);
+		}
+	});
+
 	it("rejects envelopes that do not identify an InfiniAI model list", () => {
 		const normalized = normalizeInfiniAIModelsResponse({
 			data: [modelRow("model-a", "大语言模型")],

@@ -1,8 +1,11 @@
 export type ModelLike = {
 	id: string;
 	vision?: boolean;
+	supports_image_in?: boolean;
+	model_type?: string;
 	capabilities?: {
 		toolCalling?: boolean | number;
+		imageInput?: boolean;
 	};
 	architecture?: {
 		input_modalities?: string[];
@@ -22,6 +25,10 @@ export type ImageInputCapabilityConfig = {
 	 * Supports '*' wildcard (e.g. 'text-only-*').
 	 */
 	disablePatterns?: string[];
+	/**
+	 * Provider-verified fallback patterns used only when metadata is silent.
+	 */
+	verifiedPatterns?: readonly string[];
 };
 
 export type ToolCallingCapabilityConfig = {
@@ -51,6 +58,8 @@ export const VERIFIED_TOOL_CALLING_MODEL_PATTERNS = [
 	"mimo-v2.5-pro",
 	"mimo-v2.6-pro",
 ] as const;
+
+export const VERIFIED_IMAGE_INPUT_MODEL_PATTERNS = ["kimi-k3"] as const;
 
 function toStringArray(value: unknown): string[] {
 	if (!Array.isArray(value)) {
@@ -105,12 +114,15 @@ export function resolveImageInputCapability(model: ModelLike, config: ImageInput
 		return true;
 	}
 
-	// 2) Prefer explicit metadata, when present
-	if (model.vision === true) {
-		return true;
-	}
-	if (model.vision === false) {
+	// 2) Prefer explicit metadata, with a negative winning if sources conflict.
+	const explicitCapabilities = [model.vision, model.supports_image_in, model.capabilities?.imageInput].filter(
+		(value): value is boolean => typeof value === "boolean"
+	);
+	if (explicitCapabilities.includes(false)) {
 		return false;
+	}
+	if (explicitCapabilities.includes(true)) {
+		return true;
 	}
 	if (hasImageInModalities(model.architecture?.input_modalities)) {
 		return true;
@@ -122,7 +134,17 @@ export function resolveImageInputCapability(model: ModelLike, config: ImageInput
 		return true;
 	}
 
-	// 3) Fallback heuristics (best-effort)
+	// 3) InfiniAI's chat catalog uses this type for models that accept multimodal input.
+	if (model.model_type?.trim() === "多模态模型") {
+		return true;
+	}
+
+	// 4) Exact provider-verified fallbacks apply only when stronger metadata is silent.
+	if (matchesAny(modelId, config.verifiedPatterns)) {
+		return true;
+	}
+
+	// 5) Fallback heuristics (best-effort)
 	return modelId.includes("-vision") || modelId.includes("-vl-") || (modelId.startsWith("glm") && /\dv$/.test(modelId));
 }
 

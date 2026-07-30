@@ -75,6 +75,7 @@ import { VertexRequestBody } from "./vertex/vertexTypes";
 import {
 	resolveImageInputCapability,
 	resolveToolCallingCapability,
+	VERIFIED_IMAGE_INPUT_MODEL_PATTERNS,
 	VERIFIED_TOOL_CALLING_MODEL_PATTERNS,
 } from "./modelCapabilities";
 import { isModelHidden } from "./modelVisibility";
@@ -822,13 +823,11 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		const disablePatterns = cfg.get<string[]>("disableImageInputModels", []);
 		const toolEnablePatterns = cfg.get<string[]>("toolCallingModels", []);
 		const toolDisablePatterns = cfg.get<string[]>("disableToolCallingModels", []);
-		const imageInput = resolveImageInputCapability(
-			{
-				...model,
-				vision: model.vision ?? model.capabilities?.imageInput,
-			},
-			{ enablePatterns, disablePatterns }
-		);
+		const imageInput = resolveImageInputCapability(model, {
+			enablePatterns,
+			verifiedPatterns: VERIFIED_IMAGE_INPUT_MODEL_PATTERNS,
+			disablePatterns,
+		});
 		const toolCalling = resolveToolCallingCapability(model, {
 			enablePatterns: toolEnablePatterns,
 			verifiedPatterns: VERIFIED_TOOL_CALLING_MODEL_PATTERNS,

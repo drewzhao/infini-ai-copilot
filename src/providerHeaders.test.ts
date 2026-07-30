@@ -159,6 +159,35 @@ describe("InfiniAIChatModelProvider request headers", () => {
 	});
 });
 
+describe("InfiniAIChatModelProvider model metadata", () => {
+	it("advertises Kimi K3 vision without repartitioning its token limits", () => {
+		const { InfiniAIChatModelProvider } = loadProvider();
+		const provider = new InfiniAIChatModelProvider("test-agent", {} as any, { appendLine() {} } as any);
+
+		const info = (provider as any).toLanguageModelInfo(
+			{
+				id: "kimi-k3",
+				object: "model",
+				created: 0,
+				owned_by: "",
+				model_type: "多模态模型",
+				context_length: 1048576,
+				max_output_length: 1048576,
+			},
+			{
+				transport: "openai",
+				endpointKind: "chat.completions",
+				baseUrl: "https://cloud.infini-ai.com/maas/v1",
+				source: "metadata",
+			}
+		);
+
+		assert.equal(info.capabilities.imageInput, true);
+		assert.equal(info.maxInputTokens, 1032192);
+		assert.equal(info.maxOutputTokens, 1048576);
+	});
+});
+
 describe("InfiniAIChatModelProvider model cache", () => {
 	it("does not duplicate configurable provider models in VS Code's groupless discovery pass", async () => {
 		const { InfiniAIChatModelProvider } = loadProvider();

@@ -125,6 +125,7 @@ export interface InfiniAIModelInfo {
 	input_modalities?: string[];
 	modalities?: string[];
 	vision?: boolean;
+	supports_image_in?: boolean;
 	detail?: string;
 	tooltip?: string;
 	capabilities?: {

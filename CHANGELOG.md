@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Advertised `kimi-k3` as image-input capable when InfiniAI's sparse model metadata identifies it only as a
+  multimodal model, and preserved image-only user messages on OpenAI-compatible routes.
+
+### Known issues
+
+- VS Code 1.130 derives **Context Size** by adding a model provider's advertised prompt budget and maximum output
+  limit. For `kimi-k3`, these capacities overlap within one shared 1,048,576-token context window, so VS Code may
+  display approximately **2M**. The actual context remains **1M**, and input plus requested output must fit within
+  that shared window. VS Code's context-usage and Agents/BYOK metadata may reflect the same inflated total.
+
 ## [0.6.8] - 2026-07-30
 
 ### Fixed

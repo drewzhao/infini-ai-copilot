@@ -88,6 +88,62 @@ function token() {
 	};
 }
 
+describe("OpenaiApi.convertMessages image input", () => {
+	it("serializes text and image input as OpenAI-compatible content", () => {
+		const { openai, vscode } = loadOpenaiApi();
+		const api = new openai.OpenaiApi();
+
+		const messages = api.convertMessages(
+			[
+				{
+					role: vscode.LanguageModelChatMessageRole.User,
+					name: undefined,
+					content: [
+						new vscode.LanguageModelTextPart("Describe this image."),
+						new vscode.LanguageModelDataPart(new Uint8Array([1, 2, 3]), "image/png"),
+					],
+				},
+			],
+			{ includeReasoningInRequest: false }
+		);
+
+		assert.deepEqual(messages, [
+			{
+				role: "user",
+				content: [
+					{ type: "text", text: "Describe this image." },
+					{ type: "image_url", image_url: { url: "data:image/png;base64,AQID" } },
+				],
+				cache_control: { type: "ephemeral" },
+			},
+		]);
+	});
+
+	it("preserves image-only user input", () => {
+		const { openai, vscode } = loadOpenaiApi();
+		const api = new openai.OpenaiApi();
+
+		const messages = api.convertMessages(
+			[
+				{
+					role: vscode.LanguageModelChatMessageRole.User,
+					name: undefined,
+					content: [new vscode.LanguageModelDataPart(new Uint8Array([1, 2, 3]), "image/png")],
+				},
+			],
+			{ includeReasoningInRequest: false }
+		);
+
+		assert.deepEqual(messages, [
+			{
+				role: "user",
+				content: [{ type: "image_url", image_url: { url: "data:image/png;base64,AQID" } }],
+				cache_control: { type: "ephemeral" },
+			},
+		]);
+	});
+});
+
 describe("OpenaiApi.prepareRequestBody thinking-mode guard", () => {
 	it("sanitizes Kimi tool schemas before sending OpenAI-compatible requests", () => {
 		const { openai, withVscode } = loadOpenaiApi();

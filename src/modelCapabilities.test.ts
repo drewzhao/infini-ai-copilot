@@ -3,6 +3,7 @@ import assert from "assert/strict";
 import {
 	resolveImageInputCapability,
 	resolveToolCallingCapability,
+	VERIFIED_IMAGE_INPUT_MODEL_PATTERNS,
 	VERIFIED_TOOL_CALLING_MODEL_PATTERNS,
 } from "./modelCapabilities";
 
@@ -25,6 +26,20 @@ describe("resolveImageInputCapability", () => {
 		assert.equal(result, true);
 	});
 
+	it("uses explicit image-input flags and treats a negative as authoritative", () => {
+		assert.equal(resolveImageInputCapability({ id: "some-model", supports_image_in: true }), true);
+		assert.equal(resolveImageInputCapability({ id: "some-model", capabilities: { imageInput: true } }), true);
+		assert.equal(
+			resolveImageInputCapability({
+				id: "some-model",
+				vision: true,
+				supports_image_in: false,
+				model_type: "多模态模型",
+			}),
+			false
+		);
+	});
+
 	it("treats explicit vision: false as authoritative over name heuristics", () => {
 		const result = resolveImageInputCapability({ id: "some-model-vision", vision: false });
 		assert.equal(result, false);
@@ -36,6 +51,22 @@ describe("resolveImageInputCapability", () => {
 			architecture: { input_modalities: ["text", "image"] },
 		});
 		assert.equal(result, true);
+	});
+
+	it("recognizes InfiniAI multimodal rows and the exact verified K3 fallback", () => {
+		const config = { verifiedPatterns: VERIFIED_IMAGE_INPUT_MODEL_PATTERNS };
+
+		assert.equal(resolveImageInputCapability({ id: "catalog-model", model_type: "多模态模型" }, config), true);
+		assert.equal(resolveImageInputCapability({ id: "kimi-k3" }, config), true);
+		assert.equal(resolveImageInputCapability({ id: "kimi-k3-preview" }, config), false);
+		assert.equal(resolveImageInputCapability({ id: "kimi-k3", supports_image_in: false }, config), false);
+		assert.equal(
+			resolveImageInputCapability(
+				{ id: "kimi-k3", supports_image_in: true },
+				{ ...config, disablePatterns: ["kimi-k3"] }
+			),
+			false
+		);
 	});
 
 	it("falls back to name heuristic (-vision / -vl- / glm*v)", () => {

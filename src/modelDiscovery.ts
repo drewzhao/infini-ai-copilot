@@ -42,6 +42,10 @@ function positiveInteger(value: unknown): number | undefined {
 	return Math.floor(value);
 }
 
+function booleanValue(value: unknown): boolean | undefined {
+	return typeof value === "boolean" ? value : undefined;
+}
+
 function nonNegativeInteger(value: unknown): number {
 	if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
 		return 0;
@@ -87,6 +91,7 @@ function normalizeModel(value: unknown): InfiniAIModelInfo | undefined {
 		max_output_length: maxOutputLength,
 		max_tokens: maxOutputLength,
 		maxOutputTokens: maxOutputLength,
+		supports_image_in: booleanValue(value.supports_image_in),
 	};
 }
 
