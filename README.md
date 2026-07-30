@@ -2,45 +2,92 @@
 
 InfiniAI Provider for VS Code registers InfiniAI as a stable VS Code language model provider and adds an `@infiniai` diagnostics participant. The core provider path uses stable VS Code APIs and does not depend on the standalone `github.copilot-chat` extension or Copilot private APIs. The Marketplace manifest declares no proposed API dependency; the optional `LanguageModelThinkingPart` runtime probe is not required for `reasoning_content` replay correctness.
 
-## Usage
+## Documentation
+
+- [Quick start](#quick-start)
+- [Provider groups and Group Name](#provider-groups-and-group-name)
+- [API key management](#api-key-management)
+- [Configuration](#configuration)
+- [Model controls and Agents](#model-picker-controls)
+- [Routing and protocol switching](#routing-and-protocol-switching)
+- [Thinking and replay](#thinking-mode)
+- [Common procedures](#common-procedures)
+- [Command reference](#command-reference)
+- [Troubleshooting](#troubleshooting)
+
+## Quick start
 
 1. Install the extension from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=drewzhao.infiniai-copilot).
-2. Open VS Code Chat and use the model picker.
-3. Choose **Manage Models...**, then add models from the **InfiniAI** provider.
-4. Enter your InfiniAI API key. VS Code stores it as the secret for that provider group.
-5. Select an InfiniAI model from the model picker.
+2. Open the Command Palette (`Cmd+Shift+P` on macOS or `Ctrl+Shift+P` on Windows/Linux) and run **InfiniAI: Add Provider Group**. Read the Group Name guide, then select **Open Language Models**.
+3. In the Language Models window, select **Add Models**, then **InfiniAI**.
+4. Accept the default **Group Name** `InfiniAI` when using one API key, or enter a descriptive name such as `Work` or `Personal` when using multiple keys. Then enter your InfiniAI API key.
+5. Return to Chat and select an InfiniAI model from the model picker.
 
-VS Code provider groups are the only source of InfiniAI credentials. Each discovered model is bound to the group that
-resolved it, so multiple InfiniAI groups can use different credentials. The provider returns cached models immediately
-and performs model discovery in the background; an upstream timeout or failure therefore does not hold VS Code's
-provider sequence open. Use **InfiniAI: Refresh Models** for an explicit, cancellable retry.
+VS Code provider groups are the only source of InfiniAI credentials. The provider returns cached models immediately
+and performs model discovery in the background, so an upstream timeout or failure does not hold VS Code's provider
+sequence open. Run **InfiniAI: Refresh Models** for an explicit, cancellable retry.
 
-Thinking replay is resolved through capability profiles. The built-in round-trip defaults include MiMo V2, DeepSeek
-V4, exact `deepseek-r1`, exact `deepseek-v3.2-thinking`, GLM 5/4.7, the verified Kimi K2.x IDs, exact `kimi-k3`, and
-MiniMax patterns. Profiles that require replay fail locally when stale, conflicting, or missing replay context would
-make a follow-up unsafe. Kimi K2.7 Code and K3 preserve reasoning for every historical assistant message, including
-ordinary non-tool turns; tool-call profiles continue to use tool-call IDs as their primary correlation key. MiniMax
-models always request split reasoning with `reasoning_split: true` and replay provider-native `reasoning_details`.
-Start a new chat after changing the round-trip list.
+### Provider groups and "Group Name"
 
-Kimi K2.x/K3 and DeepSeek V4 default to the OpenAI-compatible Chat Completions route so preserved thinking uses the
-verified provider-native request shape. If you manually route Kimi K2 or DeepSeek V4 through Anthropic Messages, the extension
-uses conservative safe-off profiles that send `thinking: { "type": "disabled" }` and do not apply those model-id
-round-trip defaults on that transport.
+After you select **Add Models** > **InfiniAI**, VS Code asks for a **Group Name** before it asks for the API key.
+This is a built-in VS Code language-model concept: the name is a local label and namespace for one configured instance
+of the InfiniAI provider. It is not an InfiniAI API field, is not sent to InfiniAI, and does not affect request behavior
+or API-key validity.
 
-You can also use `@infiniai` in Chat for diagnostics:
+VS Code owns that popup and does not let providers customize its title, placeholder, or helper text. Use **InfiniAI:
+Add Provider Group** for an explanation immediately before opening the Language Models window. You can revisit the same
+guidance through **Help: Get Started** > **Get Started with InfiniAI**.
 
-- `@infiniai /doctor` checks resolved provider groups, endpoint settings, route override counts, cache state, and the last sanitized provider error.
-- `@infiniai /models` lists discovered models, effective transports, route sources, and route capabilities from the local cache.
-- `@infiniai /models refresh` refreshes model discovery before listing models.
-- `@infiniai /test` picks a visible InfiniAI model and runs a minimal cancellable health request against its effective route.
+Provider groups provide three benefits:
 
-The participant is diagnostic only. It is not a replacement chat assistant.
+- Multiple InfiniAI accounts or API keys can coexist in one VS Code installation. Models discovered with a key remain
+  bound to that key's group.
+- **Update API Key**, **Rename Group**, **Delete**, model visibility, and per-model settings can target the intended
+  configured instance.
+- The normal VS Code model picker can present groups separately when the same InfiniAI model ID is available through
+  more than one credential.
 
-The InfiniAI activity bar also includes:
+Choose a group name as follows:
 
-- A **Models** tree for provider-group status, model refresh, InfiniAI provider filtering, direct access to VS Code Manage Models, and per-model protocol switching.
-- A **Local Usage** dashboard that records streamed request usage locally, exports CSV, and clears records through a native VS Code confirmation dialog.
+1. For one InfiniAI API key, keep the prefilled name `InfiniAI`.
+2. For multiple keys, use a short purpose-based name such as `Work`, `Personal`, or `Team A`. Names must be unique among
+   InfiniAI groups.
+3. Do not put an API key or other secret in the name. Group names are visible in VS Code's UI and non-secret
+   configuration.
+4. Rename the group later through **Rename Group** if its purpose changes. Renaming changes the local label, not the API
+   key or upstream InfiniAI account.
+
+For this extension, the API key is group-specific. Settings such as `infiniai.baseUrl`, `infiniai.modelDiscoveryUrl`,
+and `infiniai.modelRoutes` remain ordinary VS Code settings and are not independently scoped to each group.
+
+The standard VS Code model picker preserves group-to-credential bindings. The Agents window cannot reliably distinguish
+two InfiniAI groups that expose the same model ID, so use only one group for that model in Agent experiences.
+
+### API key management
+
+Manage provider groups and credentials in VS Code's Language Models window, not in InfiniAI Settings:
+
+| Goal                                    | Procedure                                                                                                                                                                                                                   |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Add an API key                          | Run **InfiniAI: Add Provider Group**, read the guide, select **Open Language Models**, then choose **Add Models** > **InfiniAI**. Accept or edit the [Group Name](#provider-groups-and-group-name), then enter the API key. |
+| Replace an API key                      | Open the action menu for the InfiniAI provider group and select **Update API Key**.                                                                                                                                         |
+| Rename a provider group                 | Open the provider-group action menu and select **Rename Group**.                                                                                                                                                            |
+| View the non-secret group configuration | Select **Open in Language Models (JSON)**. The API key remains secret and is not managed in that JSON file.                                                                                                                 |
+| Remove an API key and group             | Select **Delete** from the provider-group action menu and confirm. VS Code removes the group and its stored secret.                                                                                                         |
+| Fully reset a key                       | Delete the provider group, then use **Add Models** > **InfiniAI** to create it again.                                                                                                                                       |
+
+There is no separate InfiniAI command to set, remove, sign out, or reset an API key. **InfiniAI: Open InfiniAI
+Settings** opens ordinary `infiniai.*` settings and cannot display or modify provider-group secrets.
+
+### Where to find InfiniAI
+
+- The **InfiniAI** activity bar contains a **Models** tree for provider-group status, model refresh, provider filtering,
+  guided provider-group setup, direct access to VS Code Manage Models, and per-model protocol switching.
+- Its **Usage** view contains the **Local Usage** dashboard, records streamed request usage locally, and provides
+  **Export CSV** and **Reset** actions. Resetting records requires confirmation.
+- The `@infiniai` Chat participant provides diagnostics and connectivity tests. It is not a replacement chat assistant;
+  see the [chat diagnostics reference](#chat-diagnostics).
+- **Help: Get Started** > **Get Started with InfiniAI** reopens the provider-group and model-verification walkthrough.
 
 ## Requirements
 
@@ -217,7 +264,7 @@ To avoid the 400 error out of the box, the extension still force-disables thinki
 
 ```jsonc
 {
-  "thinking": { "type": "disabled" }
+	"thinking": { "type": "disabled" },
 }
 ```
 
@@ -245,18 +292,82 @@ Replay behavior is transport-aware:
 This means Claude-compatible InfiniAI models such as `mimo-v2.5-pro` can be switched between OpenAI Chat Completions and
 Anthropic Messages without losing the replay guard, as long as the required replay cache entry still exists.
 
-## Commands
+## Common procedures
 
-- `infiniai.refreshModels`: Cancel active discovery and explicitly retry the resolved InfiniAI provider groups.
-- `infiniai.openManageModels`: Open VS Code Manage Models.
-- `infiniai.openLogs`: Open the InfiniAI output channel.
+### Refresh model discovery and test connectivity
 
-Chat participant commands:
+1. Run **InfiniAI: Refresh Models**. It cancels active discovery, invalidates the active discovery cache, and retries
+   every resolved InfiniAI provider group in a cancellable progress notification. The last known-good model list remains
+   available if that retry fails.
+2. If refresh fails, choose **Manage Models** or **Open Logs** from the error notification.
+3. Run `@infiniai /doctor` to check provider groups, the discovery endpoint, cache state, route overrides, and the last
+   sanitized error.
+4. Run `@infiniai /models refresh` to refresh and inspect the resulting model, route, and capability list.
+5. Run `@infiniai /test` to choose a visible model and send a minimal cancellable request through its effective route.
 
-- `@infiniai /doctor`
-- `@infiniai /models`
-- `@infiniai /models refresh`
-- `@infiniai /test`
+### Include, exclude, or restore models
+
+Model visibility has two layers. Use the **InfiniAI** activity bar's **Models** tree to control what the extension returns
+to VS Code:
+
+- Run **InfiniAI: Exclude InfiniAI Model from Provider List** or use the eye icon on an included model row.
+- Run **InfiniAI: Include InfiniAI Model in Provider List** or use the eye icon on an excluded row. Including a model
+  explicitly overrides a matching `infiniai.hiddenModelPatterns` entry.
+- Run **InfiniAI: Reset InfiniAI Provider Model Filters** to clear explicit inclusions, exclusions, and hidden patterns.
+  This is a show-all reset, so every discovered model becomes provider-visible. To restore the extension's packaged
+  hidden-pattern defaults later, reset `infiniai.hiddenModelPatterns` itself in VS Code Settings.
+
+Then use **InfiniAI: Open VS Code Manage Models** to control which provider-visible models appear in VS Code pickers.
+Changing one layer does not change the other.
+
+### Change a model's protocol
+
+Run **InfiniAI: Switch Model Protocol** from the Command Palette or a Claude-compatible model row. Choose **OpenAI Chat
+Completions** or **Anthropic Messages**. The command saves an exact global route override for that model. If one already
+exists, choose **Reset exact override** to remove only that entry and return to any matching wildcard, catalog route, or
+provider default. See [Routing And Protocol Switching](#routing-and-protocol-switching) for precedence and endpoint
+behavior.
+
+### Clear preserved thinking
+
+Run **InfiniAI: Clear Thinking Replay Cache** to immediately clear the active memory or local-plaintext replay store.
+This cannot be undone. Start a new chat afterward: a follow-up in an existing replay-required conversation may fail
+locally because the extension will not send an unsafe request without the preserved provider-native thinking data.
+
+### Review or remove local usage records
+
+Open the **InfiniAI** activity bar and select **Usage**. Use **Export CSV** to save the locally recorded request usage,
+or **Reset** and confirm to remove all local usage records.
+
+## Command reference
+
+Open the Command Palette and type `InfiniAI:` to find every extension command:
+
+| Command Palette title                                   | Command ID                          | What it does                                                                                                                              |
+| ------------------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| **InfiniAI: Refresh Models**                            | `infiniai.refreshModels`            | Cancels active model discovery and explicitly retries all resolved provider groups with cancellable progress.                             |
+| **InfiniAI: Exclude InfiniAI Model from Provider List** | `infiniai.hideModel`                | Prompts for an included model, or acts on the selected Models-tree row, and excludes that ID before models are returned to VS Code.       |
+| **InfiniAI: Include InfiniAI Model in Provider List**   | `infiniai.showModel`                | Prompts for an excluded model, or acts on the selected Models-tree row, and force-includes that ID even when a hidden pattern matches it. |
+| **InfiniAI: Reset InfiniAI Provider Model Filters**     | `infiniai.showAllModels`            | Clears `hiddenModels`, `hiddenModelPatterns`, and `visibleModels`, making every discovered model provider-visible.                        |
+| **InfiniAI: Switch Model Protocol**                     | `infiniai.switchModelProtocol`      | Prompts for a Claude-compatible model and creates, changes, or resets its exact OpenAI/Anthropic route override.                          |
+| **InfiniAI: Open InfiniAI Settings**                    | `infiniai.openSettings`             | Opens VS Code Settings filtered to `infiniai.*`. It does not manage API keys.                                                             |
+| **InfiniAI: Add Provider Group**                        | `infiniai.addProviderGroup`         | Explains Group Name and safe naming choices, then opens VS Code's Language Models window after confirmation.                              |
+| **InfiniAI: Open VS Code Manage Models**                | `infiniai.openManageModels`         | Opens VS Code's Language Models window for provider groups, secrets, model visibility, and per-model controls.                            |
+| **InfiniAI: Open InfiniAI Logs**                        | `infiniai.openLogs`                 | Opens the `InfiniAI` output channel.                                                                                                      |
+| **InfiniAI: Clear Thinking Replay Cache**               | `infiniai.clearThinkingReplayCache` | Clears the active preserved-thinking replay store. Start a new chat before continuing with a replay-required model.                       |
+
+### Chat diagnostics
+
+Enter these commands in VS Code Chat:
+
+| Chat command                | What it does                                                                                                                               |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `@infiniai /doctor`         | Reports the VS Code version, provider groups, discovery endpoint and summary, cache age, route override counts, and last sanitized errors. |
+| `@infiniai /models`         | Lists up to 50 cached models with provider group, effective transport, route source, tools, image input, and input/output token budgets.   |
+| `@infiniai /models refresh` | Refreshes model discovery before producing the same model report.                                                                          |
+| `@infiniai /test`           | Prompts for a visible model when needed and sends a minimal cancellable health request through its effective route.                        |
+
+The `@infiniai` participant is diagnostic only; it does not answer general chat requests.
 
 ## Stable API Policy
 
@@ -286,16 +397,6 @@ This extension intentionally avoids hard proposal-gated surfaces:
 
 A guarded runtime detector for `LanguageModelThinkingPart` remains for development/custom hosts, but replay correctness and HTTP 400 mitigation do not depend on proposed APIs.
 
-## Debugging
-
-If InfiniAI models do not appear:
-
-1. Run `@infiniai /doctor`.
-2. Check the `InfiniAI` output channel.
-3. Open **VS Code Manage Models**, confirm that an InfiniAI provider group exists, and use **Update API Key** if needed.
-4. Check `infiniai.modelDiscoveryUrl` and route overrides.
-5. Run **InfiniAI: Refresh Models**. Reload the window only if the provider group itself does not re-resolve.
-
 ## Troubleshooting
 
 ### Upgrade From An Older Version
@@ -318,16 +419,31 @@ After upgrading, run:
 
 If the diagnostics show an unexpected endpoint or route override, reset the corresponding current `infiniai.*` setting and reload the window.
 
+### API Key Or Provider Group Needs Attention
+
+1. Run **InfiniAI: Open VS Code Manage Models**.
+2. Open the InfiniAI provider-group action menu and select **Update API Key** to replace the secret.
+3. Run **InfiniAI: Refresh Models**, then `@infiniai /test`.
+4. If the group itself is no longer usable, select **Delete**, confirm, and create it again through **Add Models** >
+   **InfiniAI**.
+
+Do not look for the key in **InfiniAI: Open InfiniAI Settings** or `settings.json`; VS Code owns provider-group
+credentials. See [API key management](#api-key-management) for every supported operation.
+
 ### No Models Appear
 
 Check these in order:
 
-1. Open **VS Code Manage Models**, add InfiniAI if needed, and confirm the provider group's API key.
-2. Run `@infiniai /doctor` and verify the provider-group status, discovery endpoint, and last error.
-3. Clear `infiniai.modelDiscoveryUrl` unless you intentionally use a custom discovery endpoint.
-4. Temporarily clear `infiniai.modelRoutes` to rule out a bad route override.
-5. Run **InfiniAI: Refresh Models**. The operation is cancellable and a failure includes direct **Manage Models** and
+1. Run **InfiniAI: Add Provider Group** if no InfiniAI group exists. For an existing group, run **InfiniAI: Open VS
+   Code Manage Models** and use **Update API Key** if its credential may be stale.
+2. Run **InfiniAI: Refresh Models**. The operation is cancellable and a failure includes direct **Manage Models** and
    **Open Logs** remedies.
+3. Run `@infiniai /doctor` and verify the provider-group count, discovery endpoint, cache state, and last error.
+4. Clear `infiniai.modelDiscoveryUrl` unless you intentionally use a custom discovery endpoint.
+5. Run **InfiniAI: Reset InfiniAI Provider Model Filters**, then check model visibility in VS Code's Language Models
+   window. These are [independent visibility layers](#include-exclude-or-restore-models).
+6. Run **InfiniAI: Open InfiniAI Logs** for the sanitized discovery error. Reload the window only if the provider group
+   itself does not re-resolve.
 
 ### Requests Fail For Anthropic Or Vertex Routes
 

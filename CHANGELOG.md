@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added a guided **InfiniAI: Add Provider Group** command and Getting Started walkthrough that explain VS Code's
+  **Group Name** field before opening Language Models, including single-key defaults, multi-key naming, secret-safety
+  guidance, and model-verification steps.
+
+### Changed
+
+- Clarified the API-key prompt so users know that VS Code stores the key securely and associates it with the provider
+  group they just named.
+
 ### Fixed
 
 - Advertised `kimi-k3` as image-input capable when InfiniAI's sparse model metadata identifies it only as a

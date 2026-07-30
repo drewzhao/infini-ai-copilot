@@ -94,6 +94,25 @@ describe("Stable API guardrails", () => {
 		});
 	});
 
+	it("contributes guided provider-group onboarding without replacing VS Code credential management", () => {
+		const pkg = readPackageJson();
+		const commandIds = pkg.contributes?.commands?.map((command: Record<string, unknown>) => command.command) ?? [];
+		assert.ok(commandIds.includes("infiniai.addProviderGroup"));
+
+		const walkthrough = pkg.contributes?.walkthroughs?.find(
+			(candidate: Record<string, unknown>) => candidate.id === "infiniai.gettingStarted"
+		);
+		assert.ok(walkthrough);
+		const steps = walkthrough.steps as Array<Record<string, unknown>>;
+		const providerGroupStep = steps.find((step) => step.id === "infiniai.gettingStarted.addProviderGroup") as Record<
+			string,
+			unknown
+		>;
+		assert.ok(providerGroupStep);
+		assert.deepEqual(providerGroupStep.completionEvents, ["onCommand:infiniai.addProviderGroup"]);
+		assert.equal((providerGroupStep.media as Record<string, unknown>).markdown, "walkthroughs/provider-group.md");
+	});
+
 	it("pins the intended Stable host floor and development typings", () => {
 		const pkg = readPackageJson();
 		assert.equal(pkg.engines?.vscode, "^1.130.0");

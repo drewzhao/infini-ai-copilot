@@ -8,6 +8,11 @@ import {
 	updateHiddenModelIds,
 	updateVisibleModelIds,
 } from "../modelVisibility";
+import {
+	ADD_PROVIDER_GROUP_COMMAND,
+	OPEN_MANAGE_MODELS_COMMAND,
+	showAddProviderGroupGuide,
+} from "../providerGroupOnboarding";
 import { InfiniAIChatModelProvider, type InfiniAIModelDescription } from "../provider";
 import {
 	endpointKindForTransport,
@@ -312,9 +317,15 @@ export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<Infin
 		children.push(
 			{
 				kind: "account-action",
-				label: vscode.l10n.t("Manage Provider Group…"),
+				label: vscode.l10n.t("Add Provider Group…"),
+				tooltip: vscode.l10n.t("Learn what Group Name means, then add an InfiniAI API key in VS Code."),
+				command: { command: ADD_PROVIDER_GROUP_COMMAND, title: vscode.l10n.t("Add InfiniAI Provider Group") },
+			},
+			{
+				kind: "account-action",
+				label: vscode.l10n.t("Manage Provider Groups…"),
 				tooltip: vscode.l10n.t("Open VS Code Manage Models to add, edit, or remove InfiniAI provider groups."),
-				command: { command: "infiniai.openManageModels", title: vscode.l10n.t("Open VS Code Manage Models") },
+				command: { command: OPEN_MANAGE_MODELS_COMMAND, title: vscode.l10n.t("Open VS Code Manage Models") },
 			},
 			{
 				kind: "account-action",
@@ -421,7 +432,8 @@ export function registerInfiniAIModelsTreeView(
 			await showAllProviderModels();
 			treeDataProvider.refresh();
 		}),
-		vscode.commands.registerCommand("infiniai.openManageModels", () =>
+		vscode.commands.registerCommand(ADD_PROVIDER_GROUP_COMMAND, showAddProviderGroupGuide),
+		vscode.commands.registerCommand(OPEN_MANAGE_MODELS_COMMAND, () =>
 			vscode.commands.executeCommand("workbench.action.chat.manage")
 		),
 		vscode.commands.registerCommand("infiniai.switchModelProtocol", async (node?: InfiniNode) => {
