@@ -74,9 +74,11 @@ import { VertexApi } from "./vertex/vertexApi";
 import { VertexRequestBody } from "./vertex/vertexTypes";
 import {
 	resolveImageInputCapability,
-	resolveToolCallingCapability,
+	resolveToolCallingCapabilityDecision,
+	type ToolCallingCapabilityConfig,
+	type ToolCallingCapabilitySource,
+	DEFAULT_TOOL_CALLING_MODEL_PATTERNS,
 	VERIFIED_IMAGE_INPUT_MODEL_PATTERNS,
-	VERIFIED_TOOL_CALLING_MODEL_PATTERNS,
 } from "./modelCapabilities";
 import { isModelHidden } from "./modelVisibility";
 import { hasProviderConfiguration, readProviderApiKey } from "./providerConfiguration";
@@ -164,7 +166,8 @@ export interface InfiniAIModelDescription {
 	defaultTransport: ModelRoute["transport"];
 	defaultEndpointKind: ModelRoute["endpointKind"];
 	defaultRouteSource: ModelRoute["source"];
-	toolCalling: boolean | number | undefined;
+	toolCalling: boolean;
+	toolCallingSource: ToolCallingCapabilitySource;
 	imageInput: boolean | undefined;
 	maxInputTokens: number;
 	maxOutputTokens: number;
@@ -546,6 +549,9 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 				const route =
 					entry.routes.get(info.id) ?? resolveModelRoute(this.toModelInfo(info, model), this.getRouteConfigs());
 				const defaultRoute = resolveModelRoute(this.toModelInfo(info, model), []);
+				const toolCallingDecision = model
+					? resolveToolCallingCapabilityDecision(model, this.getToolCallingCapabilityConfig())
+					: { enabled: !!info.capabilities.toolCalling, source: "unknown" as const };
 				descriptions.push({
 					id: info.id,
 					group: group.name,
@@ -555,7 +561,8 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 					defaultTransport: defaultRoute.transport,
 					defaultEndpointKind: defaultRoute.endpointKind,
 					defaultRouteSource: defaultRoute.source,
-					toolCalling: info.capabilities.toolCalling,
+					toolCalling: toolCallingDecision.enabled,
+					toolCallingSource: toolCallingDecision.source,
 					imageInput: info.capabilities.imageInput,
 					maxInputTokens: info.maxInputTokens,
 					maxOutputTokens: info.maxOutputTokens,
@@ -821,18 +828,12 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		const cfg = vscode.workspace.getConfiguration("infiniai");
 		const enablePatterns = cfg.get<string[]>("imageInputModels", []);
 		const disablePatterns = cfg.get<string[]>("disableImageInputModels", []);
-		const toolEnablePatterns = cfg.get<string[]>("toolCallingModels", []);
-		const toolDisablePatterns = cfg.get<string[]>("disableToolCallingModels", []);
 		const imageInput = resolveImageInputCapability(model, {
 			enablePatterns,
 			verifiedPatterns: VERIFIED_IMAGE_INPUT_MODEL_PATTERNS,
 			disablePatterns,
 		});
-		const toolCalling = resolveToolCallingCapability(model, {
-			enablePatterns: toolEnablePatterns,
-			verifiedPatterns: VERIFIED_TOOL_CALLING_MODEL_PATTERNS,
-			disablePatterns: toolDisablePatterns,
-		});
+		const toolCalling = resolveToolCallingCapabilityDecision(model, this.getToolCallingCapabilityConfig()).enabled;
 		const translateModelConfiguration = (message: string, ...args: readonly (string | number | boolean)[]): string =>
 			vscode.l10n.t(message, ...args);
 
@@ -874,6 +875,15 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			},
 			modelConfigSchema
 		);
+	}
+
+	private getToolCallingCapabilityConfig(): ToolCallingCapabilityConfig {
+		const cfg = vscode.workspace.getConfiguration("infiniai");
+		return {
+			enablePatterns: cfg.get<string[]>("toolCallingModels", []),
+			verifiedPatterns: DEFAULT_TOOL_CALLING_MODEL_PATTERNS,
+			disablePatterns: cfg.get<string[]>("disableToolCallingModels", []),
+		};
 	}
 
 	private toModelInfo(

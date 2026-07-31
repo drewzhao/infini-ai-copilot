@@ -23,15 +23,20 @@ Primary runtime surfaces:
 
 - `src/extension.ts`: activation, command registration, provider registration, participant registration, logging, and invalidation wiring.
 - `src/provider.ts`: VS Code `LanguageModelChatProvider`, model registry cache, request dispatch, diagnostics helpers, cancellation propagation, and retry integration.
+- `src/modelCapabilities.ts`: API, extension-policy, and user-override capability resolution.
+- `src/agentEligibility.ts`: pure exact-ID Agent eligibility override handling used by the Models view.
+- `src/grayLanguageModelMetadata.ts`: centralized Stable-runtime metadata bridge for picker controls and Agents/BYOK.
 - `src/participant.ts`: stable `@infiniai` diagnostics participant with `/doctor`, `/models`, and `/test`.
 - `src/route.ts`: metadata-driven route resolution for OpenAI, Anthropic, and Vertex transports.
 - `src/sse.ts`: shared cancellation-aware SSE reader.
 - `src/openai`, `src/anthropic`, `src/vertex`: provider-specific request conversion and stream adaptation.
 
-The extension has two user-facing surfaces:
+The extension has four user-facing surfaces:
 
 1. A language model provider registered as `infiniai`.
 2. A diagnostic chat participant registered as `@infiniai`.
+3. An InfiniAI Models tree for discovery status, provider visibility, Agent eligibility, and route controls.
+4. A local usage dashboard with CSV export and confirmed reset.
 
 The participant is not a general assistant. Keep it focused on diagnostics, model inventory, and minimal route health checks.
 
@@ -44,12 +49,13 @@ Do not add or reintroduce:
 - `.vscode/launch.json` proposed API flags
 - `github.copilot-chat` as an extension dependency
 - Copilot private commands, extension IDs, or RPC channels
-- `LanguageModelThinkingPart`
-- `configurationSchema`
-- `modelConfiguration`
 - `chatParticipantAdditions`
 - `defaultChatParticipant`
 - `languageModelProxy`
+- `targetChatSessionType`
+- `requiresAuthorization`
+- `isDefault`
+- `editTools`
 
 Use the stable APIs exposed by the installed VS Code engine target:
 
@@ -59,14 +65,21 @@ Use the stable APIs exposed by the installed VS Code engine target:
 - `vscode.SecretStorage`
 - `vscode.CancellationToken` / `vscode.CancellationError`
 
+The extension centralizes the audited, Stable-runtime-accepted `isBYOK`, `isUserSelectable`, `statusIcon`,
+`configurationSchema`, and `modelConfiguration` surfaces in `src/grayLanguageModelMetadata.ts`. Do not write these
+fields elsewhere, declare a proposal for them, or assume they are part of the public stable declaration. The optional
+`LanguageModelThinkingPart` constructor is runtime-detected without a manifest proposal and is not required for replay
+correctness. Run `npm run validate:stable-gray` after any related change.
+
 ## Routing Rules
 
 Model routing precedence is:
 
 1. User `infiniai.modelRoutes` pattern match.
-2. Explicit model metadata from InfiniAI discovery.
-3. Provider-owned catalog metadata.
-4. Conservative OpenAI-compatible fallback.
+2. Provider-owned route preferences for compatibility-sensitive model families.
+3. Explicit model metadata from InfiniAI discovery.
+4. Provider-owned catalog metadata.
+5. Conservative OpenAI-compatible fallback.
 
 Supported transports:
 
@@ -111,6 +124,7 @@ Add or update tests when changing:
 - provider-specific message conversion
 - participant command output
 - cancellation behavior
+- Agent eligibility precedence, exact/wildcard overrides, or capability provenance
 
 Useful focused commands:
 
@@ -129,13 +143,15 @@ Before publishing:
 
 1. Confirm `package.json` and `package-lock.json` versions match the release.
 2. Run the full npm verification sequence.
-3. Build the VSIX with `npm run build`.
-4. Inspect package contents:
+3. Run `npm run validate:stable-gray` against the target VS Code Stable installation and source checkout.
+4. Build the VSIX with `npm run build`.
+5. Inspect package contents:
 
 ```bash
-npx @vscode/vsce ls --packagePath infiniai-copilot-0.4.0.vsix
-shasum -a 256 infiniai-copilot-0.4.0.vsix
+release_version=$(node -p 'require("./package.json").version')
+npx @vscode/vsce ls --packagePath "infiniai-copilot-${release_version}.vsix"
+shasum -a 256 "infiniai-copilot-${release_version}.vsix"
 ```
 
-5. Keep the previous VSIX archived for rollback.
-6. Publish rollback fixes as a new patch release. Do not assume an older Marketplace version can be republished.
+6. Keep the previous VSIX archived for rollback.
+7. Publish rollback fixes as a new patch release. Do not assume an older Marketplace version can be republished.

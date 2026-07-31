@@ -70,7 +70,7 @@ describe("gray language model metadata", () => {
 		assert.equal("isUserSelectable" in result, false);
 	});
 
-	it("exports only confirmed tool-capable models to the 1.130 Agents bridge", () => {
+	it("exports only Agent-eligible models to the 1.130 Agents bridge", () => {
 		const toolCapable = makeUserSelectableLanguageModelInfo(baseLanguageModelInfo());
 		const textOnly = makeUserSelectableLanguageModelInfo({
 			...baseLanguageModelInfo(),

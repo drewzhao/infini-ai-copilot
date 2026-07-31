@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.10] - 2026-07-31
+
+### Added
+
+- Added **InfiniAI: Configure Agent Eligibility** to the Command Palette, Models-view toolbar, and model context menu.
+  Each exact model ID can use **Automatic**, **Enable for Agent**, or **Disable for Agent** without editing JSON
+  settings directly.
+- Added effective capability provenance to Models-tree tooltips so users can distinguish live API metadata, extension
+  metadata, user enable/disable overrides, and unknown capability.
+- Added exact Agent-capability fallbacks for `deepseek-v3`, `glm-4.5-air`, `gpt-oss-120b`, `gpt-5.4`,
+  `claude-haiku-4-5-20251001`, `gemini-3.1-flash-lite-preview`, `minimax-m2.7`, and `minimax-m3` after each passed a
+  required tool call and a tool-result replay probe against InfiniAI Chat Completions.
+
+### Changed
+
+- All `claude-*` model IDs are now advertised as Agent-capable when InfiniAI's API omits tool-calling metadata, making
+  the current Claude catalog selectable in Agent model pickers. This is an explicit family policy, not a claim that
+  every InfiniAI Claude route passed the compatibility probes.
+- Tool-calling model patterns now match case-insensitively. Guided exact-ID changes preserve unrelated wildcard rules,
+  warn when a wildcard prevents the requested result, and rebuild cached metadata without refetching the model list.
+- Updated the English and Simplified Chinese user guides, model-verification walkthrough, contributor guidance, and
+  live catalog audit for the new Agent eligibility behavior.
+
+### Fixed
+
+- Prevented models whose InfiniAI catalog rows omit `toolCalling` from being excluded from Agent pickers when live API
+  metadata, extension metadata, the Claude family policy, or a user override confirms eligibility.
+
+### Known issues
+
+- Agent eligibility metadata only makes a model selectable; it cannot repair an unavailable or misconfigured InfiniAI
+  upstream route. A selected model can still fail when the route returns authentication, channel, server, or protocol
+  errors.
+- VS Code 1.130's Agents-window BYOK bridge does not render InfiniAI per-model configuration schemas. Values saved in
+  normal **Manage Models** are still applied to requests, but configure reasoning, thinking, and output limits there
+  before starting an Agents session.
+- VS Code derives **Context Size** by adding advertised prompt and output budgets. Because `kimi-k3` publishes one
+  shared 1,048,576-token window for both capacities, VS Code may display approximately **2M** even though the actual
+  combined input and requested output limit remains **1M**.
+
 ## [0.6.9] - 2026-07-30
 
 ### Added

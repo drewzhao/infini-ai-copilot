@@ -82,7 +82,8 @@ Settings** opens ordinary `infiniai.*` settings and cannot display or modify pro
 ### Where to find InfiniAI
 
 - The **InfiniAI** activity bar contains a **Models** tree for provider-group status, model refresh, provider filtering,
-  guided provider-group setup, direct access to VS Code Manage Models, and per-model protocol switching.
+  guided provider-group setup, direct access to VS Code Manage Models, per-model Agent eligibility, and protocol
+  switching.
 - Its **Usage** view contains the **Local Usage** dashboard, records streamed request usage locally, and provides
   **Export CSV** and **Reset** actions. Resetting records requires confirmation.
 - The `@infiniai` Chat participant provides diagnostics and connectivity tests. It is not a replacement chat assistant;
@@ -141,9 +142,11 @@ Common settings:
 - `infiniai.imageInputModels`: Force-enable image input for matching model IDs. Supports `*` wildcards.
 - `infiniai.disableImageInputModels`: Force-disable image input for matching model IDs. Supports `*` wildcards.
 - `infiniai.toolCallingModels`: Force-enable tool calling and VS Code Agent eligibility for matching model IDs. The
-  extension already has exact evidence-based fallbacks for DeepSeek V4 and MiMo IDs verified by API probes but not
-  marked as tool-capable in the catalog. An explicit live/catalog value remains authoritative unless this user setting
-  overrides it.
+  extension includes exact evidence-based fallbacks for models verified by API probes but not marked as tool-capable
+  by the live catalog. It also advertises every `claude-*` model as Agent-capable by default. Prefer **InfiniAI:
+  Configure Agent Eligibility** for exact IDs; use this setting directly for advanced wildcard patterns. An explicit
+  live/catalog value remains authoritative unless this user setting overrides it. The Claude family default controls
+  picker eligibility; it does not certify that every upstream InfiniAI Claude route is currently reachable.
 - `infiniai.disableToolCallingModels`: Force-disable tool calling and Agent eligibility. This list wins over `infiniai.toolCallingModels`. Models with no live, catalog, or user confirmation default to no tool calling instead of being advertised optimistically.
 - `infiniai.disableThinkingForModels`: Safety list. Thinking mode is disabled by default for matching model IDs to avoid known `reasoning_content` HTTP 400 errors. The built-in defaults include known Xiaomi MiMo V2 model IDs and the DeepSeek V4 family: `mimo-v2-pro`, `mimo-v2.5-pro`, `mimo-v2.5`, `mimo-v2-omni`, `mimo-v2-flash`, `deepseek-v4*`. See [Thinking mode](#thinking-mode) below.
 - `infiniai.enableThinkingRoundTripForModels`: Round-trip replay list. Kimi and DeepSeek V4 defaults use exact verified IDs—Kimi uses `kimi-k2-thinking`, `kimi-k2.5`, `kimi-k2.6`, `kimi-k2.7-code`, `kimi-k2.7-code-highspeed`, and `kimi-k3`; DeepSeek V4 uses `deepseek-v4-pro` and `deepseek-v4-flash`. Other defaults are `mimo-v2*`, exact `deepseek-r1`, exact `deepseek-v3.2-thinking`, `glm-5*`, `glm-4.7*`, and `minimax*`; user patterns extend the list but a model still needs a known replay profile. Known adapters preserve the provider-native shape: OpenAI `reasoning_content` for MiMo V2, DeepSeek V4, DeepSeek R1, GLM, Kimi, and Qwen profiles; OpenAI `reasoning_details` for MiniMax split mode; and Anthropic `thinking` blocks for Anthropic Messages routes that safely support them. Replay-required profiles fail locally when replay data is missing, expired, conflicting, or unavailable. Supports `*` wildcards.
@@ -195,10 +198,24 @@ These controls use VS Code Stable's runtime-accepted model configuration surface
 
 ### Agents window
 
-Tool-capable third-party InfiniAI models remain eligible for VS Code Agent experiences. Capability metadata and the
+Agent-eligible third-party InfiniAI models remain available to VS Code Agent experiences. Capability metadata and the
 `infiniai.toolCallingModels` / `infiniai.disableToolCallingModels` overrides determine that eligibility; unknown models
 are not marked Agent-capable by default. In VS Code 1.130 this path also requires the agent host and its default-on
 `chat.agentHost.byokModels.enabled` bridge; changing either agent-host setting requires an agent-host restart.
+
+Use **InfiniAI: Configure Agent Eligibility** from the Command Palette, the Models view toolbar, or a model's context
+menu. Each exact model ID has three choices:
+
+- **Automatic (Recommended)** uses live API metadata, extension defaults—including the `claude-*` family policy—and
+  otherwise keeps unknown models out of Agent mode.
+- **Enable for Agent** adds an exact user override after warning that metadata cannot create upstream tool support.
+- **Disable for Agent** prevents the model from appearing in Agent model pickers.
+
+The Models tree tooltip identifies the effective source as API metadata, extension metadata, user enabled, user
+disabled, or unknown. Overrides apply to the model ID across all InfiniAI provider groups. The guided command does
+not rewrite wildcard patterns because doing so could affect other models; edit wildcard settings directly when such a
+pattern controls the selected ID. Configuration changes rebuild cached metadata and notify VS Code without refetching
+the model catalog.
 
 In VS Code 1.130, the Agents-window BYOK bridge carries the model identity, context, vision, and request path, but not
 the per-model configuration schema. Consequently, InfiniAI controls do not render inside the Agents-window model
@@ -320,6 +337,14 @@ to VS Code:
 Then use **InfiniAI: Open VS Code Manage Models** to control which provider-visible models appear in VS Code pickers.
 Changing one layer does not change the other.
 
+### Configure Agent eligibility
+
+Run **InfiniAI: Configure Agent Eligibility** from the Command Palette, Models-view toolbar, or a model row. Choose
+**Automatic** to follow API and extension metadata, **Enable for Agent** to assert support for one exact model ID, or
+**Disable for Agent** to keep that ID out of Agent pickers. Enabling only changes advertised metadata; it cannot add
+tool support to the upstream model. If a wildcard setting controls the ID, the command directs you to Settings rather
+than silently changing a rule that may affect other models.
+
 ### Change a model's protocol
 
 Run **InfiniAI: Switch Model Protocol** from the Command Palette or a Claude-compatible model row. Choose **OpenAI Chat
@@ -350,6 +375,7 @@ Open the Command Palette and type `InfiniAI:` to find every extension command:
 | **InfiniAI: Include InfiniAI Model in Provider List**   | `infiniai.showModel`                | Prompts for an excluded model, or acts on the selected Models-tree row, and force-includes that ID even when a hidden pattern matches it. |
 | **InfiniAI: Reset InfiniAI Provider Model Filters**     | `infiniai.showAllModels`            | Clears `hiddenModels`, `hiddenModelPatterns`, and `visibleModels`, making every discovered model provider-visible.                        |
 | **InfiniAI: Switch Model Protocol**                     | `infiniai.switchModelProtocol`      | Prompts for a Claude-compatible model and creates, changes, or resets its exact OpenAI/Anthropic route override.                          |
+| **InfiniAI: Configure Agent Eligibility**               | `infiniai.configureAgentEligibility` | Sets an exact model ID to Automatic, Enable for Agent, or Disable for Agent while preserving wildcard settings.                         |
 | **InfiniAI: Open InfiniAI Settings**                    | `infiniai.openSettings`             | Opens VS Code Settings filtered to `infiniai.*`. It does not manage API keys.                                                             |
 | **InfiniAI: Add Provider Group**                        | `infiniai.addProviderGroup`         | Explains Group Name and safe naming choices, then opens VS Code's Language Models window after confirmation.                              |
 | **InfiniAI: Open VS Code Manage Models**                | `infiniai.openManageModels`         | Opens VS Code's Language Models window for provider groups, secrets, model visibility, and per-model controls.                            |
@@ -375,7 +401,7 @@ The Marketplace manifest declares no `enabledApiProposals` and contains no propo
 
 The provider uses stable VS Code contribution points plus a small, audited stable-gray surface that is accepted by current VS Code Stable builds:
 
-- `isBYOK` exports confirmed tool-capable InfiniAI models to the Agents-window bridge.
+- `isBYOK` exports Agent-eligible InfiniAI models to the Agents-window bridge.
 - `isUserSelectable` keeps eligible InfiniAI models visible in the picker.
 - `configurationSchema` exposes the complete controls in Manage Models and the reasoning-effort control inline.
 - Runtime request options `configuration` / `modelConfiguration` carry selected model controls back to the provider.

@@ -1,8 +1,10 @@
 import assert from "assert/strict";
 
 import {
+	DEFAULT_TOOL_CALLING_MODEL_PATTERNS,
 	resolveImageInputCapability,
 	resolveToolCallingCapability,
+	resolveToolCallingCapabilityDecision,
 	VERIFIED_IMAGE_INPUT_MODEL_PATTERNS,
 	VERIFIED_TOOL_CALLING_MODEL_PATTERNS,
 } from "./modelCapabilities";
@@ -106,6 +108,62 @@ describe("resolveToolCallingCapability", () => {
 				{ id: "deepseek-v4-pro", capabilities: { toolCalling: false } },
 				{ verifiedPatterns: VERIFIED_TOOL_CALLING_MODEL_PATTERNS }
 			),
+			false
+		);
+	});
+
+	it("reports whether metadata came from the API, extension, or user", () => {
+		assert.deepEqual(resolveToolCallingCapabilityDecision({ id: "api-model", capabilities: { toolCalling: true } }), {
+			enabled: true,
+			source: "api",
+		});
+		assert.deepEqual(
+			resolveToolCallingCapabilityDecision(
+				{
+					id: "catalog-model",
+					toolCallingMetadataSource: "extension",
+					capabilities: { toolCalling: true },
+				},
+				{}
+			),
+			{ enabled: true, source: "extension" }
+		);
+		assert.deepEqual(
+			resolveToolCallingCapabilityDecision(
+				{ id: "future-model" },
+				{ enablePatterns: ["future-*"], disablePatterns: ["future-model"] }
+			),
+			{ enabled: false, source: "user-disabled" }
+		);
+	});
+
+	it("includes exact models that passed the InfiniAI agent compatibility probes", () => {
+		const config = { verifiedPatterns: VERIFIED_TOOL_CALLING_MODEL_PATTERNS };
+		for (const modelId of [
+			"deepseek-v3",
+			"glm-4.5-air",
+			"gpt-oss-120b",
+			"gpt-5.4",
+			"claude-haiku-4-5-20251001",
+			"gemini-3.1-flash-lite-preview",
+			"minimax-m2.7",
+			"minimax-m3",
+		]) {
+			assert.equal(resolveToolCallingCapability({ id: modelId }, config), true, modelId);
+		}
+	});
+
+	it("applies the Claude family Agent policy without overriding stronger signals", () => {
+		const config = { verifiedPatterns: DEFAULT_TOOL_CALLING_MODEL_PATTERNS };
+
+		assert.equal(resolveToolCallingCapability({ id: "claude-opus-4-8" }, config), true);
+		assert.equal(resolveToolCallingCapability({ id: "CLAUDE-FUTURE" }, config), true);
+		assert.equal(
+			resolveToolCallingCapability({ id: "claude-opus-4-8", capabilities: { toolCalling: false } }, config),
+			false
+		);
+		assert.equal(
+			resolveToolCallingCapability({ id: "claude-opus-4-8" }, { ...config, disablePatterns: ["claude-opus-4-8"] }),
 			false
 		);
 	});

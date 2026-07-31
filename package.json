@@ -19,7 +19,7 @@
 		"type": "git",
 		"url": "https://github.com/drewzhao/infini-ai-copilot.git"
 	},
-	"version": "0.6.9",
+	"version": "0.6.10",
 	"engines": {
 		"vscode": "^1.130.0"
 	},
@@ -40,6 +40,7 @@
 	"license": "MIT",
 	"activationEvents": [
 		"onCommand:infiniai.clearThinkingReplayCache",
+		"onCommand:infiniai.configureAgentEligibility",
 		"onView:infiniai.modelsView",
 		"onView:infiniai.usageView"
 	],
@@ -93,6 +94,12 @@
 				"command": "infiniai.switchModelProtocol",
 				"title": "%command.switchModelProtocol.title%",
 				"category": "InfiniAI"
+			},
+			{
+				"command": "infiniai.configureAgentEligibility",
+				"title": "%command.configureAgentEligibility.title%",
+				"category": "InfiniAI",
+				"icon": "$(tools)"
 			},
 			{
 				"command": "infiniai.openSettings",
@@ -190,19 +197,24 @@
 					"group": "navigation@2"
 				},
 				{
-					"command": "infiniai.addProviderGroup",
+					"command": "infiniai.configureAgentEligibility",
 					"when": "view == infiniai.modelsView",
 					"group": "navigation@3"
 				},
 				{
-					"command": "infiniai.openManageModels",
+					"command": "infiniai.addProviderGroup",
 					"when": "view == infiniai.modelsView",
 					"group": "navigation@4"
 				},
 				{
-					"command": "infiniai.openSettings",
+					"command": "infiniai.openManageModels",
 					"when": "view == infiniai.modelsView",
 					"group": "navigation@5"
+				},
+				{
+					"command": "infiniai.openSettings",
+					"when": "view == infiniai.modelsView",
+					"group": "navigation@6"
 				}
 			],
 			"view/item/context": [
@@ -225,6 +237,16 @@
 					"command": "infiniai.switchModelProtocol",
 					"when": "view == infiniai.modelsView && viewItem == infiniai.model.hidden",
 					"group": "navigation@1"
+				},
+				{
+					"command": "infiniai.configureAgentEligibility",
+					"when": "view == infiniai.modelsView && viewItem == infiniai.model.visible",
+					"group": "navigation@2"
+				},
+				{
+					"command": "infiniai.configureAgentEligibility",
+					"when": "view == infiniai.modelsView && viewItem == infiniai.model.hidden",
+					"group": "navigation@2"
 				}
 			]
 		},

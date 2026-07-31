@@ -2,37 +2,66 @@
 
 InfiniAI Provider for VS Code 将 InfiniAI 注册为稳定的 VS Code 语言模型提供方，并提供 `@infiniai` 诊断参与者。核心提供方路径使用稳定的 VS Code API，不依赖独立的 `github.copilot-chat` 扩展，也不使用 Copilot 私有 API。Marketplace 清单不声明 proposed API 依赖;可选的 `LanguageModelThinkingPart` 运行时探测不是 `reasoning_content` 回放正确性的前提。
 
-## 使用方式
+## 文档导航
+
+- [快速开始](#快速开始)
+- [提供方分组与 Group Name](#提供方分组与-group-name)
+- [API Key 管理](#api-key-管理)
+- [配置](#配置)
+- [模型控制项与 Agents](#模型选择器控制项)
+- [路由与协议切换](#路由与协议切换)
+- [思考与回放](#为思考模型避免-http-400)
+- [命令参考](#命令参考)
+- [故障排查](#故障排查)
+
+## 快速开始
 
 1. 从 [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=drewzhao.infiniai-copilot) 安装扩展。
-2. 打开 VS Code Chat，并使用模型选择器。
-3. 选择 **Manage Models...**，然后添加 **InfiniAI** 提供方的模型。
-4. 输入 InfiniAI API Key。密钥会保存在 VS Code Secret Storage 中。
-5. 在模型选择器中选择 InfiniAI 模型。
+2. 打开命令面板，在 macOS 上按 `Cmd+Shift+P`，在 Windows/Linux 上按 `Ctrl+Shift+P`，运行 **InfiniAI: Add Provider Group**。阅读 Group Name 说明后选择 **Open Language Models**。
+3. 在 Language Models 窗口中选择 **Add Models** > **InfiniAI**。
+4. 只使用一个 API Key 时保留默认 **Group Name** `InfiniAI`；使用多个 Key 时输入 `Work`、`Personal` 等用途名称。随后在单独的提示框中输入 InfiniAI API Key。
+5. 返回 Chat，从模型选择器中选择 InfiniAI 模型。
 
-InfiniAI 凭据只来自 VS Code 提供方分组。每个已发现模型都会绑定到解析它的分组，因此多个 InfiniAI
-分组可以使用不同凭据。提供方会立即返回缓存模型，并在后台执行模型发现；上游超时或失败不会一直阻塞
-VS Code 的提供方队列。需要显式重试时，使用可取消的 **InfiniAI: Refresh Models**。
+InfiniAI 凭据只来自 VS Code 提供方分组。提供方会立即返回缓存模型，并在后台执行模型发现，因此上游
+超时或失败不会阻塞 VS Code 的共享提供方队列。需要显式重试时，运行可取消的 **InfiniAI: Refresh
+Models**。
 
-思考回放会按模型族 profile 解析。内置 round-trip 默认值已经包含 MiMo V2、DeepSeek V4、精确 `deepseek-r1`、精确 `deepseek-v3.2-thinking`、GLM 5/4.7、Kimi K2 和 MiniMax 模式；具体传输协议 profile 仍可拒绝该默认值，例如 Anthropic 路由的 DeepSeek V4 会保持 safe-off。强制要求回放的 profile 在上下文过期或缺失时仍会先在本地失败，避免发送不安全的上游请求；GLM profile 会在有缓存时回放已捕获的推理内容，但允许 VS Code compact 后生成的无推理工具调用继续发送。MiniMax 模型始终会用 `reasoning_split: true` 请求 split reasoning，并回放原生 `reasoning_details`。修改 round-trip 列表后，请从新聊天开始。
+### 提供方分组与 Group Name
 
-Kimi K2 和 DeepSeek V4 默认走 OpenAI 兼容 Chat Completions 路由，这样 preserved thinking 使用已验证的提供方原生形态。
-如果你手动把 Kimi K2 或 DeepSeek V4 切到 Anthropic Messages，扩展会使用保守 safe-off profile：
-发送 `thinking: { "type": "disabled" }`，并且不会在该传输协议上套用这些模型 ID 的 round-trip 默认值。
+**Group Name** 是 VS Code 内置的本地标签，用来区分同一个语言模型提供方的多个配置。它不是 InfiniAI
+API 字段，不会发送给 InfiniAI，也不会影响请求或 API Key 是否有效。
 
-也可以在 Chat 中使用 `@infiniai` 进行诊断：
+- 只有一个 API Key 时，保留默认名称 `InfiniAI`。
+- 使用多个 Key 时，使用 `Work`、`Personal`、`Team A` 等简短用途名称。名称在 InfiniAI 分组之间必须唯一。
+- 不要把 API Key 或其他秘密写入 Group Name；这个标签会显示在 VS Code UI 和非秘密配置中。
+- 可通过提供方分组菜单中的 **Rename Group** 修改标签。重命名不会修改 API Key 或上游账户。
 
-- `@infiniai /doctor` 检查已解析的提供方分组、端点设置、路由覆盖数量、缓存状态以及最近一次脱敏后的提供方错误。
-- `@infiniai /models` 列出本地缓存中的模型、有效传输协议、路由来源和路由能力。
-- `@infiniai /models refresh` 刷新模型发现结果后再列出模型。
-- `@infiniai /test` 选择一个可见的 InfiniAI 模型，并针对它的有效路由执行一个最小的、可取消的健康检查请求。
+VS Code 自己绘制 Group Name 提示框，扩展无法为该弹窗添加说明文字。因此建议先运行 **InfiniAI: Add
+Provider Group**；该命令会在打开 Language Models 前解释输入内容和安全注意事项。标准模型选择器会保留
+分组与凭据绑定，但 Agents 窗口无法可靠区分两个分组中相同的模型 ID，因此 Agent 场景中同一模型只应
+使用一个 InfiniAI 分组。
 
-该参与者只用于诊断，不会替代通用聊天助手。
+### API Key 管理
 
-InfiniAI 活动栏还包含：
+| 目标 | 操作 |
+| --- | --- |
+| 添加 API Key | 运行 **InfiniAI: Add Provider Group**，然后选择 **Add Models** > **InfiniAI**，输入 Group Name 和 API Key。 |
+| 替换 API Key | 打开 InfiniAI 提供方分组菜单，选择 **Update API Key**。 |
+| 重命名分组 | 打开分组菜单，选择 **Rename Group**。 |
+| 查看非秘密配置 | 选择 **Open in Language Models (JSON)**；API Key 不会显示在该 JSON 中。 |
+| 删除 API Key 和分组 | 在分组菜单中选择 **Delete** 并确认。 |
+| 完全重置 | 删除分组，再通过 **Add Models** > **InfiniAI** 重新创建。 |
 
-- **模型** 树视图，用于查看提供方分组状态、刷新模型、管理模型选择器可见性，以及按模型切换协议。
-- **本地用量** 面板，基于流式响应在本地记录请求用量，支持导出 CSV，并通过 VS Code 原生确认对话框清空记录。
+扩展没有单独的设置、删除、退出或重置 API Key 命令。**InfiniAI: Open InfiniAI Settings** 只打开
+普通 `infiniai.*` 设置，不能读取或修改提供方分组中的秘密。
+
+### InfiniAI 入口
+
+- **InfiniAI** 活动栏的 **模型** 树用于查看分组状态、刷新模型、控制提供方可见性、配置逐模型 Agent
+  可用性和切换协议。
+- **本地用量** 面板根据流式响应在本地记录请求用量，支持导出 CSV，并通过 VS Code 原生确认框清空记录。
+- `@infiniai /doctor`、`@infiniai /models`、`@infiniai /models refresh` 和 `@infiniai /test` 用于诊断、
+  模型清单和最小连通性测试，不会替代通用聊天助手。
 
 ## 使用前提
 
@@ -85,8 +114,20 @@ npm run build
 - `infiniai.modelRoutes`: 可选模型路由覆盖。每项支持 `pattern`、`transport`（`"openai"`、`"anthropic"` 或 `"vertex"`）以及可选 `baseUrl`。**InfiniAI: Switch Model Protocol** 命令是编辑精确 OpenAI/Anthropic 单模型覆盖的更安全入口。
 - `infiniai.imageInputModels`: 为匹配的模型 ID 强制启用图片输入能力。支持 `*` 通配符。
 - `infiniai.disableImageInputModels`: 为匹配的模型 ID 强制禁用图片输入能力。支持 `*` 通配符。
+- `infiniai.toolCallingModels`: 为匹配的模型 ID 强制启用工具调用和 VS Code Agent 可用性。扩展已为通过
+  工具调用与工具结果回放探测的精确模型 ID 提供基于证据的默认值，并在 API 未声明能力时默认把所有
+  `claude-*` 模型标记为 Agent 可用。精确覆盖建议使用 **InfiniAI: Configure Agent Eligibility**；高级
+  通配符可直接编辑此设置。Claude 系列默认值只控制选择器资格，不保证每条 InfiniAI 上游路由当前可用。
+- `infiniai.disableToolCallingModels`: 为匹配的模型 ID 强制禁用工具调用和 Agent 可用性，优先级高于
+  `infiniai.toolCallingModels`。没有 API、扩展或用户确认的未知模型默认不会被标记为 Agent 可用。
 - `infiniai.disableThinkingForModels`: 安全列表。匹配的模型 ID 默认关闭思考模式，以避免已知的 `reasoning_content` HTTP 400 错误。内置默认值包含已知 Xiaomi MiMo V2 模型 ID 与 DeepSeek V4 系列：`mimo-v2-pro`、`mimo-v2.5-pro`、`mimo-v2.5`、`mimo-v2-omni`、`mimo-v2-flash`、`deepseek-v4*`。详见下方[为思考模型避免 HTTP 400](#为思考模型避免-http-400)。
-- `infiniai.enableThinkingRoundTripForModels`: round-trip 回放模型族列表。内置默认值是 `mimo-v2*`、`deepseek-v4*`、精确 `deepseek-r1`、精确 `deepseek-v3.2-thinking`、`glm-5*`、`glm-4.7*`、`kimi-k2*` 和 `minimax*`；用户模式会追加到该列表。基础 `deepseek-v3.2` 默认不加入，因为它默认不思考。已知适配器会保留提供方原生形态：MiMo V2、DeepSeek V4、DeepSeek R1、GLM、Kimi、Qwen 使用 OpenAI `reasoning_content`；MiniMax split 模式使用 OpenAI `reasoning_details`；安全支持的 Anthropic Messages 路由使用 Anthropic `thinking` block。Kimi K2 与 DeepSeek V4 的内置回放默认只应用在 OpenAI 兼容路由；手动 Anthropic 路由的 Kimi 和目录默认 Anthropic 路由的 DeepSeek V4 会使用 safe-off profile。强制要求回放的 profile 在回放数据缺失、过期、冲突或不可用时会在本地失败；GLM 5/4.7 使用 best-effort 回放，因此 compact 后生成的无推理工具调用可以继续发送，同时仍会在有缓存时回放已捕获推理。支持 `*` 通配符。
+- `infiniai.enableThinkingRoundTripForModels`: round-trip 回放列表。Kimi 默认值使用精确的
+  `kimi-k2-thinking`、`kimi-k2.5`、`kimi-k2.6`、`kimi-k2.7-code`、`kimi-k2.7-code-highspeed` 和
+  `kimi-k3`；DeepSeek V4 使用精确的 `deepseek-v4-pro` 和 `deepseek-v4-flash`。其他默认值包括
+  `mimo-v2*`、精确 `deepseek-r1`、精确 `deepseek-v3.2-thinking`、`glm-5*`、`glm-4.7*` 和
+  `minimax*`。用户模式会扩展列表，但模型仍需具有已知回放 profile。已知适配器分别保留 OpenAI
+  `reasoning_content`、MiniMax `reasoning_details` 或 Anthropic `thinking` block。强制回放 profile 在
+  数据缺失、过期、冲突或不可用时会在本地失败。支持 `*` 通配符。
 - `infiniai.thinkingReplayStore`: profile 自动启用或显式启用后的思考回放存储后端。默认 `"localPlaintext"`，以支持重启后继续对话；设为 `"memory"` 则不把回放数据写入磁盘，但不支持重启后继续对话。
 - `infiniai.retry`: 可重试网络错误和 HTTP 错误的重试策略。
 - `infiniai.delay`: 请求之间的固定延迟，单位毫秒。
@@ -95,13 +136,43 @@ npm run build
 
 扩展会在 VS Code 模型选择器中提供稳定安全的模型控制项：
 
-- **Max output tokens** 限制回复最多生成的 token 数。选择模型默认值时不会发送上限。
-- **Reasoning effort** 只会出现在已确认存在 effort 参数的 profile 上。`Unset` 不发送 effort。OpenAI 兼容 DeepSeek V4 只提供 `High` 和 `Max`，并映射到 `reasoning_effort`；Anthropic 路由的 DeepSeek V3.2 profile 仍提供 `Low`、`Medium`、`High`，并映射到 `output_config.effort`。
-- **Thinking mode** 只会出现在已确认存在当前轮 thinking 控制参数的模型 profile 上。它提供 `Unset`，以及该 profile 支持的 `Disabled` 和/或 `Enabled` 选项。Qwen 映射到 `enable_thinking`，OpenAI 兼容 GLM/Kimi/MiMo/DeepSeek V4 映射到 `thinking.type`，Anthropic DeepSeek V3.2 映射到 Anthropic `thinking` 对象。手动 Anthropic 路由的 Kimi 和 Anthropic 路由的 DeepSeek V4 只展示安全的 `Disabled` 选项。DeepSeek R1 和 MiniMax 不暴露禁用/启用开关，因为尚未确认可靠的禁用字段。
+- **Max output tokens** 在 **Manage Models** 中限制回复长度。选择模型默认值时不会发送上限；超过模型当前
+  最大值的旧设置会被忽略。
+- **Reasoning effort** 只出现在确认支持 effort 参数的 profile 上。Kimi K3 提供 `Low`、`High` 和
+  `Max`；OpenAI 兼容 DeepSeek V4 与 GLM-5.2 只提供 `High` 和 `Max`；Anthropic DeepSeek V3.2 保留
+  `Low`、`Medium` 和 `High`。
+- **Thinking mode** 只出现在确认支持当前轮 thinking 控制的 profile 上。Kimi K2.5/K2.6 提供
+  `Enabled`/`Disabled`；K2.7 Code 与 K3 因强制思考而不提供开关。确认的 Claude Opus 4.6/4.7 和
+  Sonnet 4.6 使用 adaptive thinking；`claude-sonnet-4-5-20250929` 使用 budgeted extended thinking。
+
+VS Code 在模型发现返回配置 schema 后渲染这些控制项。修改后的值从下一次请求开始生效，不会追溯到
+已经发送的请求。Agents 窗口当前不会渲染该 schema；需要非自动值时，请先在普通 **Manage Models**
+中保存。
 
 Vertex 路由会把最大输出 token 映射到 `generationConfig.maxOutputTokens`。
 
 这些控制项使用 VS Code Stable 当前运行时接受的模型配置表面，不需要在扩展清单中声明 proposed API。
+
+### Agents 窗口
+
+模型只有在 API 元数据、扩展默认值或用户覆盖确认工具调用能力后，才会被导出到 VS Code Agents 窗口。
+API 未声明能力时，扩展默认允许所有 `claude-*` 模型，以及通过工具调用与工具结果回放探测的精确模型
+ID。未知模型保持不可用。
+
+从命令面板、模型树工具栏或模型行上下文菜单运行 **InfiniAI: Configure Agent Eligibility**：
+
+- **Automatic (Recommended)** 使用 API 与扩展元数据，包括 `claude-*` 系列策略。
+- **Enable for Agent** 为一个精确模型 ID 添加用户启用覆盖。它只能修改声明元数据，不能给上游模型增加
+  工具能力。
+- **Disable for Agent** 阻止该模型 ID 出现在 Agent 选择器中。
+
+模型树 tooltip 会显示有效来源：API metadata、extension metadata、user enabled、user disabled 或
+unknown。覆盖对所有 InfiniAI 分组中的同一模型 ID 生效。命令不会静默改写通配符；如果通配符阻止所选
+结果，它会引导用户打开设置。能力更改只在本地重建缓存元数据，不会重新请求模型目录。
+
+VS Code 1.130 Agents-window BYOK bridge 不传递逐模型配置 schema，因此 Agents 选择器中不会显示
+InfiniAI 的 thinking、effort 或输出上限控件。它还使用 `vendor/model` 作为选择键，无法可靠区分两个
+InfiniAI 分组中的相同模型 ID；Agent 场景应只保留其中一个分组。
 
 ## 路由与协议切换
 
@@ -187,11 +258,23 @@ VS Code 稳定版语言模型 API (`vscode.LanguageModelChatMessage`) 没有公�
 因此，对于 `mimo-v2.5-pro` 这类 Claude 兼容 InfiniAI 模型，只要所需回放缓存仍存在，在 OpenAI Chat
 Completions 与 Anthropic Messages 之间切换也不会失去回放保护。
 
-## 命令
+## 命令参考
 
-- `infiniai.refreshModels`: 取消进行中的发现操作，并显式重试所有已解析的 InfiniAI 提供方分组。
-- `infiniai.openManageModels`: 打开 VS Code“管理模型”。
-- `infiniai.openLogs`: 打开 InfiniAI 输出通道。
+打开命令面板并输入 `InfiniAI:` 可找到所有扩展命令：
+
+| 命令 | ID | 作用 |
+| --- | --- | --- |
+| **InfiniAI: Refresh Models** | `infiniai.refreshModels` | 取消当前模型发现，并以可取消进度显式重试所有已解析分组。 |
+| **InfiniAI: Exclude InfiniAI Model from Provider List** | `infiniai.hideModel` | 在扩展返回模型给 VS Code 前排除所选模型 ID。 |
+| **InfiniAI: Include InfiniAI Model in Provider List** | `infiniai.showModel` | 包含所选模型 ID，并覆盖匹配的隐藏模式。 |
+| **InfiniAI: Reset InfiniAI Provider Model Filters** | `infiniai.showAllModels` | 清除显式包含、排除和隐藏模式，使所有已发现模型在提供方层可见。 |
+| **InfiniAI: Switch Model Protocol** | `infiniai.switchModelProtocol` | 创建、修改或重置精确模型的 OpenAI/Anthropic 路由覆盖。 |
+| **InfiniAI: Configure Agent Eligibility** | `infiniai.configureAgentEligibility` | 把精确模型 ID 设置为 Automatic、Enable for Agent 或 Disable for Agent。 |
+| **InfiniAI: Open InfiniAI Settings** | `infiniai.openSettings` | 打开 `infiniai.*` 设置；不管理 API Key。 |
+| **InfiniAI: Add Provider Group** | `infiniai.addProviderGroup` | 解释 Group Name 与安全命名，然后打开 Language Models。 |
+| **InfiniAI: Open VS Code Manage Models** | `infiniai.openManageModels` | 打开 VS Code Language Models，管理分组、秘密、可见性和逐模型控件。 |
+| **InfiniAI: Open InfiniAI Logs** | `infiniai.openLogs` | 打开 `InfiniAI` 输出通道。 |
+| **InfiniAI: Clear Thinking Replay Cache** | `infiniai.clearThinkingReplayCache` | 清除当前 preserved-thinking 回放存储；之后应开始新聊天。 |
 
 聊天参与者命令：
 
@@ -209,6 +292,7 @@ Marketplace 清单不声明任何 `enabledApiProposals`，也不包含 proposed 
 - `isUserSelectable` 让符合条件的 InfiniAI 模型默认出现在模型选择器中。
 - `configurationSchema` 提供最大输出 token、reasoning effort 和 thinking mode 等模型选择器控制项。
 - 运行时请求选项 `configuration` / `modelConfiguration` 把用户选择的模型控制项传回 provider。
+- `isBYOK` 把 Agent 可用的 InfiniAI 模型导出到 Agents-window bridge。
 
 这些字段集中在 `src/grayLanguageModelMetadata.ts`，并由 `npm run validate:stable-gray` 验证。
 
@@ -267,6 +351,16 @@ VS Code 可能会在磁盘上保留旧扩展版本目录，但它会按扩展标
 4. 临时清空 `infiniai.modelRoutes`，排除错误路由覆盖的影响。
 5. 运行 **InfiniAI: Refresh Models**。该操作可取消；失败提示会直接提供 **管理模型** 和 **打开日志**
    补救入口。
+
+### 普通选择器中可见，但 Agents 中缺失
+
+1. 在 InfiniAI **模型** 树中查看该模型 tooltip 的 **Agent eligibility** 及来源。
+2. 运行 **InfiniAI: Configure Agent Eligibility**。优先使用 **Automatic**；只有确认 InfiniAI 路由支持工具
+   调用和工具结果回放时才选择 **Enable for Agent**。
+3. 确认 `infiniai.disableToolCallingModels` 没有匹配该 ID，并检查是否存在阻止精确覆盖的通配符。
+4. 确认 VS Code 的 `chat.agentHost.byokModels.enabled` 已启用。修改 agent-host 设置后需要重启 agent host。
+
+模型可被选择只说明 VS Code 接受了能力元数据；如果 InfiniAI 上游渠道不可用或协议不兼容，请求仍可能失败。
 
 ### Anthropic 或 Vertex 路由请求失败
 

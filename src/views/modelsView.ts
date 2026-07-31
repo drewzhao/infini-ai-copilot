@@ -1,6 +1,13 @@
 import * as vscode from "vscode";
 
 import {
+	applyExactToolCallingOverride,
+	isExactToolCallingPattern,
+	matchingToolCallingPatterns,
+	type AgentEligibilityOverride,
+} from "../agentEligibility";
+import type { ToolCallingCapabilitySource } from "../modelCapabilities";
+import {
 	getHiddenModelIds,
 	getVisibleModelIds,
 	isModelHidden,
@@ -39,6 +46,7 @@ interface ModelNode {
 	readonly endpointKind: ModelEndpointKind;
 	readonly routeSource: ModelRoute["source"];
 	readonly toolCalling: boolean;
+	readonly toolCallingSource: ToolCallingCapabilitySource;
 	readonly imageInput: boolean;
 	readonly maxInputTokens: number;
 	readonly maxOutputTokens: number;
@@ -101,6 +109,21 @@ function formatEndpointKind(endpointKind: ModelEndpointKind): string {
 
 function formatRouteSource(source: ModelRoute["source"]): string {
 	return source;
+}
+
+function formatToolCallingSource(source: ToolCallingCapabilitySource): string {
+	switch (source) {
+		case "user-enabled":
+			return vscode.l10n.t("user enabled");
+		case "user-disabled":
+			return vscode.l10n.t("user disabled");
+		case "api":
+			return vscode.l10n.t("API metadata");
+		case "extension":
+			return vscode.l10n.t("extension metadata");
+		case "unknown":
+			return vscode.l10n.t("unknown");
+	}
 }
 
 function isProtocolSwitchCandidate(model: InfiniAIModelDescription, rawRoutes: unknown): boolean {
@@ -181,7 +204,11 @@ export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<Infin
 						node.hidden ? vscode.l10n.t("excluded") : vscode.l10n.t("included")
 					),
 					vscode.l10n.t("VS Code Manage Models visibility is configured separately."),
-					vscode.l10n.t("Tools: {0}", node.toolCalling ? vscode.l10n.t("yes") : vscode.l10n.t("no")),
+					vscode.l10n.t(
+						"Agent eligibility: {0} ({1})",
+						node.toolCalling ? vscode.l10n.t("enabled") : vscode.l10n.t("disabled"),
+						formatToolCallingSource(node.toolCallingSource)
+					),
 					vscode.l10n.t("Images: {0}", node.imageInput ? vscode.l10n.t("yes") : vscode.l10n.t("no")),
 					vscode.l10n.t("Max input tokens: {0}", node.maxInputTokens.toLocaleString()),
 					vscode.l10n.t("Max output tokens: {0}", node.maxOutputTokens.toLocaleString()),
@@ -280,6 +307,7 @@ export class InfiniAIModelsTreeProvider implements vscode.TreeDataProvider<Infin
 					endpointKind: m.endpointKind,
 					routeSource: m.routeSource,
 					toolCalling: !!m.toolCalling,
+					toolCallingSource: m.toolCallingSource,
 					imageInput: !!m.imageInput,
 					maxInputTokens: m.maxInputTokens,
 					maxOutputTokens: m.maxOutputTokens,
@@ -443,6 +471,13 @@ export function registerInfiniAIModelsTreeView(
 			}
 			await switchModelProtocol(model, treeDataProvider);
 		}),
+		vscode.commands.registerCommand("infiniai.configureAgentEligibility", async (node?: InfiniNode) => {
+			const model = await resolveAgentEligibilityModel(node, provider);
+			if (!model) {
+				return;
+			}
+			await configureAgentEligibility(model, treeDataProvider);
+		}),
 		vscode.commands.registerCommand("infiniai.openSettings", () =>
 			vscode.commands.executeCommand("workbench.action.openSettings", "infiniai")
 		),
@@ -458,6 +493,191 @@ interface ProtocolModelPick extends vscode.QuickPickItem {
 interface ProtocolActionPick extends vscode.QuickPickItem {
 	readonly transport?: ProtocolSwitchTransport;
 	readonly reset?: boolean;
+}
+
+interface AgentEligibilityModelPick extends vscode.QuickPickItem {
+	readonly model: InfiniAIModelDescription;
+}
+
+interface AgentEligibilityActionPick extends vscode.QuickPickItem {
+	readonly override: AgentEligibilityOverride;
+}
+
+const TOOL_CALLING_ENABLE_SETTING = "toolCallingModels";
+const TOOL_CALLING_DISABLE_SETTING = "disableToolCallingModels";
+
+function currentAgentEligibilityLabel(model: InfiniAIModelDescription): string {
+	return vscode.l10n.t(
+		"{0} ({1})",
+		model.toolCalling ? vscode.l10n.t("Agent enabled") : vscode.l10n.t("Agent disabled"),
+		formatToolCallingSource(model.toolCallingSource)
+	);
+}
+
+async function resolveAgentEligibilityModel(
+	node: InfiniNode | undefined,
+	provider: InfiniAIChatModelProvider
+): Promise<InfiniAIModelDescription | undefined> {
+	const cancel = new vscode.CancellationTokenSource();
+	try {
+		const models = await provider.getModelDescriptions(false, cancel.token);
+		if (node?.kind === "model") {
+			return models.find((candidate) => candidate.id === node.id && candidate.group === node.group);
+		}
+
+		const byId = new Map<string, InfiniAIModelDescription[]>();
+		for (const model of models) {
+			const entries = byId.get(model.id) ?? [];
+			entries.push(model);
+			byId.set(model.id, entries);
+		}
+		const picks = [...byId.entries()]
+			.sort(([a], [b]) => a.localeCompare(b))
+			.map<AgentEligibilityModelPick>(([id, entries]) => ({
+				label: id,
+				description: currentAgentEligibilityLabel(entries[0]),
+				detail: vscode.l10n.t(
+					"Provider groups: {0}. An override applies to this model ID in every group.",
+					entries
+						.map((entry) => entry.group)
+						.sort()
+						.join(", ")
+				),
+				model: entries[0],
+			}));
+		const pick = await vscode.window.showQuickPick(picks, {
+			placeHolder: vscode.l10n.t("Select an InfiniAI model to configure for Agent mode"),
+			matchOnDescription: true,
+			matchOnDetail: true,
+		});
+		return pick?.model;
+	} finally {
+		cancel.dispose();
+	}
+}
+
+function configuredTarget(config: vscode.WorkspaceConfiguration): vscode.ConfigurationTarget {
+	const inspections = [
+		config.inspect<string[]>(TOOL_CALLING_ENABLE_SETTING),
+		config.inspect<string[]>(TOOL_CALLING_DISABLE_SETTING),
+	];
+	if (inspections.some((inspection) => inspection?.workspaceFolderValue !== undefined)) {
+		return vscode.ConfigurationTarget.WorkspaceFolder;
+	}
+	if (inspections.some((inspection) => inspection?.workspaceValue !== undefined)) {
+		return vscode.ConfigurationTarget.Workspace;
+	}
+	return vscode.ConfigurationTarget.Global;
+}
+
+function targetLabel(target: vscode.ConfigurationTarget): string {
+	switch (target) {
+		case vscode.ConfigurationTarget.WorkspaceFolder:
+			return vscode.l10n.t("workspace folder settings");
+		case vscode.ConfigurationTarget.Workspace:
+			return vscode.l10n.t("workspace settings");
+		default:
+			return vscode.l10n.t("user settings");
+	}
+}
+
+async function showWildcardOverrideConflict(modelId: string, patterns: readonly string[]): Promise<void> {
+	const openSettings = vscode.l10n.t("Open Settings");
+	const choice = await vscode.window.showWarningMessage(
+		vscode.l10n.t(
+			"{0} is controlled by wildcard pattern(s): {1}. Edit those patterns explicitly to avoid changing other models.",
+			modelId,
+			patterns.join(", ")
+		),
+		openSettings
+	);
+	if (choice === openSettings) {
+		await vscode.commands.executeCommand("workbench.action.openSettings", "infiniai tool calling models");
+	}
+}
+
+async function configureAgentEligibility(
+	model: InfiniAIModelDescription,
+	treeDataProvider: InfiniAIModelsTreeProvider
+): Promise<void> {
+	const automaticDescription =
+		model.toolCallingSource === "user-enabled" || model.toolCallingSource === "user-disabled"
+			? vscode.l10n.t("Remove the exact user override and use API or extension metadata")
+			: vscode.l10n.t("Current automatic result: {0}", currentAgentEligibilityLabel(model));
+	const picks: AgentEligibilityActionPick[] = [
+		{
+			label: "$(circle-outline) " + vscode.l10n.t("Automatic (Recommended)"),
+			description: automaticDescription,
+			override: "automatic",
+		},
+		{
+			label: "$(tools) " + vscode.l10n.t("Enable for Agent"),
+			description: vscode.l10n.t("Assert that this model supports tool calling"),
+			detail: vscode.l10n.t("This changes advertised metadata; it cannot add tool support to the upstream model."),
+			override: "enabled",
+		},
+		{
+			label: "$(circle-slash) " + vscode.l10n.t("Disable for Agent"),
+			description: vscode.l10n.t("Keep this model out of Agent model pickers"),
+			override: "disabled",
+		},
+	];
+	const pick = await vscode.window.showQuickPick(picks, {
+		placeHolder: vscode.l10n.t("Configure Agent eligibility for {0}", model.id),
+		matchOnDescription: true,
+		matchOnDetail: true,
+	});
+	if (!pick) {
+		return;
+	}
+
+	const config = vscode.workspace.getConfiguration("infiniai");
+	const effectiveEnable = config.get<string[]>(TOOL_CALLING_ENABLE_SETTING, []);
+	const effectiveDisable = config.get<string[]>(TOOL_CALLING_DISABLE_SETTING, []);
+	const enableWildcards = matchingToolCallingPatterns(model.id, effectiveEnable).filter(
+		(pattern) => !isExactToolCallingPattern(model.id, pattern)
+	);
+	const disableWildcards = matchingToolCallingPatterns(model.id, effectiveDisable).filter(
+		(pattern) => !isExactToolCallingPattern(model.id, pattern)
+	);
+	const blockingPatterns =
+		pick.override === "automatic"
+			? [...enableWildcards, ...disableWildcards]
+			: pick.override === "enabled"
+				? disableWildcards
+				: [];
+	if (blockingPatterns.length > 0) {
+		await showWildcardOverrideConflict(model.id, blockingPatterns);
+		return;
+	}
+
+	if (pick.override === "enabled") {
+		const enable = vscode.l10n.t("Enable");
+		const confirmed = await vscode.window.showWarningMessage(
+			vscode.l10n.t(
+				"Enable {0} for Agent mode? Only continue if its InfiniAI route actually supports tool calling and tool-result replay.",
+				model.id
+			),
+			{ modal: true },
+			enable
+		);
+		if (confirmed !== enable) {
+			return;
+		}
+	}
+
+	const target = configuredTarget(config);
+	const next = applyExactToolCallingOverride(
+		{ enable: effectiveEnable, disable: effectiveDisable },
+		model.id,
+		pick.override
+	);
+	await config.update(TOOL_CALLING_DISABLE_SETTING, next.disable, target);
+	await config.update(TOOL_CALLING_ENABLE_SETTING, next.enable, target);
+	treeDataProvider.refresh();
+	void vscode.window.showInformationMessage(
+		vscode.l10n.t("Agent eligibility for {0} is now {1}. Saved in {2}.", model.id, pick.override, targetLabel(target))
+	);
 }
 
 async function resolveProtocolModel(

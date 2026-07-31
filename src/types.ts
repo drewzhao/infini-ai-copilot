@@ -109,6 +109,7 @@ export interface InfiniAIModelInfo {
 	object: string;
 	created: number;
 	owned_by: string;
+	toolCallingMetadataSource?: "api" | "extension";
 	displayName?: string;
 	version?: string;
 	family?: string;

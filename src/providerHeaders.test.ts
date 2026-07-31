@@ -160,6 +160,55 @@ describe("InfiniAIChatModelProvider request headers", () => {
 });
 
 describe("InfiniAIChatModelProvider model metadata", () => {
+	it("advertises every live-verified fallback as Agent-capable", () => {
+		const { InfiniAIChatModelProvider } = loadProvider();
+		const provider = new InfiniAIChatModelProvider("test-agent", {} as any, { appendLine() {} } as any);
+		const route = {
+			transport: "openai",
+			endpointKind: "chat.completions",
+			baseUrl: "https://cloud.infini-ai.com/maas/v1",
+			source: "metadata",
+		};
+
+		for (const id of [
+			"deepseek-v3",
+			"glm-4.5-air",
+			"gpt-oss-120b",
+			"gpt-5.4",
+			"claude-haiku-4-5-20251001",
+			"gemini-3.1-flash-lite-preview",
+			"minimax-m2.7",
+			"minimax-m3",
+		]) {
+			const info = (provider as any).toLanguageModelInfo({ id }, route);
+			assert.equal(info.capabilities.toolCalling, true, id);
+		}
+	});
+
+	it("advertises every Claude model in the live catalog as Agent-capable", () => {
+		const { InfiniAIChatModelProvider } = loadProvider();
+		const provider = new InfiniAIChatModelProvider("test-agent", {} as any, { appendLine() {} } as any);
+		const route = {
+			transport: "anthropic",
+			endpointKind: "messages",
+			baseUrl: "https://cloud.infini-ai.com/maas/v1",
+			source: "metadata",
+		};
+
+		for (const id of [
+			"claude-haiku-4-5-20251001",
+			"claude-opus-4-6",
+			"claude-opus-4-7",
+			"claude-opus-4-8",
+			"claude-sonnet-4-20250514",
+			"claude-sonnet-4-5-20250929",
+			"claude-sonnet-4-6",
+		]) {
+			const info = (provider as any).toLanguageModelInfo({ id }, route);
+			assert.equal(info.capabilities.toolCalling, true, id);
+		}
+	});
+
 	it("advertises Kimi K3 vision without repartitioning its token limits", () => {
 		const { InfiniAIChatModelProvider } = loadProvider();
 		const provider = new InfiniAIChatModelProvider("test-agent", {} as any, { appendLine() {} } as any);

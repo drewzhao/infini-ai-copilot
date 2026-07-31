@@ -46,6 +46,16 @@ describe("built-in InfiniAI catalog metadata", () => {
 		assert.equal(enriched.capabilities?.imageInput, true);
 	});
 
+	it("records whether tool capability came from live API or bundled metadata", () => {
+		const bundled = enrichModelWithBuiltInMetadata(liveModel("deepseek-r1"));
+		const live = enrichModelWithBuiltInMetadata(liveModel("deepseek-r1", { capabilities: { toolCalling: false } }));
+		const unknown = enrichModelWithBuiltInMetadata(liveModel("future-model"));
+
+		assert.equal(bundled.toolCallingMetadataSource, "extension");
+		assert.equal(live.toolCallingMetadataSource, "api");
+		assert.equal(unknown.toolCallingMetadataSource, undefined);
+	});
+
 	it("keeps a positive live output ceiling authoritative over stale built-in metadata", () => {
 		const enriched = enrichModelWithBuiltInMetadata(
 			liveModel("kimi-k2.6", {

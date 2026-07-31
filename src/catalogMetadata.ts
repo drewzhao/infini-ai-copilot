@@ -120,6 +120,15 @@ function refreshLiveTokenMetadata(
 
 export function enrichModelWithBuiltInMetadata(model: InfiniAIModelInfo): InfiniAIModelInfo {
 	const builtIn = getBuiltInInfiniAIModelMetadata(model.id);
+	const liveToolCalling = model.capabilities?.toolCalling;
+	const builtInToolCalling = builtIn?.capabilities?.toolCalling;
+	const toolCallingMetadataSource =
+		model.toolCallingMetadataSource ??
+		(typeof liveToolCalling === "boolean" || (typeof liveToolCalling === "number" && Number.isFinite(liveToolCalling))
+			? "api"
+			: typeof builtInToolCalling === "boolean"
+				? "extension"
+				: undefined);
 	const liveContextLength = positiveInteger(model.context_length);
 	const liveMaxOutput =
 		positiveInteger(model.max_output_length) ??
@@ -128,6 +137,7 @@ export function enrichModelWithBuiltInMetadata(model: InfiniAIModelInfo): Infini
 	if (!builtIn) {
 		return {
 			...model,
+			toolCallingMetadataSource,
 			created: normalizedCreated(model.created),
 			owned_by: normalizedOwner(model.owned_by),
 			family: model.family ?? inferModelFamily(model.id),
@@ -142,6 +152,7 @@ export function enrichModelWithBuiltInMetadata(model: InfiniAIModelInfo): Infini
 
 	return {
 		...model,
+		toolCallingMetadataSource,
 		created: normalizedCreated(model.created, builtIn.created),
 		owned_by: normalizedOwner(model.owned_by, builtIn.manufacturer),
 		family: model.family ?? builtIn.family ?? inferModelFamily(model.id),

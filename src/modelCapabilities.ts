@@ -1,5 +1,6 @@
 export type ModelLike = {
 	id: string;
+	toolCallingMetadataSource?: ToolCallingMetadataSource;
 	vision?: boolean;
 	supports_image_in?: boolean;
 	model_type?: string;
@@ -13,6 +14,15 @@ export type ModelLike = {
 	input_modalities?: string[];
 	modalities?: string[];
 };
+
+export type ToolCallingMetadataSource = "api" | "extension";
+
+export type ToolCallingCapabilitySource = "user-disabled" | "user-enabled" | ToolCallingMetadataSource | "unknown";
+
+export interface ToolCallingCapabilityDecision {
+	readonly enabled: boolean;
+	readonly source: ToolCallingCapabilitySource;
+}
 
 export type ImageInputCapabilityConfig = {
 	/**
@@ -49,6 +59,17 @@ export type ToolCallingCapabilityConfig = {
 };
 
 export const VERIFIED_TOOL_CALLING_MODEL_PATTERNS = [
+	// Exact IDs that passed both a required function call and multi-turn
+	// tool-result replay against InfiniAI Chat Completions on 2026-07-31.
+	"deepseek-v3",
+	"glm-4.5-air",
+	"gpt-oss-120b",
+	"gpt-5.4",
+	"claude-haiku-4-5-20251001",
+	"gemini-3.1-flash-lite-preview",
+	"minimax-m2.7",
+	"minimax-m3",
+	// Previously verified exact IDs and narrowly scoped family variants.
 	"kimi-k3",
 	"deepseek-v4-pro",
 	"deepseek-v4-flash",
@@ -58,6 +79,11 @@ export const VERIFIED_TOOL_CALLING_MODEL_PATTERNS = [
 	"mimo-v2.5-pro",
 	"mimo-v2.6-pro",
 ] as const;
+
+// Family-level extension policy: Claude models are advertised for Agent mode
+// even when the InfiniAI catalog omits tool-calling metadata. Keep this separate
+// from the individually probe-verified list above.
+export const DEFAULT_TOOL_CALLING_MODEL_PATTERNS = ["claude-*", ...VERIFIED_TOOL_CALLING_MODEL_PATTERNS] as const;
 
 export const VERIFIED_IMAGE_INPUT_MODEL_PATTERNS = ["kimi-k3"] as const;
 
@@ -72,11 +98,11 @@ function escapeRegexLiteral(input: string): string {
 	return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function matchesPattern(modelId: string, pattern: string): boolean {
+export function matchesModelPattern(modelId: string, pattern: string): boolean {
 	if (!pattern) {
 		return false;
 	}
-	if (pattern === modelId) {
+	if (pattern.toLowerCase() === modelId.toLowerCase()) {
 		return true;
 	}
 	if (!pattern.includes("*")) {
@@ -84,14 +110,14 @@ function matchesPattern(modelId: string, pattern: string): boolean {
 	}
 	// Support a simple glob: '*' matches any substring.
 	const segments = pattern.split("*").map(escapeRegexLiteral);
-	const regex = new RegExp(`^${segments.join(".*")}$`);
+	const regex = new RegExp(`^${segments.join(".*")}$`, "i");
 	return regex.test(modelId);
 }
 
 function matchesAny(modelId: string, patterns: unknown): boolean {
 	const list = toStringArray(patterns);
 	for (const p of list) {
-		if (matchesPattern(modelId, p)) {
+		if (matchesModelPattern(modelId, p)) {
 			return true;
 		}
 	}
@@ -148,28 +174,35 @@ export function resolveImageInputCapability(model: ModelLike, config: ImageInput
 	return modelId.includes("-vision") || modelId.includes("-vl-") || (modelId.startsWith("glm") && /\dv$/.test(modelId));
 }
 
-export function resolveToolCallingCapability(model: ModelLike, config: ToolCallingCapabilityConfig = {}): boolean {
+export function resolveToolCallingCapabilityDecision(
+	model: ModelLike,
+	config: ToolCallingCapabilityConfig = {}
+): ToolCallingCapabilityDecision {
 	const modelId = model?.id ?? "";
 
 	// User overrides are intentional; disable wins if both lists match.
 	if (matchesAny(modelId, config.disablePatterns)) {
-		return false;
+		return { enabled: false, source: "user-disabled" };
 	}
 	if (matchesAny(modelId, config.enablePatterns)) {
-		return true;
+		return { enabled: true, source: "user-enabled" };
 	}
 
 	const explicit = model.capabilities?.toolCalling;
 	if (typeof explicit === "boolean") {
-		return explicit;
+		return { enabled: explicit, source: model.toolCallingMetadataSource ?? "api" };
 	}
 	if (typeof explicit === "number" && Number.isFinite(explicit)) {
-		return explicit > 0;
+		return { enabled: explicit > 0, source: model.toolCallingMetadataSource ?? "api" };
 	}
 	if (matchesAny(modelId, config.verifiedPatterns)) {
-		return true;
+		return { enabled: true, source: "extension" };
 	}
 
 	// Unknown capability is not Agent-eligible until metadata or a user override confirms it.
-	return false;
+	return { enabled: false, source: "unknown" };
+}
+
+export function resolveToolCallingCapability(model: ModelLike, config: ToolCallingCapabilityConfig = {}): boolean {
+	return resolveToolCallingCapabilityDecision(model, config).enabled;
 }
