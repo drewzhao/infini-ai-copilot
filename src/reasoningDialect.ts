@@ -310,6 +310,7 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 			replayRisk: "reasoning-content-required-for-all-assistant-messages",
 			replayScope: "all-assistant-messages",
 			replayRequiredByDefault: false,
+			allowsMissingReplayPayload: true,
 			requiredToolChoiceControl: "unsupported",
 		});
 	}
@@ -328,6 +329,7 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 			replayRisk: "reasoning-content-required-for-all-assistant-messages",
 			replayScope: "all-assistant-messages",
 			replayRequiredByDefault: true,
+			allowsMissingReplayPayload: true,
 			requiredToolChoiceControl: "unsupported",
 		});
 	}

@@ -952,7 +952,14 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		const replayCarrier = isStoredReplayCarrier(reasoningProfile.replayCarrier)
 			? reasoningProfile.replayCarrier
 			: "reasoning_content";
-		const allowMissingReplay = reasoningProfile.replayRisk === "reasoning-content-best-effort-after-tool-call";
+		// Live probes against the InfiniAI gateway (kimi-k3, kimi-k2.7-code, and kimi-k2.6 with
+		// thinking.keep "all"; stream and non-stream) accept assistant history whose
+		// reasoning_content is absent, empty, or mixed across plain and tool-call turns, so
+		// profiles that allow missing replay payloads degrade gracefully instead of failing
+		// the request locally.
+		const allowMissingReplay =
+			reasoningProfile.replayRisk === "reasoning-content-best-effort-after-tool-call" ||
+			reasoningProfile.allowsMissingReplayPayload;
 		const replayDecision = decideThinkingReplayRequest({
 			userOptedIntoRoundTrip,
 			replayRequiredByProfile,
@@ -969,6 +976,20 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		if (replayDecision.failLocalReason) {
 			logWarn(this.output, sanitizeForLog(replayDecision.failLocalReason, 600));
 			throw new Error(replayDecision.failLocalReason);
+		}
+		if (
+			replayDecision.allowThinkingRoundTrip &&
+			!replayDecision.resetThinkingHistory &&
+			!replayPreflight.allRequiredReasoningReplayed
+		) {
+			logWarn(
+				this.output,
+				`Thinking replay proceeding with gaps model=${sanitizeForLog(model.id, 120)} ` +
+					`missingToolCallReasoning=${replayPreflight.missingCallIds.length} ` +
+					`conflictingToolCallReasoning=${replayPreflight.conflictingCallIds.length} ` +
+					`missingAssistantReasoning=${replayPreflight.missingAssistantMessageIndexes.length} ` +
+					`conflictingAssistantReasoning=${replayPreflight.conflictingAssistantMessageIndexes.length}`
+			);
 		}
 		const requestMessages =
 			replayDecision.allowThinkingRoundTrip && !replayDecision.resetThinkingHistory
@@ -1137,7 +1158,9 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		const replayCarrier = isStoredReplayCarrier(reasoningProfile.replayCarrier)
 			? reasoningProfile.replayCarrier
 			: "anthropic_thinking_block";
-		const allowMissingReplay = reasoningProfile.replayRisk === "reasoning-content-best-effort-after-tool-call";
+		const allowMissingReplay =
+			reasoningProfile.replayRisk === "reasoning-content-best-effort-after-tool-call" ||
+			reasoningProfile.allowsMissingReplayPayload;
 		const replayDecision = decideThinkingReplayRequest({
 			userOptedIntoRoundTrip,
 			replayRequiredByProfile,

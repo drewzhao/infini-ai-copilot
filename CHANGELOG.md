@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.12] - 2026-09-21
+
+### Fixed
+
+- Kimi preserved-thinking conversations (`kimi-k3`, `kimi-k2.7-code`,
+  `kimi-k2.7-code-highspeed`, `kimi-k2.6`) no longer fail with "Reasoning
+  cannot be resumed for this conversation" when the replay cache has no entry
+  for a prior assistant turn — for example after a cancelled or errored turn,
+  replay-cache eviction or expiry, host-side history compaction, or switching
+  storage scopes. Profiles that allow missing replay payloads
+  (`allowsMissingReplayPayload`) now send those turns without
+  `reasoning_content` instead of failing the request locally; reasoning that is
+  still cached continues to be replayed. Verified against the InfiniAI gateway
+  with 42/42 accepted live probes covering absent, empty-string, and mixed
+  `reasoning_content` histories on plain and tool-call assistant turns in
+  streaming and non-streaming modes (probe scenarios
+  `kimi-k3-missing-reasoning-history-acceptance` and
+  `kimi-mixed-reasoning-history-acceptance`).
+- The InfiniAI output channel now logs a warning whenever a request proceeds
+  with reasoning-replay gaps, so degraded replay is visible instead of silent.
+
 ## [0.6.11] - 2026-09-21
 
 ### Added

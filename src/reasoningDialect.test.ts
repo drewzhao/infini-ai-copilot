@@ -273,6 +273,7 @@ describe("reasoning dialect profiles", () => {
 		assert.deepEqual(profile.preservationControl, { kind: "kimi-keep-all" });
 		assert.equal(profile.replayScope, "all-assistant-messages");
 		assert.equal(profile.replayRequiredByDefault, false);
+		assert.equal(profile.allowsMissingReplayPayload, true);
 		assert.equal(profile.replayRisk, "reasoning-content-required-for-all-assistant-messages");
 		assert.equal(profile.requiredToolChoiceControl, "unsupported");
 	});
@@ -287,6 +288,7 @@ describe("reasoning dialect profiles", () => {
 			assert.equal(profile.preservationControl.kind, "always-preserved");
 			assert.equal(profile.replayScope, "all-assistant-messages");
 			assert.equal(profile.replayRequiredByDefault, true);
+			assert.equal(profile.allowsMissingReplayPayload, true);
 			assert.equal(profile.canDisableThinking, false);
 			assert.equal(profile.reasoningEffortControl, "none");
 			assert.equal(profile.requiredToolChoiceControl, "unsupported");

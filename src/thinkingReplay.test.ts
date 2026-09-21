@@ -786,7 +786,7 @@ describe("decideThinkingReplayRequest", () => {
 		assert.equal(decision.failLocalReason?.includes("missingToolCallIds=call_missing"), true);
 	});
 
-	it("fails locally when forced-preserved K3 ordinary history cannot be replayed", async () => {
+	it("fails locally for uncached ordinary history when missing assistant replay is not tolerated", async () => {
 		const profile = resolveReasoningDialectProfile({ modelId: "kimi-k3", transport: "openai" });
 		const miss = applyThinkingReplay({
 			modelId: "kimi-k3",
@@ -813,6 +813,60 @@ describe("decideThinkingReplayRequest", () => {
 
 		assert.equal(decision.allowThinkingRoundTrip, false);
 		assert.match(decision.failLocalReason ?? "", /missingAssistantMessageIndexes=1/);
+	});
+
+	it("tolerates uncached K3 ordinary history because the dialect accepts missing replay payloads", async () => {
+		const profile = resolveReasoningDialectProfile({ modelId: "kimi-k3", transport: "openai" });
+		assert.equal(profile.allowsMissingReplayPayload, true);
+		const miss = applyThinkingReplay({
+			modelId: "kimi-k3",
+			profile,
+			messages: [
+				{ role: "user", content: "First question" },
+				{ role: "assistant", content: "Uncached answer" },
+				{ role: "user", content: "Follow up" },
+			],
+			store: await storeWithEntries([]),
+		});
+
+		assert.deepEqual(miss.missingAssistantMessageIndexes, [1]);
+		assert.deepEqual(
+			decideThinkingReplayRequest({
+				userOptedIntoRoundTrip: false,
+				replayRequiredByProfile: true,
+				allowMissingReplay: profile.allowsMissingReplayPayload,
+				preflight: miss,
+			}),
+			{ allowThinkingRoundTrip: true, failLocalReason: undefined }
+		);
+	});
+
+	it("tolerates K3 tool-call replay misses because the InfiniAI endpoint accepts absent reasoning", async () => {
+		const profile = resolveReasoningDialectProfile({ modelId: "kimi-k3", transport: "openai" });
+		const miss = applyThinkingReplay({
+			modelId: "kimi-k3",
+			profile,
+			messages: [
+				{ role: "user", content: "First question" },
+				{ role: "assistant", content: "Uncached answer" },
+				{
+					role: "assistant",
+					tool_calls: [{ id: "call_missing", type: "function", function: { name: "a", arguments: "{}" } }],
+				},
+			],
+			store: await storeWithEntries([]),
+		});
+
+		assert.deepEqual(miss.missingCallIds, ["call_missing"]);
+		assert.deepEqual(
+			decideThinkingReplayRequest({
+				userOptedIntoRoundTrip: false,
+				replayRequiredByProfile: true,
+				allowMissingReplay: profile.allowsMissingReplayPayload,
+				preflight: miss,
+			}),
+			{ allowThinkingRoundTrip: true, failLocalReason: undefined }
+		);
 	});
 
 	it("requires replay for DeepSeek R1 forced reasoning profiles without exposing a toggle", async () => {
