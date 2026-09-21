@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.11] - 2026-09-21
+
+### Added
+
+- Added dedicated reasoning-dialect profiles for `deepseek-v4.1-flash`,
+  `deepseek-v4-flash-0731`, `deepseek-v4-pro-0813`, `glm-5.3`, and `glm-5.3-flash`,
+  each matching the InfiniAI reasoning documentation, plus unit tests for every
+  new profile.
+
+### Fixed
+
+- `glm-5.3` and `glm-5.3-flash` are now treated as forced-thinking: disabling
+  thinking is no longer offered (the provider rejects `thinking.type: disabled`),
+  and reasoning effort accepts `low`/`high`/`max` with a `max` default.
+- `deepseek-v4.1-flash` now defaults to thinking on and is correctly toggleable
+  (previously it defaulted off and could not enable thinking).
+- `deepseek-v4-flash-0731` and `deepseek-v4-pro-0813` can now enable thinking via
+  `thinking.type` (previously locked to a safe-off profile that could not enable).
+
 ## [0.6.10] - 2026-07-31
 
 ### Added
