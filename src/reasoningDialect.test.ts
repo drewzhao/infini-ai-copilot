@@ -128,6 +128,61 @@ describe("reasoning dialect profiles", () => {
 		assert.equal(profile.replayRisk, "none");
 	});
 
+	it("resolves DeepSeek V4.1 Flash OpenAI routes as default-on toggleable thinking", () => {
+		const profile = resolveReasoningDialectProfile({
+			modelId: "deepseek-v4.1-flash",
+			transport: "openai",
+		});
+
+		assert.equal(profile.id, "deepseek-v4.1-flash-openai");
+		assert.equal(profile.defaultThinking, "on");
+		assert.equal(profile.currentTurnControl.kind, "thinking-type");
+		assert.equal(profile.canDisableThinking, true);
+		assert.equal(profile.canEnableThinking, true);
+		assert.deepEqual(profile.reasoningEffortLevels, ["low", "high", "max"]);
+		assert.equal(profile.defaultReasoningEffort, "high");
+	});
+
+	it("resolves dated DeepSeek V4 OpenAI routes to dedicated toggleable profiles", () => {
+		for (const [modelId, id] of [
+			["deepseek-v4-flash-0731", "deepseek-v4-flash-0731-openai"],
+			["deepseek-v4-pro-0813", "deepseek-v4-pro-0813-openai"],
+		] as const) {
+			const profile = resolveReasoningDialectProfile({
+				modelId,
+				transport: "openai",
+			});
+
+			assert.equal(profile.id, id, modelId);
+			assert.equal(profile.defaultThinking, "unknown", modelId);
+			assert.equal(profile.canDisableThinking, true, modelId);
+			assert.equal(profile.canEnableThinking, true, modelId);
+			assert.deepEqual(profile.reasoningEffortLevels, ["low", "high", "max"], modelId);
+			assert.equal(profile.defaultReasoningEffort, "high", modelId);
+		}
+	});
+
+	it("resolves GLM 5.3 OpenAI routes to dedicated forced-thinking profiles", () => {
+		for (const [modelId, id] of [
+			["glm-5.3", "glm-5.3-forced-thinking"],
+			["glm-5.3-flash", "glm-5.3-flash-forced-thinking"],
+		] as const) {
+			const profile = resolveReasoningDialectProfile({
+				modelId,
+				transport: "openai",
+			});
+
+			assert.equal(profile.id, id, modelId);
+			assert.equal(profile.defaultThinking, "forced", modelId);
+			assert.equal(profile.currentTurnControl.kind, "none", modelId);
+			assert.equal(profile.canDisableThinking, false, modelId);
+			assert.equal(profile.canEnableThinking, false, modelId);
+			assert.equal(profile.preservationControl.kind, "glm-clear-thinking", modelId);
+			assert.deepEqual(profile.reasoningEffortLevels, ["low", "high", "max"], modelId);
+			assert.equal(profile.defaultReasoningEffort, "max", modelId);
+		}
+	});
+
 	it("resolves DeepSeek V3.2 Anthropic routes as toggleable default-off thinking", () => {
 		const profile = resolveReasoningDialectProfile({
 			modelId: "deepseek-v3.2",

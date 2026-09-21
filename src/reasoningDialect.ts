@@ -374,6 +374,44 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 		});
 	}
 
+	if (modelId === "glm-5.3-flash") {
+		return profile({
+			id: "glm-5.3-flash-forced-thinking",
+			transport: "openai",
+			family: "glm",
+			defaultThinking: "forced",
+			currentTurnControl: { kind: "none" },
+			replayCarrier: "reasoning_content",
+			preservationControl: { kind: "glm-clear-thinking" },
+			canDisableThinking: false,
+			canEnableThinking: false,
+			replayRisk: "reasoning-content-best-effort-after-tool-call",
+			allowsMissingReplayPayload: true,
+			reasoningEffortControl: "openai-reasoning-effort",
+			reasoningEffortLevels: ["low", "high", "max"],
+			defaultReasoningEffort: "max",
+		});
+	}
+
+	if (/^glm-5\.3(\.|$|-)/.test(modelId)) {
+		return profile({
+			id: "glm-5.3-forced-thinking",
+			transport: "openai",
+			family: "glm",
+			defaultThinking: "forced",
+			currentTurnControl: { kind: "none" },
+			replayCarrier: "reasoning_content",
+			preservationControl: { kind: "glm-clear-thinking" },
+			canDisableThinking: false,
+			canEnableThinking: false,
+			replayRisk: "reasoning-content-best-effort-after-tool-call",
+			allowsMissingReplayPayload: true,
+			reasoningEffortControl: "openai-reasoning-effort",
+			reasoningEffortLevels: ["low", "high", "max"],
+			defaultReasoningEffort: "max",
+		});
+	}
+
 	if (/^glm-(5|4\.7)(\.|$|-)/.test(modelId) || modelId === "glm-5" || modelId === "glm-4.7") {
 		return profile({
 			id: "glm-5-default-thinking",
@@ -451,6 +489,64 @@ function openAIProfile(modelId: string): ReasoningDialectProfile {
 			replayRisk: "reasoning-content-best-effort-after-tool-call",
 			reasoningEffortControl: "openai-reasoning-effort",
 			reasoningEffortLevels: ["high", "max"],
+			requiredToolChoiceControl: "required-string",
+		});
+	}
+
+	if (modelId === "deepseek-v4.1-flash") {
+		return profile({
+			id: "deepseek-v4.1-flash-openai",
+			transport: "openai",
+			family: "deepseek",
+			defaultThinking: "on",
+			currentTurnControl: { kind: "thinking-type" },
+			replayCarrier: "reasoning_content",
+			preservationControl: { kind: "none" },
+			canDisableThinking: true,
+			canEnableThinking: true,
+			replayRisk: "reasoning-content-best-effort-after-tool-call",
+			allowsMissingReplayPayload: true,
+			reasoningEffortControl: "openai-reasoning-effort",
+			reasoningEffortLevels: ["low", "high", "max"],
+			defaultReasoningEffort: "high",
+			requiredToolChoiceControl: "required-string",
+		});
+	}
+
+	if (modelId === "deepseek-v4-flash-0731") {
+		return profile({
+			id: "deepseek-v4-flash-0731-openai",
+			transport: "openai",
+			family: "deepseek",
+			defaultThinking: "unknown",
+			currentTurnControl: { kind: "thinking-type" },
+			replayCarrier: "reasoning_content",
+			preservationControl: { kind: "none" },
+			canDisableThinking: true,
+			canEnableThinking: true,
+			replayRisk: "reasoning-content-best-effort-after-tool-call",
+			reasoningEffortControl: "openai-reasoning-effort",
+			reasoningEffortLevels: ["low", "high", "max"],
+			defaultReasoningEffort: "high",
+			requiredToolChoiceControl: "required-string",
+		});
+	}
+
+	if (modelId === "deepseek-v4-pro-0813") {
+		return profile({
+			id: "deepseek-v4-pro-0813-openai",
+			transport: "openai",
+			family: "deepseek",
+			defaultThinking: "unknown",
+			currentTurnControl: { kind: "thinking-type" },
+			replayCarrier: "reasoning_content",
+			preservationControl: { kind: "none" },
+			canDisableThinking: true,
+			canEnableThinking: true,
+			replayRisk: "reasoning-content-best-effort-after-tool-call",
+			reasoningEffortControl: "openai-reasoning-effort",
+			reasoningEffortLevels: ["low", "high", "max"],
+			defaultReasoningEffort: "high",
 			requiredToolChoiceControl: "required-string",
 		});
 	}
