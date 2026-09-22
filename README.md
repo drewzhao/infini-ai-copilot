@@ -149,8 +149,11 @@ Common settings:
   picker eligibility; it does not certify that every upstream InfiniAI Claude route is currently reachable.
 - `infiniai.disableToolCallingModels`: Force-disable tool calling and Agent eligibility. This list wins over `infiniai.toolCallingModels`. Models with no live, catalog, or user confirmation default to no tool calling instead of being advertised optimistically.
 - `infiniai.disableThinkingForModels`: Safety list. Thinking mode is disabled by default for matching model IDs to avoid known `reasoning_content` HTTP 400 errors. The built-in defaults include known Xiaomi MiMo V2 model IDs and the DeepSeek V4 family: `mimo-v2-pro`, `mimo-v2.5-pro`, `mimo-v2.5`, `mimo-v2-omni`, `mimo-v2-flash`, `deepseek-v4*`. See [Thinking mode](#thinking-mode) below.
-- `infiniai.enableThinkingRoundTripForModels`: Round-trip replay list. Kimi and DeepSeek V4 defaults use exact verified IDs—Kimi uses `kimi-k2-thinking`, `kimi-k2.5`, `kimi-k2.6`, `kimi-k2.7-code`, `kimi-k2.7-code-highspeed`, and `kimi-k3`; DeepSeek V4 uses `deepseek-v4-pro` and `deepseek-v4-flash`. Other defaults are `mimo-v2*`, exact `deepseek-r1`, exact `deepseek-v3.2-thinking`, `glm-5*`, `glm-4.7*`, and `minimax*`; user patterns extend the list but a model still needs a known replay profile. Known adapters preserve the provider-native shape: OpenAI `reasoning_content` for MiMo V2, DeepSeek V4, DeepSeek R1, GLM, Kimi, and Qwen profiles; OpenAI `reasoning_details` for MiniMax split mode; and Anthropic `thinking` blocks for Anthropic Messages routes that safely support them. Replay-required profiles fail locally when replay data is missing, expired, conflicting, or unavailable. Supports `*` wildcards.
-- `infiniai.thinkingReplayStore`: Replay storage backend for profile-enabled or opted-in thinking replay. Defaults to `"localPlaintext"` for restart continuity; set `"memory"` to avoid writing replay data to disk and accept no restart continuity.
+- `infiniai.enableThinkingRoundTripForModels`: Round-trip replay list. Kimi and DeepSeek V4 defaults use exact verified IDs—Kimi uses `kimi-k2-thinking`, `kimi-k2.5`, `kimi-k2.6`, `kimi-k2.7-code`, `kimi-k2.7-code-highspeed`, and `kimi-k3`; DeepSeek V4 uses `deepseek-v4-pro` and `deepseek-v4-flash`. Other defaults are `mimo-v2*`, exact `deepseek-r1`, exact `deepseek-v3.2-thinking`, `glm-5*`, `glm-4.7*`, and `minimax*`; user patterns extend the list but a model still needs a known replay profile. Known adapters preserve the provider-native shape: OpenAI `reasoning_content` for MiMo V2, DeepSeek V4, DeepSeek R1, GLM, Kimi, and Qwen profiles; OpenAI `reasoning_details` for MiniMax split mode; and Anthropic `thinking` blocks for Anthropic Messages routes that safely support them. Profiles that allow missing replay payloads (Kimi K2.6, K2.7
+  Code, and K3; GLM-5.2; GLM-5.3 and GLM-5.3-flash; deepseek-v4.1-flash) continue without `reasoning_content` and log
+  a warning when cached replay data is missing or expired, instead of failing the request locally. Other
+  replay-required profiles still fail locally when replay data is missing, conflicting, or unavailable. Supports `*` wildcards.
+- `infiniai.thinkingReplayStore`: Replay storage backend for profile-enabled or opted-in thinking replay. Defaults to `"localPlaintext"` for restart continuity; set `"memory"` to avoid writing replay data to disk and accept no restart continuity. The local plaintext backend persists as an append-only `thinking-replay-v2.jsonl` file (a legacy v1 JSON cache is migrated once), retains entries for 7 days, and caps the store at 2000 entries or 16 MB.
 - `infiniai.retry`: Retry policy for retryable network and HTTP failures.
 - `infiniai.delay`: Fixed delay between requests, in milliseconds.
 
@@ -171,15 +174,19 @@ The extension exposes stable-safe model configuration through VS Code:
 
 - **Max output tokens** appears in **Manage Models** and caps the response length. The model default sends no cap.
   Persisted values above a model's current advertised maximum are ignored rather than sent upstream.
-- **Prompt budget** is advertised separately from the provider's absolute max completion window. Long-context models keep a practical 16K output reserve for interactive chat, so Copilot Chat does not compact early just because a provider allows very large completions.
+- **Prompt budget** is advertised separately from the provider's absolute max completion window. Long-context models keep a practical 16K output reserve for interactive chat, so Copilot Chat does not compact early just because a provider allows very large completions. The advertised and default-request output ceiling is additionally capped at a practical 32768 tokens even when a provider publishes an output limit equal to the whole context window; explicit per-model configuration can still select the provider's full output ceiling.
 - **Reasoning effort** appears in **Manage Models** and, for the selected model, in VS Code's inline **Thinking
   Effort** control. It is offered only for profiles with a confirmed effort parameter. Kimi K3 offers `Low`, `High`,
   and `Max` through top-level `reasoning_effort`, with `Max` as its automatic replay-safe default.
-  OpenAI-compatible DeepSeek V4 and GLM-5.2 offer only `High` and `Max`; Anthropic-routed DeepSeek V3.2 profiles keep
+  GLM-5.3 and GLM-5.3-flash likewise offer `Low`, `High`, and `Max` with a `Max` default;
+  deepseek-v4.1-flash, deepseek-v4-flash-0731, and deepseek-v4-pro-0813 offer `Low`, `High`, and `Max` with a
+  `High` default. OpenAI-compatible deepseek-v4-pro/v4-flash and GLM-5.2 offer only `High` and `Max`;
+  Anthropic-routed DeepSeek V3.2 profiles keep
   `Low`, `Medium`, and `High`, mapping selected values to `output_config.effort`.
 - **Thinking mode** appears in **Manage Models** only and only for profiles with a confirmed current-turn thinking
   control. Kimi K2.5 and K2.6 expose `Enabled`/`Disabled` through `thinking.type`; K2.7 Code and K3 expose no toggle
-  because thinking is mandatory. Qwen maps to `enable_thinking`, OpenAI-compatible GLM/MiMo/DeepSeek V4 maps to
+  because thinking is mandatory. GLM-5.3 and GLM-5.3-flash are likewise forced-thinking and expose no toggle, while
+  deepseek-v4.1-flash defaults to thinking on and stays toggleable. Qwen maps to `enable_thinking`, OpenAI-compatible GLM/MiMo/DeepSeek V4 maps to
   `thinking.type`, and Anthropic DeepSeek V3.2 maps to the Anthropic `thinking` object. Confirmed Claude Opus
   4.6/4.7 and Sonnet 4.6 profiles map `Enabled` to adaptive thinking; `claude-sonnet-4-5-20250929` maps `Enabled` to
   budgeted extended thinking.
@@ -317,8 +324,8 @@ Anthropic Messages without losing the replay guard, as long as the required repl
    every resolved InfiniAI provider group in a cancellable progress notification. The last known-good model list remains
    available if that retry fails.
 2. If refresh fails, choose **Manage Models** or **Open Logs** from the error notification.
-3. Run `@infiniai /doctor` to check provider groups, the discovery endpoint, cache state, route overrides, and the last
-   sanitized error.
+3. Run `@infiniai /doctor` to check provider groups, the discovery endpoint, cache state, route overrides, the last
+   sanitized error, and the thinking replay cache (mode, entry count, and size).
 4. Run `@infiniai /models refresh` to refresh and inspect the resulting model, route, and capability list.
 5. Run `@infiniai /test` to choose a visible model and send a minimal cancellable request through its effective route.
 
@@ -357,7 +364,8 @@ behavior.
 
 Run **InfiniAI: Clear Thinking Replay Cache** to immediately clear the active memory or local-plaintext replay store.
 This cannot be undone. Start a new chat afterward: a follow-up in an existing replay-required conversation may fail
-locally because the extension will not send an unsafe request without the preserved provider-native thinking data.
+locally (profiles that forbid unsafe requests) or continue without replayed reasoning and log a warning (profiles
+that allow missing replay payloads), depending on the model's replay profile.
 
 ### Review or remove local usage records
 
@@ -388,7 +396,7 @@ Enter these commands in VS Code Chat:
 
 | Chat command                | What it does                                                                                                                               |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `@infiniai /doctor`         | Reports the VS Code version, provider groups, discovery endpoint and summary, cache age, route override counts, and last sanitized errors. |
+| `@infiniai /doctor`         | Reports the VS Code version, provider groups, discovery endpoint and summary, cache age, route override counts, last sanitized errors, and the thinking replay cache (storage mode with its persistence/privacy implication, entry count, and size). |
 | `@infiniai /models`         | Lists up to 50 cached models with provider group, effective transport, route source, tools, image input, and input/output token budgets.   |
 | `@infiniai /models refresh` | Refreshes model discovery before producing the same model report.                                                                          |
 | `@infiniai /test`           | Prompts for a visible model when needed and sends a minimal cancellable health request through its effective route.                        |

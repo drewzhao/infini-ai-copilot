@@ -17,6 +17,12 @@ npm run build
 
 Do not add `pnpm-lock.yaml`, `yarn.lock`, or generated proposed API files.
 
+Two standalone diagnostic scripts live in `scripts/`:
+
+- `capture-proxy.mjs`: a local logging proxy. Point `infiniai.baseUrl` at it to capture exact upstream request bodies.
+- `replay-capture.mjs`: replays a captured request standalone, with `--times` backend-coverage sampling and
+  `--bisect` minimal-failing-subset reduction.
+
 ## Architecture
 
 Primary runtime surfaces:

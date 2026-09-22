@@ -126,9 +126,11 @@ npm run build
   `kimi-k3`；DeepSeek V4 使用精确的 `deepseek-v4-pro` 和 `deepseek-v4-flash`。其他默认值包括
   `mimo-v2*`、精确 `deepseek-r1`、精确 `deepseek-v3.2-thinking`、`glm-5*`、`glm-4.7*` 和
   `minimax*`。用户模式会扩展列表，但模型仍需具有已知回放 profile。已知适配器分别保留 OpenAI
-  `reasoning_content`、MiniMax `reasoning_details` 或 Anthropic `thinking` block。强制回放 profile 在
-  数据缺失、过期、冲突或不可用时会在本地失败。支持 `*` 通配符。
-- `infiniai.thinkingReplayStore`: profile 自动启用或显式启用后的思考回放存储后端。默认 `"localPlaintext"`，以支持重启后继续对话；设为 `"memory"` 则不把回放数据写入磁盘，但不支持重启后继续对话。
+  `reasoning_content`、MiniMax `reasoning_details` 或 Anthropic `thinking` block。允许缺失回放数据的
+  profile（Kimi K2.6、K2.7 Code、K3，GLM-5.2，GLM-5.3/5.3-flash，deepseek-v4.1-flash）在缓存回放数据
+  缺失或过期时改为不带 `reasoning_content` 继续请求并记录告警日志，不再在本地失败；其他强制回放
+  profile 在数据缺失、冲突或不可用时仍会在本地失败。支持 `*` 通配符。
+- `infiniai.thinkingReplayStore`: profile 自动启用或显式启用后的思考回放存储后端。默认 `"localPlaintext"`，以支持重启后继续对话；设为 `"memory"` 则不把回放数据写入磁盘，但不支持重启后继续对话。本地明文后端以追加式 `thinking-replay-v2.jsonl` 文件持久化（旧版 v1 JSON 缓存会自动迁移一次），条目保留 7 天，总量上限为 2000 条或 16 MB。
 - `infiniai.retry`: 可重试网络错误和 HTTP 错误的重试策略。
 - `infiniai.delay`: 请求之间的固定延迟，单位毫秒。
 
@@ -138,11 +140,18 @@ npm run build
 
 - **Max output tokens** 在 **Manage Models** 中限制回复长度。选择模型默认值时不会发送上限；超过模型当前
   最大值的旧设置会被忽略。
+- **Prompt budget** 与提供方标称的绝对最大补全窗口分开公告。长上下文模型会为交互式聊天保留 16K 的
+  实际输出预留，避免仅因提供方允许超大补全而导致 Copilot Chat 过早压缩。公告的以及默认请求的输出上限
+  还会进一步封顶在实际值 32768 token，即使提供方发布的输出上限等于整个上下文窗口；显式的逐模型配置
+  仍可选择提供方的完整输出上限。
 - **Reasoning effort** 只出现在确认支持 effort 参数的 profile 上。Kimi K3 提供 `Low`、`High` 和
-  `Max`；OpenAI 兼容 DeepSeek V4 与 GLM-5.2 只提供 `High` 和 `Max`；Anthropic DeepSeek V3.2 保留
-  `Low`、`Medium` 和 `High`。
+  `Max`，默认 `Max`；GLM-5.3 和 GLM-5.3-flash 同样提供 `Low`、`High`、`Max`（默认 `Max`）；
+  deepseek-v4.1-flash、deepseek-v4-flash-0731 和 deepseek-v4-pro-0813 提供 `Low`、`High`、`Max`
+  （默认 `High`）。OpenAI 兼容的 deepseek-v4-pro/v4-flash 与 GLM-5.2 只提供 `High` 和 `Max`；
+  Anthropic DeepSeek V3.2 保留 `Low`、`Medium` 和 `High`。
 - **Thinking mode** 只出现在确认支持当前轮 thinking 控制的 profile 上。Kimi K2.5/K2.6 提供
-  `Enabled`/`Disabled`；K2.7 Code 与 K3 因强制思考而不提供开关。确认的 Claude Opus 4.6/4.7 和
+  `Enabled`/`Disabled`；K2.7 Code 与 K3 因强制思考而不提供开关。GLM-5.3 和 GLM-5.3-flash 同样强制思考、
+  不提供开关；deepseek-v4.1-flash 默认开启思考且仍可切换。确认的 Claude Opus 4.6/4.7 和
   Sonnet 4.6 使用 adaptive thinking；`claude-sonnet-4-5-20250929` 使用 budgeted extended thinking。
 
 VS Code 在模型发现返回配置 schema 后渲染这些控制项。修改后的值从下一次请求开始生效，不会追溯到
@@ -242,7 +251,7 @@ VS Code 稳定版语言模型 API (`vscode.LanguageModelChatMessage`) 没有公�
 `infiniai.enableThinkingRoundTripForModels` 已经为已验证的回放族预置：`"mimo-v2*"`、`"deepseek-v4*"`、`"deepseek-r1"`、`"deepseek-v3.2-thinking"`、`"glm-5*"`、`"glm-4.7*"`、`"kimi-k2*"` 和 `"minimax*"`。基础 `"deepseek-v3.2"` 默认不加入，因为它默认不思考；Kimi K2 与 DeepSeek V4 的默认回放只应用在 OpenAI 兼容路由，Anthropic 路由的 DeepSeek V4 会保持 safe-off。只有当另一个模型族已经有经过验证的回放适配器时，才向该设置添加模式：
 
 - 如果回放预检确认所需提供方原生推理形态可用，扩展会保持思考开启并发送请求。
-- 强制要求回放的 profile 如果回放数据缺失、过期、冲突或不可用，扩展会在本地失败，不会发送可能触发上游 HTTP 400 的请求。GLM 5/4.7 对 compact 后无推理内容的工具调用使用 best-effort 策略，仍会在有缓存时回放推理内容。
+- 强制要求回放的 profile 如果回放数据缺失、过期、冲突或不可用，扩展会在本地失败，不会发送可能触发上游 HTTP 400 的请求。允许缺失回放数据的 profile（见配置一节）则改为不带 `reasoning_content` 继续请求并记录告警。GLM 5/4.7 对 compact 后无推理内容的工具调用使用 best-effort 策略，仍会在有缓存时回放推理内容。
 
 如果希望已启用的思考工具调用对话在 VS Code 重载或重启后仍能继续，保持 `infiniai.thinkingReplayStore` 默认值 `"localPlaintext"`。只有在不希望回放数据写入磁盘，并且可以接受重启后不能继续这类对话时，才选择 `"memory"`。
 
@@ -346,7 +355,7 @@ VS Code 可能会在磁盘上保留旧扩展版本目录，但它会按扩展标
 按以下顺序检查：
 
 1. 打开 **VS Code 管理模型**，按需添加 InfiniAI，并确认提供方分组的 API Key。
-2. 运行 `@infiniai /doctor`，检查提供方分组状态、模型发现端点和最近错误。
+2. 运行 `@infiniai /doctor`，检查提供方分组状态、模型发现端点、思考回放缓存（模式、条目数、大小）和最近错误。
 3. 清空 `infiniai.modelDiscoveryUrl`，除非您明确需要自定义模型发现端点。
 4. 临时清空 `infiniai.modelRoutes`，排除错误路由覆盖的影响。
 5. 运行 **InfiniAI: Refresh Models**。该操作可取消；失败提示会直接提供 **管理模型** 和 **打开日志**
