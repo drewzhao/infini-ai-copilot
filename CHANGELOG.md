@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Self-serve gateway diagnostics in the InfiniAI output channel: every request
+  now logs the gateway trace identifiers (`traceresponse`, `x-maas-request-id`)
+  at info level, and every completed response logs the `model` value reported
+  by the response body (`Response body model=... requestedModel=...`, with an
+  explicit `<absent>` marker when the body carries none) so users can tell
+  which backing deployment served them without any extra tooling.
+- HTTP errors surfaced to the chat UI now append the gateway trace context
+  (`[traceresponse=... x-request-id=...]`), so a failing request can be
+  reported with its trace id straight from the error message.
+- Upstream request rejections (4xx/5xx) log a structural message-skeleton
+  summary (roles, content lengths, reasoning lengths, tool-call ids — never
+  message text) to help locate malformed history shapes.
+- `scripts/capture-proxy.mjs` and `scripts/replay-capture.mjs`: a local
+  logging proxy (point `infiniai.baseUrl` at it to capture exact request
+  bodies) and a standalone replayer with `--times` backend-coverage sampling
+  and `--bisect` minimal-failing-subset reduction.
+
 ## [0.6.12] - 2026-09-21
 
 ### Fixed

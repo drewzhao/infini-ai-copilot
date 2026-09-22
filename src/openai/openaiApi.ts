@@ -401,6 +401,7 @@ export class OpenaiApi extends CommonApi {
 				try {
 					const parsed = JSON.parse(data);
 					this.captureUsage(parsed);
+					this.captureResponseModel(parsed);
 					await this.processDelta(parsed, progress);
 				} catch (err) {
 					throw new StreamParseError(
@@ -423,6 +424,13 @@ export class OpenaiApi extends CommonApi {
 			}
 			// If there's an active thinking sequence, end it first
 			this.reportEndThinking();
+		}
+	}
+
+	/** Remember the serving-side model id reported in the response body. */
+	private captureResponseModel(parsed: Record<string, unknown>): void {
+		if (this.lastResponseModel === undefined && typeof parsed.model === "string" && parsed.model.length > 0) {
+			this.lastResponseModel = parsed.model;
 		}
 	}
 

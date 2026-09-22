@@ -793,3 +793,38 @@ describe("OpenaiApi streaming response visibility", () => {
 		]);
 	});
 });
+
+describe("OpenaiApi response model capture", () => {
+	it("captures the serving-side model id from the response body", async () => {
+		const { openai } = loadOpenaiApi();
+		const api = new openai.OpenaiApi();
+
+		await api.processStreamingResponse(
+			streamFromChunks([
+				'data: {"model":"moonshotai/kimi-k3","choices":[{"delta":{"content":"ok"}}]}\n\n',
+				'data: {"model":"moonshotai/kimi-k3","choices":[{"delta":{"content":"!"},"finish_reason":"stop"}]}\n\n',
+				"data: [DONE]\n\n",
+			]),
+			{ report() {} },
+			token() as any
+		);
+
+		assert.equal(api.lastResponseModel, "moonshotai/kimi-k3");
+	});
+
+	it("leaves the response model undefined when the body never carries one", async () => {
+		const { openai } = loadOpenaiApi();
+		const api = new openai.OpenaiApi();
+
+		await api.processStreamingResponse(
+			streamFromChunks([
+				'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n',
+				"data: [DONE]\n\n",
+			]),
+			{ report() {} },
+			token() as any
+		);
+
+		assert.equal(api.lastResponseModel, undefined);
+	});
+});

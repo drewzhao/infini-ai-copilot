@@ -24,6 +24,14 @@ export abstract class CommonApi {
 	/** Last usage reported by the model on this request, if any. */
 	public lastUsage?: ApiUsage;
 
+	/**
+	 * The `model` value reported inside the response body, if any. This is the
+	 * serving side's own identifier and can differ from the requested model id
+	 * (multi-backend gateways report which backing deployment answered).
+	 * Undefined when the response body never carried a model field.
+	 */
+	public lastResponseModel?: string;
+
 	/** Buffer for assembling streamed tool calls by index. */
 	protected _toolCallBuffers: Map<number, { id?: string; name?: string; args: string; startInput?: unknown }> = new Map<
 		number,

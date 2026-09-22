@@ -396,6 +396,10 @@ export class AnthropicApi extends CommonApi {
 		}
 
 		if (chunk.type === "message_start" && chunk.message) {
+			const messageModel = (chunk.message as { model?: unknown }).model;
+			if (this.lastResponseModel === undefined && typeof messageModel === "string" && messageModel.length > 0) {
+				this.lastResponseModel = messageModel;
+			}
 			this.mergeUsage(chunk.message.usage ?? chunk.usage);
 			return;
 		}

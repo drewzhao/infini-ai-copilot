@@ -11,16 +11,17 @@ export class HttpError extends Error {
 		readonly status: number,
 		readonly statusText: string,
 		readonly body: string,
-		readonly retryAfterMs?: number
+		readonly retryAfterMs?: number,
+		readonly traceContext?: string
 	) {
-		super(`HTTP ${status} ${statusText}${body ? `: ${body}` : ""}`);
+		super(`HTTP ${status} ${statusText}${body ? `: ${body}` : ""}${traceContext ? ` [${traceContext}]` : ""}`);
 		this.name = "HttpError";
 	}
 }
 
 export class RateLimitError extends HttpError {
-	constructor(statusText: string, body: string, retryAfterMs?: number) {
-		super(429, statusText, body, retryAfterMs);
+	constructor(statusText: string, body: string, retryAfterMs?: number, traceContext?: string) {
+		super(429, statusText, body, retryAfterMs, traceContext);
 		this.name = "RateLimitError";
 	}
 }
@@ -127,6 +128,28 @@ function endpointForLog(url: string): string {
 	}
 }
 
+/**
+ * Gateway trace identifiers, most useful first. The InfiniAI gateway returns
+ * `traceresponse` (W3C Trace Context) on every response, success or failure;
+ * the request-id variants differ per route.
+ */
+const GATEWAY_TRACE_HEADER_NAMES = ["traceresponse", "x-maas-request-id", "x-request-id", "request-id"] as const;
+
+/**
+ * Formats gateway trace identifiers from response headers so users can quote
+ * them when reporting issues. Returns an empty string when none are present.
+ */
+export function formatGatewayTraceContext(headers: Headers): string {
+	const parts: string[] = [];
+	for (const name of GATEWAY_TRACE_HEADER_NAMES) {
+		const value = headers.get(name);
+		if (value) {
+			parts.push(`${name}=${value}`);
+		}
+	}
+	return parts.join(" ");
+}
+
 export async function readHttpErrorResponse(response: Response): Promise<HttpError> {
 	let body = "";
 	try {
@@ -135,10 +158,11 @@ export async function readHttpErrorResponse(response: Response): Promise<HttpErr
 		body = "";
 	}
 	const retryAfterMs = retryAfterToMs(response.headers.get("retry-after"));
+	const traceContext = formatGatewayTraceContext(response.headers);
 	if (response.status === 429) {
-		return new RateLimitError(response.statusText, body, retryAfterMs);
+		return new RateLimitError(response.statusText, body, retryAfterMs, traceContext || undefined);
 	}
-	return new HttpError(response.status, response.statusText, body, retryAfterMs);
+	return new HttpError(response.status, response.statusText, body, retryAfterMs, traceContext || undefined);
 }
 
 export async function cancellableDelay(ms: number, token: vscode.CancellationToken): Promise<void> {

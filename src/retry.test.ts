@@ -161,3 +161,44 @@ describe("retry configuration", () => {
 		assert.equal(attempts, 1);
 	});
 });
+
+describe("gateway trace context", () => {
+	it("formats trace identifiers from response headers in priority order", () => {
+		const utils = loadUtils({});
+		const headers = new Headers({
+			"x-maas-request-id": "1790045694336abc",
+			traceresponse: "00-260921203125a888fe1b430031ebb464-e47d406fb43d95aa-01",
+		});
+
+		assert.equal(
+			utils.formatGatewayTraceContext(headers),
+			"traceresponse=00-260921203125a888fe1b430031ebb464-e47d406fb43d95aa-01 x-maas-request-id=1790045694336abc"
+		);
+		assert.equal(utils.formatGatewayTraceContext(new Headers()), "");
+	});
+
+	it("attaches gateway trace context to HTTP errors", async () => {
+		const utils = loadUtils({});
+		const response = new Response('{"error":{"code":"InvalidParameter"}}', {
+			status: 400,
+			statusText: "Bad Request",
+			headers: { traceresponse: "00-abc-def-01", "x-request-id": "req-1" },
+		});
+
+		const error = await utils.readHttpErrorResponse(response);
+
+		assert.equal(error.status, 400);
+		assert.equal(error.traceContext, "traceresponse=00-abc-def-01 x-request-id=req-1");
+		assert.match(error.message, /\[traceresponse=00-abc-def-01 x-request-id=req-1\]$/);
+	});
+
+	it("keeps HTTP error messages unchanged when no trace headers exist", async () => {
+		const utils = loadUtils({});
+		const response = new Response("boom", { status: 500, statusText: "Server Error" });
+
+		const error = await utils.readHttpErrorResponse(response);
+
+		assert.equal(error.traceContext, undefined);
+		assert.equal(error.message, "HTTP 500 Server Error: boom");
+	});
+});

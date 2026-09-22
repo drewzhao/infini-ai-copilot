@@ -61,6 +61,7 @@ import {
 	executeWithRetry,
 	fetchModels,
 	fetchWithCancellation,
+	formatGatewayTraceContext,
 	HttpError,
 	InfiniAILogger,
 	logDebug,
@@ -198,6 +199,31 @@ function summarizeThinkingMessages(messages: readonly OpenAIChatMessage[]): {
 		}
 	}
 	return { assistantToolCallCount, assistantReasoningCount, assistantToolCallMissingReasoningCount };
+}
+
+/**
+ * Compact per-message structural summary for diagnosing upstream request
+ * rejections: role, content length, reasoning length, tool-call ids, and
+ * tool_call_id linkage. Never includes message text.
+ */
+function summarizeOpenAIRequestShapeForLog(messages: readonly OpenAIChatMessage[]): string {
+	return messages
+		.map((message) => {
+			const contentChars =
+				typeof message.content === "string"
+					? message.content.length
+					: Array.isArray(message.content)
+						? JSON.stringify(message.content).length
+						: -1;
+			const reasoning = typeof message.reasoning_content === "string" ? `+rc${message.reasoning_content.length}` : "";
+			const toolCalls =
+				message.tool_calls && message.tool_calls.length > 0
+					? `+tc[${message.tool_calls.map((toolCall) => toolCall.id || "<empty>").join(",")}]`
+					: "";
+			const toolCallId = message.tool_call_id !== undefined ? `@${message.tool_call_id || "<empty>"}` : "";
+			return `${message.role}:${contentChars}${reasoning}${toolCalls}${toolCallId}`;
+		})
+		.join(" ");
 }
 
 function isAnthropicContentBlockArray(content: AnthropicMessage["content"]): content is AnthropicContentBlock[] {
@@ -1093,16 +1119,36 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 				`assistantReasoning=${thinkingSummary.assistantReasoningCount} ` +
 				`assistantToolCallsMissingReasoning=${thinkingSummary.assistantToolCallMissingReasoningCount}`
 		);
-		const response = await this.postJsonWithRetry(
-			this.requestUrl(route, model.id),
-			this.requestHeaders(route, apiKey),
-			requestBody,
-			token
-		);
+		let response: Response;
+		try {
+			response = await this.postJsonWithRetry(
+				this.requestUrl(route, model.id),
+				this.requestHeaders(route, apiKey),
+				requestBody,
+				token
+			);
+		} catch (err) {
+			if (err instanceof HttpError) {
+				logWarn(
+					this.output,
+					`InfiniAI request rejected status=${err.status} model=${sanitizeForLog(model.id, 120)} ` +
+						`messages=${requestMessages.length} tools=${Array.isArray(requestBody.tools) ? requestBody.tools.length : 0} ` +
+						`shape=${sanitizeForLog(summarizeOpenAIRequestShapeForLog(requestMessages), 4000)}`
+				);
+			}
+			throw err;
+		}
 		if (!response.body) {
 			throw new Error("No response body from InfiniAI API");
 		}
 		await openaiApi.processStreamingResponse(response.body, progress, token);
+		// Info level so users can self-serve which backing deployment answered:
+		// this is the model value from the RESPONSE body, not the request.
+		logInfo(
+			this.output,
+			`Response body model=${sanitizeForLog(openaiApi.lastResponseModel ?? "<absent>", 120)} ` +
+				`requestedModel=${sanitizeForLog(model.id, 120)}`
+		);
 		this.fireUsage(model, route, openaiApi.lastUsage);
 	}
 
@@ -1264,6 +1310,11 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			throw new Error("No response body from Anthropic API");
 		}
 		await anthropicApi.processStreamingResponse(response.body, progress, token);
+		logInfo(
+			this.output,
+			`Response body model=${sanitizeForLog(anthropicApi.lastResponseModel ?? "<absent>", 120)} ` +
+				`requestedModel=${sanitizeForLog(model.id, 120)}`
+		);
 		this.fireUsage(model, route, anthropicApi.lastUsage);
 	}
 
@@ -1364,9 +1415,13 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 					},
 					token
 				);
-				logDebug(
+				// Info level so users can always self-serve the gateway trace id
+				// (returned on every response via the traceresponse header).
+				const traceContext = formatGatewayTraceContext(response.headers);
+				logInfo(
 					this.output,
-					`POST ${safeEndpointLabel(url)} status=${response.status} elapsedMs=${Date.now() - started}`
+					`POST ${safeEndpointLabel(url)} status=${response.status} elapsedMs=${Date.now() - started}` +
+						(traceContext ? ` ${traceContext}` : "")
 				);
 				if (!response.ok) {
 					throw await readHttpErrorResponse(response);
