@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Advertised and default-request `maxOutputTokens` is now capped at a practical
+  32768 (`PRACTICAL_MAX_OUTPUT_TOKENS`). Catalog entries such as `kimi-k3`
+  publish an output ceiling equal to the whole context window, which made the
+  advertised `maxInputTokens + maxOutputTokens` ≈ 2× the real window — breaking
+  consumers that derive a context window by summing the two (the VS Code
+  agents-window BYOK bridge, pushing its compaction trigger past the real
+  window) and inflating the Anthropic route's mandatory default `max_tokens`
+  (the OpenAI route sends no `max_tokens` by default, so its wire shape is
+  unchanged). Explicit per-model configuration can still select the provider's
+  full output ceiling; the configuration schema and request-time clamp now use
+  the raw catalog limit. See
+  `reports/infiniai-token-budget-output-cap-20260922.md`.
+
 ### Added
 
 - Self-serve gateway diagnostics in the InfiniAI output channel: every request

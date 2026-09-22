@@ -4,6 +4,7 @@ import {
 	computeAdvertisedMaxInputTokens,
 	computeLanguageModelTokenBudget,
 	computePracticalOutputReserve,
+	PRACTICAL_MAX_OUTPUT_TOKENS,
 } from "./tokenBudget";
 
 describe("advertised prompt budget policy", () => {
@@ -31,6 +32,28 @@ describe("advertised prompt budget policy", () => {
 		assert.deepEqual(computeLanguageModelTokenBudget(262144, undefined, 4096), {
 			maxInputTokens: 245760,
 			maxOutputTokens: 4096,
+		});
+	});
+
+	it("caps the advertised max output tokens at the practical completion cap", () => {
+		// kimi-k3 shape: catalog publishes max_output_length equal to the whole
+		// context window; without the cap the advertised sum is ~2x the window.
+		assert.deepEqual(computeLanguageModelTokenBudget(1048576, 1048576, 4096), {
+			maxInputTokens: 1032192,
+			maxOutputTokens: PRACTICAL_MAX_OUTPUT_TOKENS,
+		});
+		const sum = 1032192 + PRACTICAL_MAX_OUTPUT_TOKENS;
+		assert.ok(sum <= 1048576 * 1.02, `advertised sum ${sum} should stay near the real context window`);
+	});
+
+	it("keeps provider completion limits below the cap untouched", () => {
+		assert.deepEqual(computeLanguageModelTokenBudget(262144, 16384, 4096), {
+			maxInputTokens: 245760,
+			maxOutputTokens: 16384,
+		});
+		assert.deepEqual(computeLanguageModelTokenBudget(262144, 32768, 4096), {
+			maxInputTokens: 245760,
+			maxOutputTokens: 32768,
 		});
 	});
 });

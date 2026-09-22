@@ -202,6 +202,18 @@ function summarizeThinkingMessages(messages: readonly OpenAIChatMessage[]): {
 }
 
 /**
+ * The provider's real output ceiling for user configuration limits. The
+ * advertised `model.maxOutputTokens` is capped to a practical default, so
+ * explicit per-model configuration reads the raw catalog limit instead.
+ */
+function resolveProviderMaxOutputTokens(
+	infiniAIModel: InfiniAIModelInfo | undefined,
+	advertisedMaxOutputTokens: number
+): number {
+	return infiniAIModel?.max_output_length ?? infiniAIModel?.max_tokens ?? advertisedMaxOutputTokens;
+}
+
+/**
  * Compact per-message structural summary for diagnosing upstream request
  * rejections: role, content length, reasoning length, tool-call ids, and
  * tool_call_id linkage. Never includes message text.
@@ -863,9 +875,12 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		const translateModelConfiguration = (message: string, ...args: readonly (string | number | boolean)[]): string =>
 			vscode.l10n.t(message, ...args);
 
+		// The advertised/default output is capped (PRACTICAL_MAX_OUTPUT_TOKENS), but the
+		// per-model configuration schema keeps the provider's real ceiling so users can
+		// explicitly opt into longer completions.
 		const modelConfigSchema = buildInfiniAIModelConfigurationSchema(
 			model,
-			maxOutput,
+			providerMaxOutput ?? maxOutput,
 			route.transport,
 			translateModelConfiguration
 		);
@@ -944,7 +959,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		const disableThinkingPatterns = getDisableThinkingPatterns();
 		const roundTripPatterns = getThinkingRoundTripPatterns();
 		const modelConfiguration = resolveInfiniAIModelConfiguration(options, {
-			maxOutputTokens: model.maxOutputTokens,
+			maxOutputTokens: resolveProviderMaxOutputTokens(infiniAIModel, model.maxOutputTokens),
 		});
 		const reasoningProfile = resolveReasoningDialectProfile({
 			modelId: model.id,
@@ -1170,7 +1185,7 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 		const disableThinkingPatterns = getDisableThinkingPatterns();
 		const roundTripPatterns = getThinkingRoundTripPatterns();
 		const modelConfiguration = resolveInfiniAIModelConfiguration(options, {
-			maxOutputTokens: model.maxOutputTokens,
+			maxOutputTokens: resolveProviderMaxOutputTokens(infiniAIModel, model.maxOutputTokens),
 		});
 		const reasoningProfile = resolveReasoningDialectProfile({
 			modelId: model.id,

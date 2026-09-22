@@ -233,7 +233,11 @@ describe("InfiniAIChatModelProvider model metadata", () => {
 
 		assert.equal(info.capabilities.imageInput, true);
 		assert.equal(info.maxInputTokens, 1032192);
-		assert.equal(info.maxOutputTokens, 1048576);
+		// Advertised output is capped so maxInput+maxOutput stays near the real
+		// 1M context window (consumers like the agents-window BYOK bridge derive
+		// a context window by summing the two). The catalog's 1M output ceiling
+		// remains reachable through explicit per-model configuration.
+		assert.equal(info.maxOutputTokens, 32768);
 	});
 });
 
