@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.14] - 2026-09-22
+
 ### Changed
 
 - The thinking replay cache now persists as an append-only JSONL file
