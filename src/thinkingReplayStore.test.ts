@@ -6,6 +6,7 @@ import { join } from "path";
 import {
 	buildOpenAIAssistantReplayKey,
 	buildOpenAIReplayHistoryKey,
+	LocalJsonlThinkingReplayStorage,
 	LocalPlaintextThinkingReplayStorage,
 	MemoryThinkingReplayStorage,
 	ThinkingReplayStore,
@@ -26,7 +27,7 @@ describe("ThinkingReplayStore", () => {
 		const entry = store.lookup("mimo-v2.5-pro", "call_1");
 		assert.equal(entry?.reasoningContent, "reason content");
 		assert.equal(entry?.modelId, "mimo-v2.5-pro");
-		assert.equal(entry?.callId, "call_1");
+		assert.deepEqual(entry?.callIds, ["call_1"]);
 	});
 
 	it("records completed GLM-5.2 tool turns that contain no reasoning payload", async () => {
@@ -398,5 +399,132 @@ describe("ThinkingReplayStore", () => {
 
 		assert.equal(store.lookup("mimo-v2.5-pro", "call_1")?.reasoningContent, "content");
 		assert.deepEqual(await storage.load(), []);
+	});
+});
+
+describe("ThinkingReplayStore jsonl persistence and dedup", () => {
+	it("shares one entry across parallel tool calls and evicts them together", async () => {
+		let now = 1000;
+		const store = new ThinkingReplayStore({ maxTotalBytes: 24, now: () => now });
+		await store.initialize(new MemoryThinkingReplayStorage());
+
+		const turn = store.beginTurn("kimi-k3");
+		store.appendReasoning(turn.turnId, "shared reasoning!!");
+		store.recordToolCall(turn.turnId, "call_a");
+		store.recordToolCall(turn.turnId, "call_b");
+		store.recordToolCall(turn.turnId, "call_c");
+		await store.commit(turn.turnId);
+
+		// One unique entry, payload bytes counted once despite three call ids.
+		assert.equal(store.stats().entryCount, 1);
+		assert.equal(store.stats().totalBytes, 18);
+		assert.equal(store.lookup("kimi-k3", "call_a")?.reasoningContent, "shared reasoning!!");
+		assert.equal(store.lookup("kimi-k3", "call_b"), store.lookup("kimi-k3", "call_c"));
+
+		// Evicting the shared entry removes every call-id key at once.
+		now = 1010;
+		const second = store.beginTurn("kimi-k3");
+		store.appendReasoning(second.turnId, "newer reasoning!!!");
+		store.recordToolCall(second.turnId, "call_d");
+		await store.commit(second.turnId);
+
+		assert.equal(store.stats().entryCount, 1);
+		assert.equal(store.lookup("kimi-k3", "call_a"), undefined);
+		assert.equal(store.lookup("kimi-k3", "call_b"), undefined);
+		assert.equal(store.lookup("kimi-k3", "call_d")?.reasoningContent, "newer reasoning!!!");
+	});
+
+	it("appends jsonl lines per commit and reloads shared call ids", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "thinking-replay-"));
+		try {
+			const file = join(dir, "thinking-replay-v2.jsonl");
+			const first = new ThinkingReplayStore();
+			await first.initialize(new LocalJsonlThinkingReplayStorage(file));
+
+			const turn = first.beginTurn("kimi-k3");
+			first.appendReasoning(turn.turnId, "persisted shared reasoning");
+			first.recordToolCall(turn.turnId, "call_x");
+			first.recordToolCall(turn.turnId, "call_y");
+			await first.commit(turn.turnId);
+
+			const raw = await readFile(file, "utf8");
+			const lines = raw.trim().split("\n");
+			assert.equal(lines.length, 1);
+			assert.deepEqual(JSON.parse(lines[0]).callIds, ["call_x", "call_y"]);
+
+			const second = new ThinkingReplayStore();
+			await second.initialize(new LocalJsonlThinkingReplayStorage(file));
+			assert.equal(second.stats().entryCount, 1);
+			assert.equal(second.lookup("kimi-k3", "call_x")?.reasoningContent, "persisted shared reasoning");
+			assert.equal(second.lookup("kimi-k3", "call_x"), second.lookup("kimi-k3", "call_y"));
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("tolerates a torn trailing jsonl line and keeps earlier entries", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "thinking-replay-"));
+		try {
+			const file = join(dir, "thinking-replay-v2.jsonl");
+			const storage = new LocalJsonlThinkingReplayStorage(file);
+			await storage.append([
+				{
+					modelId: "kimi-k3",
+					callIds: ["call_ok"],
+					reasoningContent: "survives",
+					capturedAt: Date.now(),
+					byteLength: 8,
+				},
+			]);
+			await writeFile(file, `${await readFile(file, "utf8")}{"modelId":"kimi-k3","cal`, "utf8");
+
+			const store = new ThinkingReplayStore();
+			await store.initialize(storage);
+			assert.equal(store.stats().entryCount, 1);
+			assert.equal(store.lookup("kimi-k3", "call_ok")?.reasoningContent, "survives");
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("migrates a legacy v1 json cache into jsonl and removes the old file", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "thinking-replay-"));
+		try {
+			const legacyFile = join(dir, "thinking-replay-v1.json");
+			const jsonlFile = join(dir, "thinking-replay-v2.jsonl");
+			await new LocalPlaintextThinkingReplayStorage(legacyFile).save([
+				{
+					modelId: "deepseek-v4",
+					callId: "call_legacy",
+					reasoningContent: "migrated",
+					capturedAt: Date.now(),
+					byteLength: 8,
+				},
+			]);
+
+			const store = new ThinkingReplayStore();
+			await store.initialize(new LocalJsonlThinkingReplayStorage(jsonlFile, { legacyJsonFile: legacyFile }));
+
+			assert.equal(store.lookup("deepseek-v4", "call_legacy")?.reasoningContent, "migrated");
+			await assert.rejects(() => access(legacyFile));
+			const raw = await readFile(jsonlFile, "utf8");
+			assert.equal(raw.trim().split("\n").length, 1);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("does not create a jsonl file before there are committed entries", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "thinking-replay-"));
+		try {
+			const file = join(dir, "thinking-replay-v2.jsonl");
+			const store = new ThinkingReplayStore();
+			await store.initialize(new LocalJsonlThinkingReplayStorage(file));
+			await store.prune();
+
+			await assert.rejects(() => access(file));
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
 	});
 });

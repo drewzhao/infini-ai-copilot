@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The thinking replay cache now persists as an append-only JSONL file
+  (`thinking-replay-v2.jsonl`): committed turns append one line instead of
+  rewriting the whole store on every commit, torn trailing lines from a crash
+  are ignored on load, and the file is compacted at startup, on eviction, and
+  after 1024 appended lines. An existing `thinking-replay-v1.json` cache is
+  migrated once and removed.
+- Replay cache limits are relaxed for long preserved-thinking sessions:
+  time-to-live 24 hours → 7 days, total size 2 MB → 16 MB, entry count
+  500 → 2000.
+- Parallel tool calls of one assistant turn now share a single replay entry
+  (`callIds`) instead of duplicating the reasoning payload per call id, so the
+  byte budget and the persisted file count each turn's reasoning once; shared
+  entries are evicted atomically with all their call ids.
+
+### Added
+
+- The `@infiniai /doctor` chat command now reports the thinking replay cache:
+  active mode with its persistence/privacy implication (`localPlaintext`
+  persists reasoning text unencrypted; `memory` writes nothing to disk), entry
+  count and size, and how to switch modes or clear the cache.
+- Model picker tooltips mention that the thinking replay cache is stored as a
+  local plaintext file by default and can be kept off disk via
+  `infiniai.thinkingReplayStore`.
+
 ## [0.6.13] - 2026-09-22
 
 ### Changed

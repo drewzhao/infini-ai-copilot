@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "fs/promises";
+import { appendFile, mkdir, readFile, rename, rm, writeFile } from "fs/promises";
 import { dirname } from "path";
 
 import type { OpenAIChatMessage } from "./openai/openaiTypes";
@@ -11,6 +11,13 @@ export type StoredReplayCarrier = Exclude<ReplayCarrier, "none" | "unknown">;
 export interface ThinkingReplayEntry {
 	readonly modelId: string;
 	readonly callId?: string;
+	/**
+	 * All tool-call ids of one assistant turn sharing this payload. Parallel
+	 * tool calls used to be stored as one duplicated entry per call id; the
+	 * shared form stores (and counts) the payload once. `callId` remains for
+	 * entries persisted by older versions.
+	 */
+	readonly callIds?: readonly string[];
 	readonly assistantMessageKey?: string;
 	readonly profileId?: string;
 	readonly transport?: ModelTransport;
@@ -63,6 +70,8 @@ export interface ThinkingReplayStats {
 export interface ThinkingReplayStorage {
 	load(): Promise<readonly ThinkingReplayEntry[]>;
 	save(entries: readonly ThinkingReplayEntry[]): Promise<void>;
+	/** Persist newly committed entries without rewriting the whole store. */
+	append(entries: readonly ThinkingReplayEntry[]): Promise<void>;
 	clear(): Promise<void>;
 }
 
@@ -93,10 +102,12 @@ interface PendingTurn {
 	invalid: boolean;
 }
 
-const DEFAULT_MAX_ENTRIES = 500;
-const DEFAULT_MAX_TOTAL_BYTES = 2 * 1024 * 1024;
+const DEFAULT_MAX_ENTRIES = 2000;
+const DEFAULT_MAX_TOTAL_BYTES = 16 * 1024 * 1024;
 const DEFAULT_MAX_PENDING_TURN_BYTES = 512 * 1024;
-const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** Full-rewrite compaction after this many appended lines since the last save. */
+const COMPACTION_APPEND_THRESHOLD = 1024;
 
 function callReplayKey(modelId: string, callId: string): string {
 	return `call::${modelId}::${callId}`;
@@ -192,6 +203,10 @@ function isReplayEntry(value: unknown): value is ThinkingReplayEntry {
 		!!v &&
 		typeof v.modelId === "string" &&
 		(v.callId === undefined || typeof v.callId === "string") &&
+		(v.callIds === undefined ||
+			(Array.isArray(v.callIds) &&
+				v.callIds.length > 0 &&
+				v.callIds.every((callId) => typeof callId === "string" && callId.length > 0))) &&
 		(v.assistantMessageKey === undefined || typeof v.assistantMessageKey === "string") &&
 		(v.profileId === undefined || typeof v.profileId === "string") &&
 		(v.transport === undefined ||
@@ -209,6 +224,7 @@ function isReplayEntry(value: unknown): value is ThinkingReplayEntry {
 		typeof v.byteLength === "number" &&
 		v.modelId.length > 0 &&
 		((typeof v.callId === "string" && v.callId.length > 0) ||
+			(Array.isArray(v.callIds) && v.callIds.length > 0) ||
 			(typeof v.assistantMessageKey === "string" && v.assistantMessageKey.length > 0)) &&
 		v.byteLength >= 0 &&
 		(typeof v.reasoningContent === "string" ||
@@ -249,6 +265,10 @@ export class MemoryThinkingReplayStorage implements ThinkingReplayStorage {
 		// Intentionally no-op: this backend keeps replay state process-local.
 	}
 
+	async append(_entries: readonly ThinkingReplayEntry[]): Promise<void> {
+		// Intentionally no-op.
+	}
+
 	async clear(): Promise<void> {
 		// Intentionally no-op.
 	}
@@ -278,6 +298,105 @@ export class LocalPlaintextThinkingReplayStorage implements ThinkingReplayStorag
 		await rm(this.filePath, { force: true });
 	}
 
+	async append(entries: readonly ThinkingReplayEntry[]): Promise<void> {
+		// Legacy single-JSON backend: appends degrade to a full read-merge-write.
+		const existing = await this.load();
+		await this.save([...existing, ...entries]);
+	}
+
+	private get filePath(): string {
+		if (typeof this.storageFile === "string") {
+			return this.storageFile;
+		}
+		return this.storageFile.fsPath ?? this.storageFile.path ?? "";
+	}
+}
+
+/**
+ * Append-friendly JSONL backend: one entry per line, committed turns are
+ * appended in O(turn) instead of rewriting the whole store, and `save()`
+ * performs an atomic temp+rename compaction. On load, later lines win for a
+ * given key (the in-memory map applies them in order) and a torn trailing
+ * line from a crash is ignored. When the JSONL file does not exist yet, a
+ * legacy v1 single-JSON file is migrated once and then removed.
+ */
+export class LocalJsonlThinkingReplayStorage implements ThinkingReplayStorage {
+	constructor(
+		private readonly storageFile: string | { fsPath?: string; path?: string },
+		private readonly options: { readonly legacyJsonFile?: string } = {}
+	) {}
+
+	async load(): Promise<readonly ThinkingReplayEntry[]> {
+		let raw: string | undefined;
+		try {
+			raw = await readFile(this.filePath, "utf8");
+		} catch {
+			raw = undefined;
+		}
+		if (raw === undefined) {
+			return this.migrateLegacyJson();
+		}
+		const entries: ThinkingReplayEntry[] = [];
+		for (const line of raw.split("\n")) {
+			const trimmed = line.trim();
+			if (!trimmed) {
+				continue;
+			}
+			try {
+				const parsed = JSON.parse(trimmed) as unknown;
+				if (isReplayEntry(parsed)) {
+					entries.push(parsed);
+				}
+			} catch {
+				// Torn or corrupt line (e.g. crash mid-append): skip it.
+			}
+		}
+		return entries;
+	}
+
+	async save(entries: readonly ThinkingReplayEntry[]): Promise<void> {
+		await mkdir(dirname(this.filePath), { recursive: true });
+		const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
+		const payload = entries.map((entry) => JSON.stringify(entry)).join("\n");
+		await writeFile(tempPath, payload ? `${payload}\n` : "", "utf8");
+		await rename(tempPath, this.filePath);
+	}
+
+	async append(entries: readonly ThinkingReplayEntry[]): Promise<void> {
+		if (entries.length === 0) {
+			return;
+		}
+		await mkdir(dirname(this.filePath), { recursive: true });
+		const payload = entries.map((entry) => JSON.stringify(entry)).join("\n");
+		await appendFile(this.filePath, `${payload}\n`, "utf8");
+	}
+
+	async clear(): Promise<void> {
+		await rm(this.filePath, { force: true });
+		if (this.options.legacyJsonFile) {
+			await rm(this.options.legacyJsonFile, { force: true });
+		}
+	}
+
+	private async migrateLegacyJson(): Promise<readonly ThinkingReplayEntry[]> {
+		const legacyFile = this.options.legacyJsonFile;
+		if (!legacyFile) {
+			return [];
+		}
+		let entries: ThinkingReplayEntry[] = [];
+		try {
+			const parsed = JSON.parse(await readFile(legacyFile, "utf8")) as { entries?: unknown };
+			entries = Array.isArray(parsed.entries) ? parsed.entries.filter(isReplayEntry) : [];
+		} catch {
+			return [];
+		}
+		if (entries.length > 0) {
+			await this.save(entries);
+		}
+		await rm(legacyFile, { force: true });
+		return entries;
+	}
+
 	private get filePath(): string {
 		if (typeof this.storageFile === "string") {
 			return this.storageFile;
@@ -295,6 +414,7 @@ export class ThinkingReplayStore {
 	private readonly entries = new Map<string, ThinkingReplayEntry>();
 	private readonly pending = new Map<string, PendingTurn>();
 	private storage: ThinkingReplayStorage = new MemoryThinkingReplayStorage();
+	private appendedSinceSave = 0;
 
 	constructor(options: ThinkingReplayStoreOptions = {}) {
 		this.maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
@@ -307,9 +427,13 @@ export class ThinkingReplayStore {
 	async initialize(storage: ThinkingReplayStorage): Promise<void> {
 		this.storage = storage;
 		this.entries.clear();
+		this.appendedSinceSave = 0;
 		const loaded = await storage.load();
 		for (const entry of loaded) {
 			const normalized = normalizeReplayEntry(entry);
+			for (const callId of normalized.callIds ?? []) {
+				this.entries.set(callReplayKey(normalized.modelId, callId), normalized);
+			}
 			if (normalized.callId) {
 				this.entries.set(callReplayKey(normalized.modelId, normalized.callId), normalized);
 			}
@@ -318,6 +442,11 @@ export class ThinkingReplayStore {
 			}
 		}
 		await this.prune();
+		if (loaded.length > 0) {
+			// Startup compaction: collapse appended history (and any legacy
+			// duplicates) back into one line per live entry.
+			await this.saveSnapshot();
+		}
 	}
 
 	beginTurn(modelId: string): PendingThinkingTurn;
@@ -488,24 +617,27 @@ export class ThinkingReplayStore {
 			(redactedThinkingData ? byteLength(redactedThinkingData) : 0);
 
 		if (pending.callIds.size > 0) {
+			// One shared entry per turn: parallel tool calls reference the same
+			// payload instead of duplicating it per call id, so the byte budget
+			// and the persisted line count the reasoning once.
+			const entry: ThinkingReplayEntry = {
+				modelId: pending.modelId,
+				callIds: [...pending.callIds],
+				profileId: pending.profileId,
+				transport: pending.transport,
+				carrier: pending.carrier,
+				reasoningContent,
+				reasoningDetails,
+				reasoningSignature,
+				redactedThinkingData,
+				observedWithoutReplayPayload,
+				capturedAt,
+				byteLength: entryByteLength,
+			};
 			for (const callId of pending.callIds) {
-				const entry: ThinkingReplayEntry = {
-					modelId: pending.modelId,
-					callId,
-					profileId: pending.profileId,
-					transport: pending.transport,
-					carrier: pending.carrier,
-					reasoningContent,
-					reasoningDetails,
-					reasoningSignature,
-					redactedThinkingData,
-					observedWithoutReplayPayload,
-					capturedAt,
-					byteLength: entryByteLength,
-				};
 				this.entries.set(callReplayKey(entry.modelId, callId), entry);
 			}
-			await this.prune(this.now(), true);
+			await this.persistCommitted(entry);
 			return;
 		}
 
@@ -545,10 +677,11 @@ export class ThinkingReplayStore {
 				byteLength: 0,
 			};
 			this.entries.set(storageKey, conflict);
+			await this.persistCommitted(conflict);
 		} else {
 			this.entries.set(storageKey, entry);
+			await this.persistCommitted(entry);
 		}
-		await this.prune(this.now(), true);
 	}
 
 	abort(turnId: string): void {
@@ -602,7 +735,7 @@ export class ThinkingReplayStore {
 	}
 
 	async prune(now = this.now(), forceSave = false): Promise<void> {
-		const before = this.entries.size;
+		const before = this.uniqueEntryCount();
 		for (const [key, entry] of this.entries) {
 			if (!this.isFresh(entry, now)) {
 				this.entries.delete(key);
@@ -611,63 +744,89 @@ export class ThinkingReplayStore {
 
 		this.pruneByCount();
 		this.pruneByBytes();
-		if (forceSave || this.entries.size !== before) {
-			await this.storage.save(this.snapshot());
+		if (forceSave || this.uniqueEntryCount() !== before) {
+			await this.saveSnapshot();
 		}
 	}
 
 	async clear(): Promise<void> {
 		this.entries.clear();
 		this.pending.clear();
+		this.appendedSinceSave = 0;
 		await this.storage.clear();
 	}
 
 	stats(): ThinkingReplayStats {
+		const unique = this.snapshot();
 		return {
-			entryCount: this.entries.size,
-			totalBytes: this.snapshot().reduce((sum, entry) => sum + entry.byteLength, 0),
+			entryCount: unique.length,
+			totalBytes: unique.reduce((sum, entry) => sum + entry.byteLength, 0),
 			pendingCount: this.pending.size,
 		};
+	}
+
+	/** Append the committed entry and enforce caps; compact when due. */
+	private async persistCommitted(entry: ThinkingReplayEntry): Promise<void> {
+		await this.storage.append([entry]);
+		this.appendedSinceSave++;
+		const before = this.uniqueEntryCount();
+		this.pruneByCount();
+		this.pruneByBytes();
+		if (this.uniqueEntryCount() !== before || this.appendedSinceSave >= COMPACTION_APPEND_THRESHOLD) {
+			await this.saveSnapshot();
+		}
+	}
+
+	private async saveSnapshot(): Promise<void> {
+		await this.storage.save(this.snapshot());
+		this.appendedSinceSave = 0;
 	}
 
 	private isFresh(entry: ThinkingReplayEntry, now: number): boolean {
 		return entry.capturedAt + this.ttlMs >= now;
 	}
 
+	private uniqueEntryCount(): number {
+		return new Set(this.entries.values()).size;
+	}
+
 	private pruneByCount(): void {
-		while (this.entries.size > this.maxEntries) {
-			const oldest = this.oldestEntryKey();
-			if (!oldest) {
+		while (this.uniqueEntryCount() > this.maxEntries) {
+			if (!this.evictOldestEntry()) {
 				return;
 			}
-			this.entries.delete(oldest);
 		}
 	}
 
 	private pruneByBytes(): void {
 		while (this.stats().totalBytes > this.maxTotalBytes) {
-			const oldest = this.oldestEntryKey();
-			if (!oldest) {
+			if (!this.evictOldestEntry()) {
 				return;
 			}
-			this.entries.delete(oldest);
 		}
 	}
 
-	private oldestEntryKey(): string | undefined {
-		let oldestKey: string | undefined;
-		let oldestCapturedAt = Number.POSITIVE_INFINITY;
-		for (const [key, entry] of this.entries) {
-			if (entry.capturedAt < oldestCapturedAt) {
-				oldestKey = key;
-				oldestCapturedAt = entry.capturedAt;
+	/** Remove the oldest unique entry along with every key that references it. */
+	private evictOldestEntry(): boolean {
+		let oldest: ThinkingReplayEntry | undefined;
+		for (const entry of this.entries.values()) {
+			if (!oldest || entry.capturedAt < oldest.capturedAt) {
+				oldest = entry;
 			}
 		}
-		return oldestKey;
+		if (!oldest) {
+			return false;
+		}
+		for (const [key, entry] of this.entries) {
+			if (entry === oldest) {
+				this.entries.delete(key);
+			}
+		}
+		return true;
 	}
 
 	private snapshot(): ThinkingReplayEntry[] {
-		return [...this.entries.values()].sort((a, b) => a.capturedAt - b.capturedAt);
+		return [...new Set(this.entries.values())].sort((a, b) => a.capturedAt - b.capturedAt);
 	}
 }
 

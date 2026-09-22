@@ -8,7 +8,7 @@ import { registerInfiniAIUsageDashboard } from "./views/usageDashboard";
 import { registerInfiniAILanguageStatus } from "./views/languageStatusItem";
 import { getThinkingReplayStoreMode } from "./thinkingMode";
 import {
-	LocalPlaintextThinkingReplayStorage,
+	LocalJsonlThinkingReplayStorage,
 	MemoryThinkingReplayStorage,
 	thinkingReplayStore,
 } from "./thinkingReplayStore";
@@ -37,18 +37,22 @@ async function configureThinkingReplayStore(
 ): Promise<void> {
 	const mode = getThinkingReplayStoreMode();
 	const storageRoot = context.storageUri ?? context.globalStorageUri;
-	const storageFile = vscode.Uri.joinPath(storageRoot, "thinking-replay-v1.json");
+	const storageFile = vscode.Uri.joinPath(storageRoot, "thinking-replay-v2.jsonl");
+	const legacyStorageFile = vscode.Uri.joinPath(storageRoot, "thinking-replay-v1.json");
+	const storage = new LocalJsonlThinkingReplayStorage(storageFile.fsPath, {
+		legacyJsonFile: legacyStorageFile.fsPath,
+	});
 	if (mode === "memory") {
-		await new LocalPlaintextThinkingReplayStorage(storageFile.fsPath).clear();
+		await storage.clear();
 		await thinkingReplayStore.initialize(new MemoryThinkingReplayStorage());
 		logInfo(output, "Thinking replay store initialized mode=memory");
 		return;
 	}
 
-	await thinkingReplayStore.initialize(new LocalPlaintextThinkingReplayStorage(storageFile.fsPath));
+	await thinkingReplayStore.initialize(storage);
 	logInfo(
 		output,
-		`Thinking replay store initialized mode=localPlaintext entries=${thinkingReplayStore.stats().entryCount}`
+		`Thinking replay store initialized mode=localJsonl entries=${thinkingReplayStore.stats().entryCount}`
 	);
 }
 
