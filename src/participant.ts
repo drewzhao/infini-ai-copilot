@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
 
 import { InfiniAIChatModelProvider } from "./provider";
+import { getThinkingReplayStoreMode } from "./thinkingMode";
+import { thinkingReplayStore } from "./thinkingReplayStore";
 import { InfiniAILogger, logError, sanitizeForLog } from "./utils";
 
 function boolText(value: boolean): string {
@@ -29,6 +31,14 @@ export function registerInfiniAIChatParticipant(
 		try {
 			if (request.command === "doctor") {
 				const diagnostic = await provider.getDiagnostics(token);
+				const replayMode = getThinkingReplayStoreMode();
+				const replayStats = thinkingReplayStore.stats();
+				const replayModeNote =
+					replayMode === "localPlaintext"
+						? vscode.l10n.t(
+								"reasoning text is persisted unencrypted in extension storage so replay survives reloads"
+							)
+						: vscode.l10n.t("nothing is written to disk; replay does not survive a reload");
 				stream.markdown(
 					[
 						`## ${vscode.l10n.t("InfiniAI Doctor")}`,
@@ -65,6 +75,16 @@ export function registerInfiniAIChatParticipant(
 										: ""
 								}`
 						),
+						"",
+						`### ${vscode.l10n.t("Thinking replay cache")}`,
+						"",
+						`- ${vscode.l10n.t("Mode")}: \`${replayMode}\` — ${replayModeNote}`,
+						`- ${vscode.l10n.t("Entries")}: ${replayStats.entryCount} (${Math.round(replayStats.totalBytes / 1024)} KB)`,
+						`- ${vscode.l10n.t(
+							"Switch modes with the {0} setting; clear the cache with the {1} command.",
+							"`infiniai.thinkingReplayStore`",
+							"`InfiniAI: Clear Thinking Replay Cache`"
+						)}`,
 					].join("\n")
 				);
 				return;

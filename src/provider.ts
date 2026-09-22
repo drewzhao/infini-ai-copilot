@@ -890,6 +890,9 @@ export class InfiniAIChatModelProvider implements LanguageModelChatProvider, vsc
 			modelTypeLabel ? `Type: ${modelTypeLabel}` : undefined,
 			model.context_length ? `Context: ${model.context_length.toLocaleString("en-US")} tokens` : undefined,
 			providerMaxOutput ? `Max output: ${providerMaxOutput.toLocaleString("en-US")} tokens` : undefined,
+			vscode.l10n.t(
+				'Thinking replay cache: stored as a local plaintext file by default; set infiniai.thinkingReplayStore to "memory" to keep it off disk.'
+			),
 		].filter((line): line is string => line !== undefined);
 		const defaultDetail = ["InfiniAI", modelTypeLabel, route.transport].filter(
 			(part): part is string => part !== undefined

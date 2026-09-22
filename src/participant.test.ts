@@ -21,6 +21,11 @@ function loadParticipant() {
 			t: (message: string, ...args: unknown[]) =>
 				args.length === 0 ? message : message.replace(/\{(\d+)\}/g, (_, i) => String(args[Number(i)])),
 		},
+		workspace: {
+			getConfiguration: () => ({
+				get: (_key: string, defaultValue?: unknown) => defaultValue,
+			}),
+		},
 		chat: {
 			createChatParticipant: (id: string, handler: any) => {
 				capturedHandler = handler;
@@ -30,16 +35,28 @@ function loadParticipant() {
 	};
 	delete require.cache[require.resolve("./participant")];
 	delete require.cache[require.resolve("./utils")];
-	Module._load = (request: string, parent: unknown, isMain: boolean) => {
+	delete require.cache[require.resolve("./thinkingMode")];
+	const hookedLoad = (request: string, parent: unknown, isMain: boolean) => {
 		if (request === "vscode") {
 			return vscodeMock;
 		}
 		return originalLoad(request, parent, isMain);
 	};
+	Module._load = hookedLoad;
 	try {
 		return {
 			module: require("./participant") as typeof import("./participant"),
 			getHandler: () => capturedHandler,
+			// Runs fn with the vscode mock hooked so lazy `require("vscode")`
+			// calls inside handlers (e.g. thinkingMode) resolve to the mock.
+			withMock: async <T>(fn: () => Promise<T> | T): Promise<T> => {
+				Module._load = hookedLoad;
+				try {
+					return await fn();
+				} finally {
+					Module._load = originalLoad;
+				}
+			},
 		};
 	} finally {
 		Module._load = originalLoad;
@@ -99,7 +116,7 @@ describe("chat participant", () => {
 		) as any;
 
 		const out = stream();
-		await loaded.getHandler()({ command: "doctor", prompt: "" }, {}, out.stream, token());
+		await loaded.withMock(() => loaded.getHandler()({ command: "doctor", prompt: "" }, {}, out.stream, token()));
 
 		assert.equal(participant.id, "infiniai");
 		assert.equal(participant.iconPath.id, "sparkle");
